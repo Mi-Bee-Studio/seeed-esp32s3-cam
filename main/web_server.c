@@ -42,6 +42,7 @@ static uint16_t s_port = 0;
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
+/** @brief 验证请求中的密码，先检查X-Password头部，再检查password查询参数 */
 static bool check_password(httpd_req_t *req)
 {
     /* Try X-Password header first */
@@ -64,6 +65,7 @@ static bool check_password(httpd_req_t *req)
     return false;
 }
 
+/** @brief 设置跨域资源共享(CORS)响应头，允许所有来源访问 */
 static void set_cors_headers(httpd_req_t *req)
 {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -71,6 +73,7 @@ static void set_cors_headers(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type, X-Password");
 }
 
+/** @brief 发送JSON成功响应，格式为 {"ok":true,"data":...} */
 static esp_err_t json_ok(httpd_req_t *req, cJSON *data)
 {
     cJSON *root = cJSON_CreateObject();
@@ -85,6 +88,7 @@ static esp_err_t json_ok(httpd_req_t *req, cJSON *data)
     return ESP_OK;
 }
 
+/** @brief 发送JSON错误响应，格式为 {"ok":false,"error":...} */
 static esp_err_t json_error(httpd_req_t *req, const char *msg, int status)
 {
     cJSON *root = cJSON_CreateObject();
@@ -100,6 +104,7 @@ static esp_err_t json_error(httpd_req_t *req, const char *msg, int status)
 }
 
 /* Read the full request body into a heap-allocated buffer (caller frees). */
+/** @brief 读取HTTP请求体到堆分配的缓冲区（调用者负责释放内存） */
 static char *read_body(httpd_req_t *req, size_t max_len)
 {
     size_t len = req->content_len;
@@ -116,6 +121,7 @@ static char *read_body(httpd_req_t *req, size_t max_len)
 /*  GET /api/status                                                    */
 /* ------------------------------------------------------------------ */
 
+/** @brief 处理GET /api/status请求，返回设备完整状态（录像、WiFi、存储、摄像头、运行时间等） */
 static esp_err_t api_status_handler(httpd_req_t *req)
 {
     cJSON *data = cJSON_CreateObject();
@@ -170,6 +176,7 @@ static esp_err_t api_status_handler(httpd_req_t *req)
 /*  GET /api/config                                                    */
 /* ------------------------------------------------------------------ */
 
+/** @brief 处理GET /api/config请求，返回当前配置（密码字段已脱敏显示） */
 static esp_err_t api_config_get_handler(httpd_req_t *req)
 {
     cam_config_t *cfg = config_get();
@@ -205,6 +212,7 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
 /*  POST /api/config                                                   */
 /* ------------------------------------------------------------------ */
 
+/** @brief 处理POST /api/config请求，更新设备配置（需密码认证，支持部分更新） */
 static esp_err_t api_config_post_handler(httpd_req_t *req)
 {
     if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
@@ -269,6 +277,7 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
 /*  GET /api/files                                                     */
 /* ------------------------------------------------------------------ */
 
+/** @brief 处理GET /api/files请求，返回SD卡录像文件列表（含文件名、大小、日期） */
 static esp_err_t api_files_get_handler(httpd_req_t *req)
 {
     file_info_t files[64];
@@ -293,6 +302,7 @@ static esp_err_t api_files_get_handler(httpd_req_t *req)
 /*  DELETE /api/files?name=xxx                                         */
 /* ------------------------------------------------------------------ */
 
+/** @brief 处理DELETE /api/files请求，删除指定录像文件（含路径遍历攻击防护） */
 static esp_err_t api_files_delete_handler(httpd_req_t *req)
 {
     if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
@@ -322,6 +332,7 @@ static esp_err_t api_files_delete_handler(httpd_req_t *req)
 /*  GET /api/download?name=xxx                                         */
 /* ------------------------------------------------------------------ */
 
+/** @brief 处理GET /api/download请求，以AVI格式流式下载指定录像文件（含路径遍历防护） */
 static esp_err_t api_download_handler(httpd_req_t *req)
 {
     char query[256] = {0};
@@ -376,6 +387,7 @@ static esp_err_t api_download_handler(httpd_req_t *req)
 /*  GET /api/scan                                                      */
 /* ------------------------------------------------------------------ */
 
+/** @brief 处理GET /api/scan请求，扫描周围WiFi热点并返回SSID、信号强度和加密方式列表 */
 static esp_err_t api_scan_handler(httpd_req_t *req)
 {
     wifi_ap_info_t aps[20];
@@ -403,6 +415,7 @@ static esp_err_t api_scan_handler(httpd_req_t *req)
 /*  POST /api/time                                                     */
 /* ------------------------------------------------------------------ */
 
+/** @brief 处理POST /api/time请求，手动设置系统时间（需密码认证） */
 static esp_err_t api_time_handler(httpd_req_t *req)
 {
     if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
@@ -442,6 +455,7 @@ static esp_err_t api_time_handler(httpd_req_t *req)
 /*  POST /api/record?action=start|stop                                 */
 /* ------------------------------------------------------------------ */
 
+/** @brief 处理POST /api/record请求，通过action参数控制录像开始或停止（需密码认证） */
 static esp_err_t api_record_handler(httpd_req_t *req)
 {
     if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
@@ -480,6 +494,7 @@ static esp_err_t api_record_handler(httpd_req_t *req)
 /*  POST /api/reset                                                    */
 /* ------------------------------------------------------------------ */
 
+/** @brief 处理POST /api/reset请求，执行恢复出厂设置（需密码认证，会清空所有配置） */
 static esp_err_t api_reset_handler(httpd_req_t *req)
 {
     if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
@@ -496,6 +511,7 @@ static esp_err_t api_reset_handler(httpd_req_t *req)
 /*  OPTIONS * — CORS preflight                                         */
 /* ------------------------------------------------------------------ */
 
+/** @brief 处理OPTIONS预检请求，返回CORS允许头信息 */
 static esp_err_t options_handler(httpd_req_t *req)
 {
     set_cors_headers(req);
@@ -507,6 +523,7 @@ static esp_err_t options_handler(httpd_req_t *req)
 /*  Static file serving from SPIFFS                                    */
 /* ------------------------------------------------------------------ */
 
+/** @brief 从SPIFFS提供静态文件服务，支持HTML/CSS/JS/图片，根路径映射到index.html */
 static esp_err_t static_file_handler(httpd_req_t *req)
 {
     const char *uri = req->uri;
@@ -574,6 +591,7 @@ static const uri_entry_t s_uris[] = {
 /*  Public API                                                         */
 /* ------------------------------------------------------------------ */
 
+/** @brief 启动HTTP Web服务器，注册所有URI处理程序，配置通配符路由匹配 */
 esp_err_t web_server_start(uint16_t port)
 {
     if (s_server) {
@@ -609,6 +627,7 @@ esp_err_t web_server_start(uint16_t port)
     return ESP_OK;
 }
 
+/** @brief 停止HTTP Web服务器并释放所有资源 */
 void web_server_stop(void)
 {
     if (s_server) {
@@ -619,6 +638,7 @@ void web_server_stop(void)
     }
 }
 
+/** @brief 获取当前Web服务器的句柄，供其他模块使用 */
 httpd_handle_t web_server_get_handle(void)
 {
     return s_server;

@@ -45,6 +45,12 @@ static char          s_last_upload_str[32] = "";
 static int           s_queue_count  = 0;
 static uint32_t      s_stack_hwm    = 0;
 
+/**
+ * @brief 上传任务主循环（FreeRTOS任务函数）
+ * 从队列中取出文件路径，依次尝试FTP和WebDAV上传
+ * 支持指数退避重试和连续失败自动暂停
+ * @param arg 未使用
+ */
 static void upload_task(void *arg)
 {
     (void)arg;
@@ -158,6 +164,11 @@ static void upload_task(void *arg)
     }
 }
 
+/**
+ * @brief 初始化NAS上传模块
+ * 创建上传队列（容量16）和后台上传任务（栈6144，核心1，优先级3）
+ * @return ESP_OK 成功，ESP_FAIL 创建队列或任务失败
+ */
 esp_err_t nas_uploader_init(void)
 {
     if (s_initialized) {
@@ -185,6 +196,11 @@ esp_err_t nas_uploader_init(void)
     return ESP_OK;
 }
 
+/**
+ * @brief 将文件路径加入上传队列
+ * @param filepath 待上传文件的完整路径
+ * @return ESP_OK 成功，ESP_ERR_INVALID_STATE 未初始化，ESP_ERR_NO_MEM 队列已满
+ */
 esp_err_t nas_uploader_enqueue(const char *filepath)
 {
     if (!s_initialized || !s_queue) {
@@ -203,6 +219,13 @@ esp_err_t nas_uploader_enqueue(const char *filepath)
     return ESP_OK;
 }
 
+/**
+ * @brief 获取上传模块当前状态
+ * @param last_upload 输出上次成功上传时间字符串
+ * @param len last_upload缓冲区长度
+ * @param queue_count 输出当前队列中的文件数量
+ * @param paused 输出是否因连续失败而暂停
+ */
 void nas_uploader_get_status(char *last_upload, size_t len,
                              int *queue_count, bool *paused)
 {
@@ -218,6 +241,10 @@ void nas_uploader_get_status(char *last_upload, size_t len,
     }
 }
 
+/**
+ * @brief 获取上传任务的栈高水位标记
+ * @return 剩余栈空间（字节）
+ */
 uint32_t nas_uploader_get_stack_hwm(void)
 {
     return s_stack_hwm;

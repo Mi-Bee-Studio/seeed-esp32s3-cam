@@ -21,6 +21,9 @@
 #include "esp_http_server.h"
 #include <stdint.h>
 
+/** @brief 启动HTTP Web服务器，注册所有URI处理程序 */
 esp_err_t web_server_start(uint16_t port);
+/** @brief 停止HTTP Web服务器并释放资源 */
 void web_server_stop(void);
+/** @brief 获取当前Web服务器的句柄 */
 httpd_handle_t web_server_get_handle(void);

@@ -37,6 +37,15 @@ static SemaphoreHandle_t s_mutex = NULL;
 /* ------------------------------------------------------------------ */
 /*  Stream handler (GET /stream)                                      */
 /* ------------------------------------------------------------------ */
+/** @brief MJPEG 流处理器（GET /stream）
+ *
+ * 处理 HTTP GET /stream 请求，实现 multipart/x-mixed-replace 协议。
+ * 持续采集摄像头帧并以 MJPEG 边界分隔格式推送到客户端，
+ * 直到客户端断开连接或采集失败。支持最多 MAX_STREAM_CLIENTS 个并发客户端。
+ * 帧率由配置中的 fps 字段控制。
+ * @param req HTTP 请求对象
+ * @return ESP_OK 流结束，ESP_FAIL 连接错误
+ */
 static esp_err_t mjpeg_stream_handler(httpd_req_t *req)
 {
     /* --- Client limit check --- */
@@ -130,6 +139,11 @@ static esp_err_t mjpeg_stream_handler(httpd_req_t *req)
 /*  Public API                                                        */
 /* ------------------------------------------------------------------ */
 
+/** @brief 初始化 MJPEG 流服务
+ *
+ * 创建互斥锁并重置客户端计数，必须在注册到 HTTP 服务器之前调用。
+ * @return ESP_OK 成功，ESP_ERR_NO_MEM 内存不足
+ */
 esp_err_t mjpeg_streamer_init(void)
 {
     if (s_mutex == NULL) {
@@ -143,6 +157,12 @@ esp_err_t mjpeg_streamer_init(void)
     return ESP_OK;
 }
 
+/** @brief 在指定 HTTP 服务器上注册 /stream URI 处理器
+ *
+ * 将 /stream 端点绑定到给定的 HTTP 服务器，用于 MJPEG 实时视频流推送。
+ * @param server HTTP 服务器句柄
+ * @return ESP_OK 成功，ESP_ERR_INVALID_ARG 参数无效
+ */
 esp_err_t mjpeg_streamer_register(httpd_handle_t server)
 {
     if (server == NULL) {
@@ -158,6 +178,9 @@ esp_err_t mjpeg_streamer_register(httpd_handle_t server)
     return httpd_register_uri_handler(server, &stream_uri);
 }
 
+/** @brief 获取当前连接的流客户端数量
+ * @return 已连接的客户端数量
+ */
 int mjpeg_streamer_client_count(void)
 {
     return s_client_count;

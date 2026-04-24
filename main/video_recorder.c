@@ -77,6 +77,9 @@ static SemaphoreHandle_t  s_mutex        = NULL;
 static uint32_t           s_stack_hwm    = 0;   /* Stack high-water mark */
 
 /* Resolution → pixel dimensions */
+/**
+ * @brief 根据分辨率编号获取对应的像素宽度和高度
+ */
 static void resolution_dims(uint8_t res, uint16_t *w, uint16_t *h)
 {
     switch (res) {
@@ -91,12 +94,18 @@ static void resolution_dims(uint8_t res, uint16_t *w, uint16_t *h)
 /*  Little-endian binary write helpers                                */
 /* ------------------------------------------------------------------ */
 
+/**
+ * @brief 向字节缓冲区写入16位小端无符号整数
+ */
 static inline void put_u16(uint8_t *p, uint16_t v)
 {
     p[0] = (uint8_t)(v);
     p[1] = (uint8_t)(v >> 8);
 }
 
+/**
+ * @brief 向字节缓冲区写入32位小端无符号整数
+ */
 static inline void put_u32(uint8_t *p, uint32_t v)
 {
     p[0] = (uint8_t)(v);
@@ -120,6 +129,9 @@ typedef struct {
     int           capacity;
 } idx1_t;
 
+/**
+ * @brief 初始化AVI帧索引结构体
+ */
 static void idx1_init(idx1_t *idx)
 {
     idx->entries  = NULL;
@@ -127,6 +139,9 @@ static void idx1_init(idx1_t *idx)
     idx->capacity = 0;
 }
 
+/**
+ * @brief 向AVI帧索引追加一条记录，容量不足时自动扩展
+ */
 static esp_err_t idx1_append(idx1_t *idx, uint32_t offset, uint32_t size)
 {
     if (idx->count >= idx->capacity) {
@@ -145,6 +160,9 @@ static esp_err_t idx1_append(idx1_t *idx, uint32_t offset, uint32_t size)
     return ESP_OK;
 }
 
+/**
+ * @brief 释放AVI帧索引占用的内存
+ */
 static void idx1_free(idx1_t *idx)
 {
     free(idx->entries);
@@ -157,6 +175,9 @@ static void idx1_free(idx1_t *idx)
 /*  AVI header writing                                                */
 /* ------------------------------------------------------------------ */
 
+/**
+ * @brief 写入AVI文件RIFF头（12字节），文件大小字段占位待关闭时回填
+ */
 static void write_riff_hdr(uint8_t *buf)
 {
     memcpy(buf,      "RIFF", 4);
@@ -164,6 +185,9 @@ static void write_riff_hdr(uint8_t *buf)
     memcpy(buf + 8,  "AVI ", 4);
 }
 
+/**
+ * @brief 写入AVI文件头列表（hdrl），包含主头部avih和视频流信息strl
+ */
 static void write_hdrl(uint8_t *buf, uint16_t w, uint16_t h, uint8_t fps)
 {
     int pos = 0;
@@ -236,6 +260,9 @@ static void write_hdrl(uint8_t *buf, uint16_t w, uint16_t h, uint8_t fps)
 /*  Directory / filename helpers                                      */
 /* ------------------------------------------------------------------ */
 
+/**
+ * @brief 递归创建目录路径中所有不存在的子目录
+ */
 static int mkdirs(const char *path)
 {
     char tmp[128];
@@ -253,6 +280,9 @@ static int mkdirs(const char *path)
     return 0;
 }
 
+/**
+ * @brief 根据当前时间生成分段录像文件路径（/sdcard/recordings/YYYY-MM/DD/REC_YYYYMMDD_HHMMSS.avi）
+ */
 static void build_segment_path(char *out, size_t out_len)
 {
     time_t now = time(NULL);
@@ -286,11 +316,17 @@ typedef struct {
 
 static segment_t s_seg = {0};
 
+/**
+ * @brief 获取当前系统时间戳（毫秒），用于计算分段已录制时长
+ */
 static int64_t s_seg_elapsed_ms(void)
 {
     return esp_timer_get_time() / 1000;
 }
 
+/**
+ * @brief 打开新的录像分段文件，写入RIFF头、hdrl和movi列表头
+ */
 static esp_err_t open_segment(uint16_t w, uint16_t h, uint8_t fps)
 {
     build_segment_path(s_current_file, sizeof(s_current_file));
@@ -328,6 +364,9 @@ static esp_err_t open_segment(uint16_t w, uint16_t h, uint8_t fps)
     return ESP_OK;
 }
 
+/**
+ * @brief 向当前分段写入一帧MJPEG数据，包含帧头和2字节对齐填充
+ */
 static esp_err_t write_avi_frame(const uint8_t *jpeg, size_t jpeg_len)
 {
     uint8_t hdr[AVI_FRAME_HDR_SIZE];
@@ -356,6 +395,9 @@ static esp_err_t write_avi_frame(const uint8_t *jpeg, size_t jpeg_len)
     return ESP_OK;
 }
 
+/**
+ * @brief 关闭当前分段文件，写入idx1索引并回填RIFF/movi大小和帧数
+ */
 static void close_segment(void)
 {
     if (!s_seg.fp) return;
@@ -423,6 +465,9 @@ static void close_segment(void)
 /*  Recording task                                                    */
 /* ------------------------------------------------------------------ */
 
+/**
+ * @brief 录像任务主循环，持续采集摄像头帧并写入AVI分段文件
+ */
 static void recording_task(void *arg)
 {
     cam_config_t *cfg = config_get();
@@ -537,6 +582,9 @@ static void recording_task(void *arg)
 /*  Public API                                                        */
 /* ------------------------------------------------------------------ */
 
+/**
+ * @brief 初始化录像模块，创建互斥锁，设置初始状态为IDLE
+ */
 esp_err_t recorder_init(void)
 {
     s_mutex = xSemaphoreCreateMutex();
@@ -549,6 +597,9 @@ esp_err_t recorder_init(void)
     return ESP_OK;
 }
 
+/**
+ * @brief 开始录像，若已暂停则恢复，否则在核心0创建录像任务
+ */
 esp_err_t recorder_start(void)
 {
     if (!s_mutex) return ESP_ERR_INVALID_STATE;
@@ -589,6 +640,9 @@ esp_err_t recorder_start(void)
     return ESP_OK;
 }
 
+/**
+ * @brief 停止录像，将状态设为IDLE并等待任务自行退出
+ */
 esp_err_t recorder_stop(void)
 {
     if (!s_mutex) return ESP_ERR_INVALID_STATE;
@@ -619,6 +673,9 @@ esp_err_t recorder_stop(void)
     return ESP_OK;
 }
 
+/**
+ * @brief 暂停录像，仅当当前状态为RECORDING时有效
+ */
 esp_err_t recorder_pause(void)
 {
     if (!s_mutex) return ESP_ERR_INVALID_STATE;
@@ -636,32 +693,50 @@ esp_err_t recorder_pause(void)
     return ESP_OK;
 }
 
+/**
+ * @brief 获取当前录像状态
+ */
 recorder_state_t recorder_get_state(void)
 {
     return s_state;
 }
 
+/**
+ * @brief 设置分段录像完成时的回调函数
+ */
 void recorder_set_segment_cb(recorder_segment_cb_t cb)
 {
     s_segment_cb = cb;
 }
 
+/**
+ * @brief 获取当前正在写入的录像文件路径
+ */
 const char *recorder_get_current_file(void)
 {
     return s_current_file;
 }
 
+/**
+ * @brief 喂任务看门狗，防止录像任务被看门狗复位
+ */
 void recorder_watchdog_feed(void)
 {
     esp_task_wdt_reset();
 }
 
+/**
+ * @brief 获取录像任务的栈高水位标记（字节）
+ */
 uint32_t recorder_get_stack_hwm(void)
 {
     return s_stack_hwm;
 }
 
 /* Recursive helper: scan dir for .avi files with RIFF size=0 and delete them */
+/**
+ * @brief 递归扫描目录，删除RIFF大小为0的不完整AVI文件
+ */
 static int cleanup_dir_recursive(const char *dirpath, int depth)
 {
     if (depth > 3) return 0;  /* safety: don't recurse too deep */
@@ -711,6 +786,9 @@ static int cleanup_dir_recursive(const char *dirpath, int depth)
     return deleted;
 }
 
+/**
+ * @brief 清理启动时发现的未完整写入的录像文件
+ */
 void recorder_cleanup_incomplete(void)
 {
     int deleted = cleanup_dir_recursive("/sdcard/recordings", 0);

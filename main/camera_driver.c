@@ -46,6 +46,12 @@ static camera_res_t    s_current_res = CAMERA_RES_SVGA;
 static bool            s_initialized = false;
 static camera_fb_t    *s_pending_fb  = NULL;
 
+/** @brief 将分辨率枚举转换为 esp_camera 驱动的帧大小枚举
+ *
+ * 内部辅助函数，将 camera_res_t 映射为 framesize_t。
+ * @param res 分辨率枚举值
+ * @return 对应的 framesize_t 值，未知时默认返回 FRAMESIZE_SVGA
+ */
 static framesize_t res_to_framesize(camera_res_t res)
 {
     switch (res) {
@@ -56,6 +62,16 @@ static framesize_t res_to_framesize(camera_res_t res)
     }
 }
 
+/** @brief 初始化摄像头
+ *
+ * 配置 XIAO ESP32-S3 Sense 的 DVP 引脚映射，设定 JPEG 像素格式、
+ * 双缓冲（PSRAM）、最新帧抓取模式。自动检测 OV2640/OV3660 传感器，
+ * 并执行一次测试采集验证管线是否正常。
+ * @param res 分辨率（VGA/SVGA/XGA）
+ * @param fps 帧率（未直接使用，保留参数）
+ * @param quality JPEG 质量（0-63，越小质量越好）
+ * @return ESP_OK 成功，其他值表示初始化失败
+ */
 esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
 {
     if (s_initialized) {
@@ -136,11 +152,21 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
     return ESP_OK;
 }
 
+/** @brief 获取当前检测到的摄像头传感器类型
+ * @return 传感器类型枚举值
+ */
 camera_sensor_t camera_get_sensor(void)
 {
     return s_sensor;
 }
 
+/** @brief 捕获一帧 JPEG 图像
+ *
+ * 从摄像头驱动获取一帧 JPEG 数据。帧缓冲区位于 PSRAM，
+ * 调用者必须在处理完毕后调用 camera_return_fb() 释放。
+ * @param frame 输出帧描述符（buf 和 len 被填充）
+ * @return ESP_OK 成功，ESP_ERR_INVALID_STATE 未初始化，ESP_FAIL 捕获失败
+ */
 esp_err_t camera_capture(camera_frame_t *frame)
 {
     if (!s_initialized) {
@@ -161,6 +187,11 @@ esp_err_t camera_capture(camera_frame_t *frame)
     return ESP_OK;
 }
 
+/** @brief 归还帧缓冲区给摄像头驱动
+ *
+ * 在 camera_capture() 使用完帧数据后必须调用，以释放 PSRAM 帧缓冲区。
+ * @param frame 之前捕获的帧描述符（指针内容未使用）
+ */
 void camera_return_fb(camera_frame_t *frame)
 {
     (void)frame;
@@ -170,6 +201,12 @@ void camera_return_fb(camera_frame_t *frame)
     }
 }
 
+/** @brief 动态切换摄像头分辨率
+ *
+ * 运行时修改传感器输出分辨率，无需重新初始化摄像头。
+ * @param res 目标分辨率
+ * @return ESP_OK 成功，ESP_ERR_INVALID_STATE 未初始化，ESP_FAIL 设置失败
+ */
 esp_err_t camera_set_resolution(camera_res_t res)
 {
     if (!s_initialized) {
@@ -191,11 +228,18 @@ esp_err_t camera_set_resolution(camera_res_t res)
     return ESP_OK;
 }
 
+/** @brief 获取当前分辨率设置
+ * @return 当前分辨率枚举值
+ */
 camera_res_t camera_get_resolution(void)
 {
     return s_current_res;
 }
 
+/** @brief 将分辨率枚举值转换为可读字符串
+ * @param res 分辨率枚举值
+ * @return 分辨率名称字符串（"VGA"、"SVGA"、"XGA" 或 "UNKNOWN"）
+ */
 const char *camera_res_to_str(camera_res_t res)
 {
     switch (res) {

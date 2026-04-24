@@ -36,16 +36,26 @@ static led_status_t s_status = LED_STARTING;
 static TimerHandle_t s_led_timer = NULL;
 static uint8_t s_blink_step = 0;   // state machine counter for double blink
 
+/** 点亮 LED（设置 GPIO 为低电平，因为低电平有效） */
 static void led_on(void)
 {
     gpio_set_level(LED_GPIO, LED_ACTIVE_LOW ? 0 : 1);
 }
 
+/** 熄灭 LED（设置 GPIO 为高电平，因为低电平有效） */
 static void led_off(void)
 {
     gpio_set_level(LED_GPIO, LED_ACTIVE_LOW ? 1 : 0);
 }
 
+/**
+ * @brief LED 定时器回调函数，由 FreeRTOS 软件定时器周期调用
+ * 根据当前 LED 状态执行不同的闪烁逻辑：
+ *   - AP_MODE: 简单翻转 GPIO 电平（慢闪）
+ *   - WIFI_CONNECTING: 简单翻转 GPIO 电平（快闪）
+ *   - ERROR: 双闪状态机，亮200ms灭200ms亮200ms灭1000ms
+ * @param timer FreeRTOS 定时器句柄（未使用）
+ */
 static void led_timer_cb(TimerHandle_t timer)
 {
     switch (s_status) {
@@ -84,6 +94,12 @@ static void led_timer_cb(TimerHandle_t timer)
     }
 }
 
+/**
+ * @brief 初始化状态 LED
+ * 配置 GPIO21 为输出模式（低电平有效），创建 FreeRTOS 定时器
+ * 启动时默认进入 LED_STARTING 状态（常亮）
+ * @return ESP_OK 成功，ESP_FAIL GPIO 配置失败，ESP_ERR_NO_MEM 定时器创建失败
+ */
 esp_err_t led_init(void)
 {
     // Configure GPIO
@@ -115,6 +131,11 @@ esp_err_t led_init(void)
     return ESP_OK;
 }
 
+/**
+ * @brief 设置 LED 状态显示模式
+ * 根据不同状态控制 LED 亮灭和闪烁模式，先停止定时器再按需重启
+ * @param status 目标 LED 状态
+ */
 void led_set_status(led_status_t status)
 {
     s_status = status;

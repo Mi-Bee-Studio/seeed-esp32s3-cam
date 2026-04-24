@@ -25,6 +25,12 @@
 static const char *TAG = "time_sync";
 static bool s_synced = false;
 
+/**
+ * @brief 启动 SNTP 时间同步
+ * 配置并启动 SNTP 客户端，使用 cn.pool.ntp.org 和 ntp.aliyun.com 作为服务器
+ * 阻塞等待最多 5 秒（50×100ms）获取首次同步，超时后异步继续同步
+ * @return ESP_OK 成功
+ */
 esp_err_t time_sync_init(void)
 {
     if (s_synced) {
@@ -65,6 +71,12 @@ esp_err_t time_sync_init(void)
     return ESP_OK;
 }
 
+/**
+ * @brief 检查系统时间是否已同步
+ * 先检查同步标志位，再检查系统时间年份是否大于 2020
+ * 若 SNTP 已异步设置时间也会返回 true
+ * @return true 已同步，false 未同步
+ */
 bool time_is_synced(void)
 {
     /* Check if time was recently synced by SNTP callback or manual set */
@@ -83,6 +95,12 @@ bool time_is_synced(void)
     return false;
 }
 
+/**
+ * @brief 获取当前时间的格式化字符串
+ * 将当前系统时间格式化为 "YYYY-MM-DD HH:MM:SS" 格式写入缓冲区
+ * @param buf 输出缓冲区
+ * @param len 缓冲区长度
+ */
 void time_get_str(char *buf, size_t len)
 {
     time_t now = 0;
@@ -92,6 +110,18 @@ void time_get_str(char *buf, size_t len)
     strftime(buf, len, "%Y-%m-%d %H:%M:%S", &timeinfo);
 }
 
+/**
+ * @brief 手动设置系统时间
+ * 通过传入的年月日时分秒构造 struct tm 并设置为系统时间
+ * 设置后标记为已同步状态
+ * @param year 年（如 2024）
+ * @param month 月（1-12）
+ * @param day 日（1-31）
+ * @param hour 时（0-23）
+ * @param min 分（0-59）
+ * @param sec 秒（0-59）
+ * @return ESP_OK 成功
+ */
 esp_err_t time_set_manual(int year, int month, int day, int hour, int min, int sec)
 {
     struct tm timeinfo = {

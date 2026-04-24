@@ -30,6 +30,13 @@ static const char *TAG = "webdav";
 /*  Helpers                                                           */
 /* ------------------------------------------------------------------ */
 
+/**
+ * @brief 设置HTTP客户端的Basic认证头
+ * 将 user:pass 进行Base64编码后设置为Authorization头
+ * @param client HTTP客户端句柄
+ * @param user 用户名
+ * @param pass 密码
+ */
 static void set_auth_header(esp_http_client_handle_t client, const char *user, const char *pass)
 {
     char credentials[96];
@@ -50,6 +57,13 @@ static void set_auth_header(esp_http_client_handle_t client, const char *user, c
  * Build the full URL: cfg->url + remote_path into a malloc'd buffer.
  * Caller must free.
  */
+/**
+ * @brief 构建完整的WebDAV URL
+ * 将配置中的服务器URL和远程路径拼接为完整URL
+ * @param cfg WebDAV连接配置
+ * @param remote_path 远程资源路径
+ * @return malloc分配的URL字符串，调用者需释放
+ */
 static char *build_url(const webdav_config_t *cfg, const char *remote_path)
 {
     /* url(128) + remote_path(256) + slack */
@@ -65,6 +79,12 @@ static char *build_url(const webdav_config_t *cfg, const char *remote_path)
 /*  webdav_exists  (HTTP HEAD)                                        */
 /* ------------------------------------------------------------------ */
 
+/**
+ * @brief 通过HTTP HEAD检查远程资源是否存在
+ * @param cfg WebDAV连接配置
+ * @param remote_path 远程资源路径
+ * @return ESP_OK 存在(200)，ESP_ERR_NOT_FOUND 不存在(404)，ESP_FAIL 其他错误
+ */
 esp_err_t webdav_exists(const webdav_config_t *cfg, const char *remote_path)
 {
     char *url = build_url(cfg, remote_path);
@@ -121,6 +141,17 @@ esp_err_t webdav_exists(const webdav_config_t *cfg, const char *remote_path)
  */
 #include "esp_transport_tcp.h"
 
+/**
+ * @brief 发送原始HTTP请求（支持非标准方法如MKCOL）
+ * 通过TCP socket直接发送HTTP请求并解析响应状态行
+ * @param host 目标主机名
+ * @param port 目标端口
+ * @param method HTTP方法（如MKCOL）
+ * @param path 请求路径
+ * @param auth_header 认证头值
+ * @param out_status 输出HTTP状态码
+ * @return ESP_OK 成功，ESP_FAIL TCP连接或解析失败
+ */
 static esp_err_t raw_http_request(const char *host, int port,
                                   const char *method, const char *path,
                                   const char *auth_header,
@@ -196,6 +227,13 @@ static esp_err_t raw_http_request(const char *host, int port,
  * Returns malloc'd host, sets *port.
  * Caller must free host.
  */
+/**
+ * @brief 从配置URL中解析主机名和端口
+ * 支持格式："http://host:port" 或 "http://host"（默认端口80）
+ * @param cfg WebDAV连接配置
+ * @param port 输出解析得到的端口号
+ * @return malloc分配的主机名字符串，调用者需释放
+ */
 static char *parse_host_port(const webdav_config_t *cfg, int *port)
 {
     /* Expect "http://host:port" */
@@ -227,6 +265,13 @@ static char *parse_host_port(const webdav_config_t *cfg, int *port)
 /**
  * Build the Basic auth header value (static buffer).
  */
+/**
+ * @brief 构建Basic认证值字符串
+ * 将 user:pass 进行Base64编码
+ * @param cfg WebDAV连接配置
+ * @param buf 输出缓冲区
+ * @param buf_size 缓冲区大小
+ */
 static void build_auth_value(const webdav_config_t *cfg, char *buf, size_t buf_size)
 {
     char credentials[96];
@@ -238,6 +283,13 @@ static void build_auth_value(const webdav_config_t *cfg, char *buf, size_t buf_s
     buf[encoded_len] = '\0';
 }
 
+/**
+ * @brief 通过MKCOL请求创建WebDAV远程目录
+ * 201=创建成功，405=已存在，200/204=部分服务器已存在响应，均返回ESP_OK
+ * @param cfg WebDAV连接配置
+ * @param remote_dir 远程目录路径
+ * @return ESP_OK 创建成功或已存在，ESP_FAIL 失败
+ */
 esp_err_t webdav_mkdir(const webdav_config_t *cfg, const char *remote_dir)
 {
     int port = 80;
@@ -273,6 +325,13 @@ esp_err_t webdav_mkdir(const webdav_config_t *cfg, const char *remote_dir)
 /*  webdav_mkdir_recursive                                            */
 /* ------------------------------------------------------------------ */
 
+/**
+ * @brief 递归创建远程路径中的所有目录层级
+ * 按路径分隔符逐级创建，如 /A/B/C → 依次创建 /A、/A/B、/A/B/C
+ * @param cfg WebDAV连接配置
+ * @param path 远程目录路径
+ * @return ESP_OK 全部成功，或最后一个失败目录的错误码
+ */
 esp_err_t webdav_mkdir_recursive(const webdav_config_t *cfg, const char *path)
 {
     /* Work on a copy so we can NUL-terminate at each '/' */
@@ -311,6 +370,14 @@ esp_err_t webdav_mkdir_recursive(const webdav_config_t *cfg, const char *path)
 #define MAX_RETRIES        3
 #define INITIAL_DELAY_MS   1000
 
+/**
+ * @brief 通过HTTP PUT上传本地文件到WebDAV远程路径
+ * 使用4KB分块流式传输，支持指数退避重试（最多3次，延迟1s/2s/4s）
+ * @param cfg WebDAV连接配置
+ * @param remote_path 远程文件路径
+ * @param local_path 本地文件路径
+ * @return ESP_OK 成功（HTTP 200/201/204），ESP_FAIL 上传失败
+ */
 esp_err_t webdav_upload(const webdav_config_t *cfg, const char *remote_path, const char *local_path)
 {
     char *url = build_url(cfg, remote_path);

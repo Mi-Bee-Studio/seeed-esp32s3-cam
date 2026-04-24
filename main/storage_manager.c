@@ -50,6 +50,9 @@ static SemaphoreHandle_t s_sd_mutex = NULL;
 static sdmmc_card_t *s_card = NULL;
 /* ---- internal helpers ---- */
 
+/**
+ * @brief 文件信息比较函数，按文件名升序排列（即最旧时间戳优先）
+ */
 static int compare_file_info(const void *a, const void *b)
 {
     // Sort by name ascending (oldest timestamp first)
@@ -58,6 +61,9 @@ static int compare_file_info(const void *a, const void *b)
 
 /* ---- public API ---- */
 
+/**
+ * @brief 初始化SD卡，配置1线SDMMC模式、挂载FAT文件系统、创建录像目录
+ */
 esp_err_t storage_init(void)
 {
     esp_err_t ret;
@@ -119,6 +125,9 @@ esp_err_t storage_init(void)
     return ESP_OK;
 }
 
+/**
+ * @brief 查询SD卡剩余空间占总空间的百分比
+ */
 float storage_get_free_percent(void)
 {
     struct statvfs vfs;
@@ -133,6 +142,9 @@ float storage_get_free_percent(void)
     return (float)free_space / (float)total * 100.0f;
 }
 
+/**
+ * @brief 递归扫描目录，收集所有.avi录像文件的信息
+ */
 static void list_files_recursive(const char *dirpath, file_info_t *files, int max_count, int *count)
 {
     DIR *dir = opendir(dirpath);
@@ -171,6 +183,9 @@ static void list_files_recursive(const char *dirpath, file_info_t *files, int ma
     closedir(dir);
 }
 
+/**
+ * @brief 获取录像文件列表，线程安全，结果按文件名排序
+ */
 int storage_list_files(file_info_t *files, int max_count)
 {
     if (!s_sd_available) return 0;
@@ -189,6 +204,9 @@ int storage_list_files(file_info_t *files, int max_count)
     return count;
 }
 
+/**
+ * @brief 递归查找目录中最旧的录像文件
+ */
 static bool find_oldest_recursive(const char *dirpath, char *oldest_name, size_t name_size,
                                   char *oldest_fullpath, size_t fullpath_size, uint32_t *oldest_size)
 {
@@ -230,6 +248,9 @@ static bool find_oldest_recursive(const char *dirpath, char *oldest_name, size_t
     return found;
 }
 
+/**
+ * @brief 删除最旧的录像文件，线程安全
+ */
 esp_err_t storage_delete_oldest(void)
 {
     if (!s_sd_available) return ESP_ERR_INVALID_STATE;
@@ -262,6 +283,9 @@ esp_err_t storage_delete_oldest(void)
     return result;
 }
 
+/**
+ * @brief 存储空间自动清理，低于20%时循环删除旧文件直到剩余30%以上
+ */
 esp_err_t storage_cleanup(void)
 {
     if (!s_sd_available) return ESP_ERR_INVALID_STATE;
@@ -292,11 +316,17 @@ esp_err_t storage_cleanup(void)
     return ESP_OK;
 }
 
+/**
+ * @brief 查询SD卡是否可用
+ */
 bool storage_is_available(void)
 {
     return s_sd_available;
 }
 
+/**
+ * @brief 检查SD卡是否仍然挂载，通过stat /sdcard目录判断
+ */
 esp_err_t storage_check(void)
 {
     struct stat st;
@@ -307,12 +337,18 @@ esp_err_t storage_check(void)
     return ESP_FAIL;
 }
 
+/**
+ * @brief 标记SD卡为不可用状态
+ */
 void storage_set_unavailable(void)
 {
     s_sd_available = false;
     ESP_LOGW(TAG, "SD card marked unavailable");
 }
 
+/**
+ * @brief 卸载并重新挂载SD卡，用于热插拔恢复
+ */
 esp_err_t storage_remount(void)
 {
     ESP_LOGI(TAG, "Attempting SD card remount...");

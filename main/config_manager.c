@@ -50,6 +50,7 @@ static const cam_config_t s_defaults = {
 
 /* ---- internal helpers ---- */
 
+/** @brief 从 NVS 读取字符串值，不存在则保留默认值 */
 static esp_err_t read_str(nvs_handle_t h, const char *key, char *out, size_t max_len)
 {
     size_t len = max_len;
@@ -60,6 +61,7 @@ static esp_err_t read_str(nvs_handle_t h, const char *key, char *out, size_t max
     return err;
 }
 
+/** @brief 向 NVS 写入字符串值 */
 static esp_err_t write_str(nvs_handle_t h, const char *key, const char *val)
 {
     return nvs_set_str(h, key, val);
@@ -67,6 +69,7 @@ static esp_err_t write_str(nvs_handle_t h, const char *key, const char *val)
 
 /* ---- config TXT parser ---- */
 
+/** @brief 解析 KEY=VALUE 格式的文本行，提取字符串值 */
 static void parse_line(char *line, const char *key, char *dest, size_t dest_len)
 {
     size_t klen = strlen(key);
@@ -84,6 +87,7 @@ static void parse_line(char *line, const char *key, char *dest, size_t dest_len)
     dest[vlen] = '\0';
 }
 
+/** @brief 解析 KEY=VALUE 格式的文本行，提取 uint8 数值 */
 static void parse_uint8(char *line, const char *key, uint8_t *dest)
 {
     size_t klen = strlen(key);
@@ -92,6 +96,7 @@ static void parse_uint8(char *line, const char *key, uint8_t *dest)
     *dest = (uint8_t)atoi(line + klen + 1);
 }
 
+/** @brief 解析 KEY=VALUE 格式的文本行，提取 uint16 数值 */
 static void parse_uint16(char *line, const char *key, uint16_t *dest)
 {
     size_t klen = strlen(key);
@@ -100,6 +105,7 @@ static void parse_uint16(char *line, const char *key, uint16_t *dest)
     *dest = (uint16_t)atoi(line + klen + 1);
 }
 
+/** @brief 解析 KEY=VALUE 格式的文本行，提取布尔值 */
 static void parse_bool(char *line, const char *key, bool *dest)
 {
     size_t klen = strlen(key);
@@ -116,6 +122,7 @@ static void parse_bool(char *line, const char *key, bool *dest)
     *dest = (strcmp(val, "1") == 0 || strcmp(val, "true") == 0);
 }
 
+/** @brief 从 SD 卡读取 wifi.txt 配置文件并覆盖 WiFi 配置 */
 static void parse_wifi_txt(void)
 {
     FILE *f = fopen("/sdcard/config/wifi.txt", "r");
@@ -131,6 +138,7 @@ static void parse_wifi_txt(void)
     fclose(f);
 }
 
+/** @brief 从 SD 卡读取 nas.txt 配置文件并覆盖 NAS 上传配置 */
 static void parse_nas_txt(void)
 {
     FILE *f = fopen("/sdcard/config/nas.txt", "r");
@@ -156,6 +164,7 @@ static void parse_nas_txt(void)
 
 /* ---- public API ---- */
 
+/** @brief 初始化配置模块，初始化 NVS 并加载存储的配置，无存储则使用默认值 */
 esp_err_t config_init(void)
 {
     // Initialize NVS
@@ -205,11 +214,13 @@ esp_err_t config_init(void)
     return ESP_OK;
 }
 
+/** @brief 获取当前配置指针（指向全局静态配置结构体） */
 cam_config_t* config_get(void)
 {
     return &s_config;
 }
 
+/** @brief 将当前配置保存到 NVS 闪存持久化 */
 esp_err_t config_save(void)
 {
     nvs_handle_t h;
@@ -241,6 +252,7 @@ esp_err_t config_save(void)
     return err;
 }
 
+/** @brief 恢复出厂默认配置并保存到 NVS */
 esp_err_t config_reset(void)
 {
     s_config = s_defaults;
@@ -248,6 +260,7 @@ esp_err_t config_reset(void)
     return config_save();
 }
 
+/** @brief 从 SD 卡加载 wifi.txt 和 nas.txt 配置文件，覆盖当前配置并保存到 NVS */
 esp_err_t config_load_from_sd(void)
 {
     parse_wifi_txt();

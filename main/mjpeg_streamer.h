@@ -20,17 +20,31 @@
 #include "esp_err.h"
 #include "esp_http_server.h"
 
+/** @brief 初始化 MJPEG 流服务
+ *
+ * 创建互斥锁并重置客户端计数，必须在注册到 HTTP 服务器之前调用。
+ * @return ESP_OK 成功，ESP_ERR_NO_MEM 内存不足
+ */
 /**
  * Initialize the MJPEG streamer (creates mutex, resets client count).
  * Call once before registering with a server.
  */
 esp_err_t mjpeg_streamer_init(void);
 
+/** @brief 在指定 HTTP 服务器上注册 /stream URI 处理器
+ *
+ * 将 MJPEG 流端点绑定到 HTTP 服务器。
+ * @param server HTTP 服务器句柄
+ * @return ESP_OK 成功，ESP_ERR_INVALID_ARG 参数无效
+ */
 /**
  * Register the /stream URI handler on the given HTTP server.
  */
 esp_err_t mjpeg_streamer_register(httpd_handle_t server);
 
+/** @brief 获取当前连接的流客户端数量
+ * @return 已连接的客户端数量
+ */
 /**
  * Return the number of currently connected streaming clients.
  */

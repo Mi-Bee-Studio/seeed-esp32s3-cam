@@ -33,6 +33,15 @@ static bool s_connected = false;
 
 /* ── Socket helpers ──────────────────────────────────────────────── */
 
+/**
+ * @brief 从socket读取FTP响应行
+ * 逐字节读取直到\r\n，支持多行响应（NNN-前缀）
+ * @param sock socket描述符
+ * @param buf 响应缓冲区
+ * @param buf_len 缓冲区大小
+ * @param code 输出3位响应码（可选）
+ * @return ESP_OK 成功，ESP_FAIL 读取失败
+ */
 static esp_err_t ftp_read_response(int sock, char *buf, size_t buf_len, int *code)
 {
     size_t total = 0;
@@ -71,6 +80,12 @@ static esp_err_t ftp_read_response(int sock, char *buf, size_t buf_len, int *cod
     return ESP_FAIL;
 }
 
+/**
+ * @brief 通过socket发送FTP命令字符串
+ * @param sock socket描述符
+ * @param cmd 命令字符串（含\r\n）
+ * @return ESP_OK 成功，ESP_FAIL 发送失败
+ */
 static esp_err_t ftp_send_cmd(int sock, const char *cmd)
 {
     ESP_LOGI(TAG, "> %s", cmd);
@@ -82,6 +97,15 @@ static esp_err_t ftp_send_cmd(int sock, const char *cmd)
     return ESP_OK;
 }
 
+/**
+ * @brief 发送FTP命令并期望指定响应码
+ * @param sock socket描述符
+ * @param cmd 命令字符串
+ * @param expected 期望的3位响应码
+ * @param resp 响应缓冲区（可选，传NULL则使用内部缓冲）
+ * @param resp_len 响应缓冲区大小
+ * @return ESP_OK 响应码匹配，ESP_FAIL 发送或响应不匹配
+ */
 static esp_err_t ftp_cmd_expect(int sock, const char *cmd, int expected, char *resp, size_t resp_len)
 {
     if (ftp_send_cmd(sock, cmd) != ESP_OK) {
@@ -101,6 +125,12 @@ static esp_err_t ftp_cmd_expect(int sock, const char *cmd, int expected, char *r
 
 /* ── Connect / disconnect ────────────────────────────────────────── */
 
+/**
+ * @brief 连接到FTP服务器并完成登录认证
+ * 执行DNS解析→TCP连接→等待220欢迎→USER/PASS认证→TYPE I设置
+ * @param cfg FTP连接配置
+ * @return ESP_OK 成功，ESP_FAIL 连接或认证失败
+ */
 esp_err_t ftp_connect(const ftp_config_t *cfg)
 {
     if (s_connected) {
@@ -174,6 +204,10 @@ fail:
     return ESP_FAIL;
 }
 
+/**
+ * @brief 断开FTP连接
+ * 发送QUIT命令，读取221响应，关闭控制socket
+ */
 void ftp_disconnect(void)
 {
     if (s_ctrl_sock >= 0) {
@@ -189,6 +223,10 @@ void ftp_disconnect(void)
     s_connected = false;
 }
 
+/**
+ * @brief 检查FTP是否已连接
+ * @return true 已连接，false 未连接
+ */
 bool ftp_is_connected(void)
 {
     return s_connected;
@@ -196,6 +234,15 @@ bool ftp_is_connected(void)
 
 /* ── PASV helper ─────────────────────────────────────────────────── */
 
+/**
+ * @brief 解析PASV响应中的数据连接IP和端口
+ * 从227响应中提取 h1,h2,h3,h4,p1,p2 格式参数
+ * @param resp PASV响应字符串
+ * @param ip 输出数据连接IP地址
+ * @param ip_len IP缓冲区大小
+ * @param port 输出数据连接端口
+ * @return ESP_OK 成功，ESP_FAIL 解析失败
+ */
 static esp_err_t ftp_parse_pasv(const char *resp, char *ip, size_t ip_len, uint16_t *port)
 {
     const char *p = strchr(resp, '(');
@@ -217,6 +264,13 @@ static esp_err_t ftp_parse_pasv(const char *resp, char *ip, size_t ip_len, uint1
 
 /* ── Upload ──────────────────────────────────────────────────────── */
 
+/**
+ * @brief 通过FTP上传本地文件到远程路径
+ * 使用PASV被动模式建立数据连接，以4KB分块传输文件内容
+ * @param remote_path 远程文件路径
+ * @param local_path 本地文件路径
+ * @return ESP_OK 成功，ESP_FAIL 上传失败（失败时自动断开连接）
+ */
 esp_err_t ftp_upload(const char *remote_path, const char *local_path)
 {
     if (!s_connected) {
@@ -335,6 +389,12 @@ cleanup:
 
 /* ── Recursive MKD ───────────────────────────────────────────────── */
 
+/**
+ * @brief 递归创建FTP远程目录
+ * 按路径层级逐级发送MKD命令，257=创建成功，550=已存在（均视为成功）
+ * @param path 远程目录路径
+ * @return ESP_OK 成功
+ */
 esp_err_t ftp_mkdir_recursive(const char *path)
 {
     if (!s_connected) {

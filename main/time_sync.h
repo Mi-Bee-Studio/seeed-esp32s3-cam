@@ -22,17 +22,18 @@
 #include <time.h>
 
 /**
- * Start SNTP time synchronization (call after WiFi connected).
- * Blocks up to 5 seconds waiting for initial sync, then returns.
- * Async sync continues in background if not yet synced.
+ * @brief 启动 SNTP 时间同步（需在 WiFi 连接后调用）
+ * 阻塞等待最多 5 秒获取首次同步，超时后异步继续同步
+ * 使用 cn.pool.ntp.org 和 ntp.aliyun.com 作为 NTP 服务器
+ * @return ESP_OK 成功
  */
 esp_err_t time_sync_init(void);
 
-/** True if NTP or manual time has been set successfully. */
+/** @brief 检查时间是否已通过 NTP 或手动设置成功同步 */
 bool time_is_synced(void);
 
-/** Format current time as "YYYY-MM-DD HH:MM:SS" into buf. */
+/** @brief 获取当前时间字符串，格式为 "YYYY-MM-DD HH:MM:SS" */
 void time_get_str(char *buf, size_t len);
 
-/** Manually set system time (useful when no NTP available). */
+/** @brief 手动设置系统时间（在无 NTP 服务时使用） */
 esp_err_t time_set_manual(int year, int month, int day, int hour, int min, int sec);
