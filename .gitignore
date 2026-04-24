@@ -1,11 +1,63 @@
+# Build artifacts
 build/
 sdkconfig.old
 sdkconfig
 managed_components/
 dependencies.lock
+
+# Internal tools and temp files
 .sisyphus/
 setup_idf_env.ps1
 *.bak
 *.swp
+*.swo
+*~
+*#
+
+# Editor directories
+.vscode/
+.idea/
+*.iml
+
+# ESP-IDF specific
+bootloader/build/
+partition_table/
+*.map
+*.lst
+*.o
+*.a
+*.elf
+*.bin
+*.hex
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Logs and coverage
+*.log
+*.gcda
+*.gcno
+*.gcov
+.coverage
+htmlcov/
+.pytest_cache/
+
+# OS generated files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+Desktop.ini

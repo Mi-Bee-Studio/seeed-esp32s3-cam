@@ -82,4 +82,8 @@ esp32s3-camera/
 
 ## 许可证
 
-[MIT License](https://opensource.org/licenses/MIT)
+[GNU General Public License v3.0](LICENSE)
+
+本项目采用 GNU General Public License v3.0 许可证。详情请参阅 [LICENSE](LICENSE) 文件。
+
+您可以在遵守许可证条款的前提下，自由使用、修改和分发本软件。
