@@ -46,6 +46,7 @@ static char s_ip_str[16] = "0.0.0.0";
 /* ---- reconnect timer (one-shot, 60 s) ---- */
 static TimerHandle_t s_reconnect_timer = NULL;
 
+/** @brief WiFi 重连定时器回调函数，60 秒后触发重连 */
 static void reconnect_timer_cb(TimerHandle_t timer)
 {
     ESP_LOGI(TAG, "Reconnect timer fired, retry %d", ++s_retry_count);
@@ -53,6 +54,7 @@ static void reconnect_timer_cb(TimerHandle_t timer)
 }
 
 /* ---- MAC helper for AP SSID ---- */
+/** @brief 根据设备 MAC 地址生成 AP 热点 SSID（格式：ParrotCam-XXXX） */
 static void get_ap_ssid(char *buf, size_t len)
 {
     uint8_t mac[6];
@@ -62,6 +64,7 @@ static void get_ap_ssid(char *buf, size_t len)
 }
 
 /* ---- event handler ---- */
+/** @brief WiFi 事件处理函数，处理连接/断开/扫描/IP 获取等事件 */
 static void wifi_event_handler(void *arg, esp_event_base_t base,
                                int32_t id, void *event_data)
 {
@@ -94,7 +97,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
             ESP_LOGI(TAG, "WiFi connected, IP=%s", s_ip_str);
             break;
         }
-        case IP_EVENT_AP_STAIPASSIGNED: {
+        case IP_EVENT_ASSIGNED_IP_TO_CLIENT: {
             ip_event_ap_staipassigned_t *evt = (ip_event_ap_staipassigned_t *)event_data;
             ESP_LOGI(TAG, "AP client connected, IP=" IPSTR, IP2STR(&evt->ip));
             break;
@@ -107,6 +110,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
 
 /* ---- public API ---- */
 
+/** @brief WiFi 模块初始化入口，根据配置自动选择 AP 或 STA 模式 */
 esp_err_t wifi_init(void)
 {
     /* Init netif (idempotent-safe after config_init which already did NVS) */
@@ -139,21 +143,25 @@ esp_err_t wifi_init(void)
     }
 }
 
+/** @brief 获取当前 WiFi 连接状态 */
 wifi_state_t wifi_get_state(void)
 {
     return s_state;
 }
 
+/** @brief 获取当前 IP 地址字符串（静态缓冲区） */
 char *wifi_get_ip_str(void)
 {
     return s_ip_str;
 }
 
+/** @brief 判断当前是否处于 STA 模式（正在连接或已连接） */
 bool wifi_is_sta(void)
 {
     return s_state != WIFI_STATE_AP;
 }
 
+/** @brief 启动 WiFi AP 热点模式，配置静态 IP 192.168.4.1 */
 esp_err_t wifi_start_ap(void)
 {
     s_netif_ap = esp_netif_create_default_wifi_ap();
@@ -163,7 +171,7 @@ esp_err_t wifi_start_ap(void)
 
     /* Register AP-related events */
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
-                        IP_EVENT_AP_STAIPASSIGNED,
+                        IP_EVENT_ASSIGNED_IP_TO_CLIENT,
                         wifi_event_handler, NULL, NULL));
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
@@ -194,6 +202,7 @@ esp_err_t wifi_start_ap(void)
     return ESP_OK;
 }
 
+/** @brief 启动 WiFi STA 客户端模式，连接配置的路由器 */
 esp_err_t wifi_start_sta(void)
 {
     s_netif_sta = esp_netif_create_default_wifi_sta();
@@ -227,6 +236,7 @@ esp_err_t wifi_start_sta(void)
     return ESP_OK;
 }
 
+/** @brief 扫描周围 WiFi 热点，返回找到的数量，失败返回 -1 */
 int wifi_scan(wifi_ap_info_t *aps, int max_count)
 {
     if (!aps || max_count <= 0) {
