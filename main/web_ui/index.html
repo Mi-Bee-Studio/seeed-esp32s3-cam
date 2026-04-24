@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ParrotCam 仪表盘</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#f0f2f1;color:#333;font-size:14px}
+.header{background:#2d8659;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:8px}
+.header h1{font-size:16px;font-weight:600}
+.header .ver{font-size:12px;opacity:.7}
+.main{padding:12px;max-width:600px;margin:0 auto;padding-bottom:60px}
+.card{background:#fff;border-radius:8px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.card-title{font-size:13px;color:#888;margin-bottom:8px;font-weight:500}
+.status-row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.rec{background:#e74c3c;animation:pulse 1s infinite}
+.dot.idle{background:#bbb}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.status-text{font-size:15px;font-weight:600}
+.status-text.rec{color:#e74c3c}
+.status-text.idle{color:#999}
+.filename{font-size:12px;color:#666;margin-top:4px;word-break:break-all}
+.grid{display:grid;grid-template-columns:1fr;gap:10px}
+@media(min-width:480px){.grid{grid-template-columns:1fr 1fr}}
+.row{display:flex;justify-content:space-between;padding:3px 0;font-size:13px}
+.row .label{color:#888}
+.row .val{font-weight:500;color:#333}
+.bar-wrap{background:#e0e0e0;border-radius:4px;height:10px;margin:6px 0;overflow:hidden}
+.bar-fill{height:100%;border-radius:4px;transition:width .5s}
+.bar-fill.ok{background:#2d8659}
+.bar-fill.warn{background:#e67e22}
+.bar-fill.crit{background:#e74c3c}
+.bar-text{font-size:12px;color:#666}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #ddd;display:flex;z-index:10}
+.bottom-nav a{flex:1;text-align:center;padding:10px 0;font-size:12px;color:#888;text-decoration:none}
+.bottom-nav a.active{color:#2d8659;font-weight:600}
+.bottom-nav a:hover{background:#f5f5f5}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500}
+.badge.ok{background:#e8f5e9;color:#2d8659}
+.badge.err{background:#fce4ec;color:#c0392b}
+.badge.info{background:#e3f2fd;color:#1565c0}
+.sync{font-size:13px}
+.sync.ok{color:#2d8659}
+.sync.no{color:#999}
+</style>
+</head>
+<body>
+<div class="header">
+<span>&#128247;</span>
+<h1>ParrotCam <span class="ver">v0.1</span></h1>
+</div>
+<div class="main">
+
+<div class="card">
+<div class="status-row">
+<span class="dot idle" id="recDot"></span>
+<span class="status-text idle" id="recText">空闲</span>
+</div>
+<div class="filename" id="recFile"></div>
+</div>
+
+<div class="grid">
+<div class="card">
+<div class="card-title">SD卡存储</div>
+<div class="bar-wrap"><div class="bar-fill ok" id="sdBar" style="width:0%"></div></div>
+<div class="bar-text" id="sdText">--</div>
+</div>
+<div class="card">
+<div class="card-title">WiFi状态</div>
+<div class="row"><span class="label">SSID</span><span class="val" id="wfSsid">--</span></div>
+<div class="row"><span class="label">RSSI</span><span class="val" id="wfRssi">--</span></div>
+<div class="row"><span class="label">IP</span><span class="val" id="wfIp">--</span></div>
+</div>
+</div>
+
+<div class="grid">
+<div class="card">
+<div class="card-title">摄像头信息</div>
+<div class="row"><span class="label">型号</span><span class="val" id="camModel">--</span></div>
+<div class="row"><span class="label">分辨率</span><span class="val" id="camRes">--</span></div>
+</div>
+<div class="card">
+<div class="card-title">系统信息</div>
+<div class="row"><span class="label">运行时间</span><span class="val" id="sysUp">--</span></div>
+<div class="row"><span class="label">时间同步</span><span class="val" id="sysSync">--</span></div>
+</div>
+</div>
+
+<div class="card">
+<div class="card-title">NAS上传</div>
+<div class="row"><span class="label">状态</span><span class="val" id="nasStatus">--</span></div>
+<div class="row"><span class="label">最近上传</span><span class="val" id="nasLast">--</span></div>
+<div class="row"><span class="label">队列</span><span class="val" id="nasQueue">--</span></div>
+</div>
+
+</div>
+
+<nav class="bottom-nav">
+<a href="/" class="active">&#128202; 仪表盘</a>
+<a href="/config.html">&#9881; 配置</a>
+<a href="/files.html">&#128193; 文件</a>
+<a href="/preview.html">&#128249; 预览</a>
+</nav>
+
+<script>
+function $(s){return document.getElementById(s)}
+function fmtTime(s){
+ var h=Math.floor(s/3600),m=Math.floor(s%3600/60);
+ if(h>0)return h+'h '+m+'m';
+ return m+'m';
+}
+function refresh(){
+ fetch('/api/status').then(function(r){return r.json()}).then(function(d){
+  if(!d.ok)return;
+  var v=d.data;
+  var rec=$('recDot'),rt=$('recText'),rf=$('recFile');
+  if(v.recording==='recording'){
+   rec.className='dot rec';rt.className='status-text rec';rt.textContent='录制中';
+   rf.textContent=v.current_file||'';
+  }else{
+   rec.className='dot idle';rt.className='status-text idle';rt.textContent='空闲';rf.textContent='';
+  }
+  var pct=v.sd_free_percent||0;
+  var bar=$('sdBar'),txt=$('sdText');
+  bar.style.width=pct+'%';
+  bar.className='bar-fill '+(pct>20?'ok':pct>10?'warn':'crit');
+  txt.textContent='已用 '+(100-pct).toFixed(1)+'%';
+  $('wfSsid').textContent=v.wifi_ssid||'--';
+  $('wfRssi').textContent=v.wifi_rssi!=null?v.wifi_rssi+'dBm':'--';
+  $('wfIp').textContent=v.ip||'--';
+  $('camModel').textContent=v.camera||'--';
+  $('camRes').textContent=v.resolution||'--';
+  $('sysUp').textContent=v.uptime!=null?fmtTime(v.uptime):'--';
+  var ss=$('sysSync');
+  if(v.time_synced){ss.className='sync ok';ss.textContent='\u2714 已同步'}
+  else{ss.className='sync no';ss.textContent='\u2718 未同步'}
+  var ns=$('nasStatus');
+  if(v.upload_queue>=0){ns.className='val';ns.innerHTML='<span class="badge ok">正常</span>'}
+  else{ns.className='val';ns.innerHTML='<span class="badge err">异常</span>'}
+  $('nasLast').textContent=v.last_upload||'--';
+  $('nasQueue').textContent=(v.upload_queue||0)+' 个文件';
+ }).catch(function(e){console.error('Status fetch failed:',e)});
+}
+setInterval(refresh,5000);
+window.onload=refresh;
+</script>
+</body>
+</html>

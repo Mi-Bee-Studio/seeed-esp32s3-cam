@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ParrotCam 文件管理</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#f0f2f1;color:#333;font-size:14px}
+.header{background:#2d8659;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:8px}
+.header h1{font-size:16px;font-weight:600}
+.header .ver{font-size:12px;opacity:.7}
+.main{padding:12px;max-width:600px;margin:0 auto;padding-bottom:60px}
+.card{background:#fff;border-radius:8px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.card-title{font-size:13px;color:#888;margin-bottom:8px;font-weight:500}
+.bar-wrap{background:#e0e0e0;border-radius:4px;height:10px;margin:6px 0;overflow:hidden}
+.bar-fill{height:100%;border-radius:4px;transition:width .5s}
+.bar-fill.ok{background:#2d8659}
+.bar-fill.warn{background:#e67e22}
+.bar-fill.crit{background:#e74c3c}
+.bar-text{font-size:12px;color:#666}
+.date-group{margin-bottom:14px}
+.date-header{font-size:14px;font-weight:600;color:#2d8659;padding:6px 0;border-bottom:1px solid #e8e8e8;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.file-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f0f0f0}
+.file-item:last-child{border-bottom:none}
+.file-info{flex:1;min-width:0}
+.file-name{font-size:13px;word-break:break-all;color:#333}
+.file-size{font-size:12px;color:#999;margin-top:2px}
+.file-actions{display:flex;gap:6px;flex-shrink:0;margin-left:8px}
+.btn-sm{padding:5px 12px;border:none;border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit}
+.btn-dl{background:#2d8659;color:#fff}
+.btn-dl:hover{background:#246e48}
+.btn-del{background:#e74c3c;color:#fff}
+.btn-del:hover{background:#c0392b}
+.empty{text-align:center;padding:30px;color:#999;font-size:14px}
+.summary{font-size:13px;color:#666;margin-bottom:4px}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #ddd;display:flex;z-index:10}
+.bottom-nav a{flex:1;text-align:center;padding:10px 0;font-size:12px;color:#888;text-decoration:none}
+.bottom-nav a.active{color:#2d8659;font-weight:600}
+.bottom-nav a:hover{background:#f5f5f5}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);padding:10px 24px;border-radius:8px;font-size:14px;z-index:100;opacity:0;transition:opacity .3s;pointer-events:none;font-weight:500}
+.toast.show{opacity:1}
+.toast.ok{background:#2d8659;color:#fff}
+.toast.err{background:#e74c3c;color:#fff}
+</style>
+</head>
+<body>
+<div class="header">
+<span>&#128247;</span>
+<h1>ParrotCam <span class="ver">文件管理</span></h1>
+</div>
+<div class="main">
+
+<div class="card" id="sdCard">
+<div class="card-title">SD卡存储</div>
+<div class="bar-wrap"><div class="bar-fill ok" id="sdBar" style="width:0%"></div></div>
+<div class="bar-text" id="sdText">--</div>
+</div>
+
+<div class="card">
+<div class="card-title" id="fileSummary">加载中...</div>
+<div id="fileList"></div>
+</div>
+
+</div>
+
+<nav class="bottom-nav">
+<a href="/">&#128202; 仪表盘</a>
+<a href="/config.html">&#9881; 配置</a>
+<a href="/files.html" class="active">&#128193; 文件</a>
+<a href="/preview.html">&#128249; 预览</a>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function $(s){return document.getElementById(s)}
+
+/* ---- Toast ---- */
+var toastTimer=null;
+function showToast(msg,isErr){
+ var t=$('toast');
+ t.textContent=msg;
+ t.className='toast show '+(isErr?'err':'ok');
+ clearTimeout(toastTimer);
+ toastTimer=setTimeout(function(){t.className='toast'},3000);
+}
+
+/* ---- Format bytes ---- */
+function fmtSize(b){
+ if(b<1024)return b+' B';
+ if(b<1048576)return (b/1024).toFixed(1)+' KB';
+ if(b<1073741824)return (b/1048576).toFixed(1)+' MB';
+ return (b/1073741824).toFixed(2)+' GB';
+}
+
+/* ---- Load & render files ---- */
+function refreshFiles(){
+ fetch('/api/files').then(function(r){return r.json()}).then(function(d){
+  if(!d.ok){$('fileSummary').textContent='加载失败';return}
+  var v=d.data;
+  /* SD card info */
+  if(v.sd_total){
+   var used=v.sd_total-v.sd_free;
+   var pct=Math.round(used*100/v.sd_total);
+   $('sdBar').style.width=pct+'%';
+   $('sdBar').className='bar-fill '+(pct>90?'crit':pct>70?'warn':'ok');
+   $('sdText').textContent='已用 '+fmtSize(used)+' / '+fmtSize(v.sd_total)+' ('+pct+'%)';
+  }
+  var files=v.files||[];
+  if(!files.length){
+   $('fileSummary').textContent='共 0 个文件';
+   $('fileList').innerHTML='<div class="empty">暂无录像文件</div>';
+   return;
+  }
+  files.sort(function(a,b){return b.name.localeCompare(a.name)});
+  $('fileSummary').textContent='共 '+files.length+' 个文件';
+  /* Group by date from REC_YYYYMMDD_* */
+  var groups={};
+  var order=[];
+  for(var i=0;i<files.length;i++){
+   var f=files[i];
+   var dm=f.name.match(/REC_(\d{4})(\d{2})(\d{2})/);
+   var key=dm?dm[1]+'-'+dm[2]+'-'+dm[3]:'其他';
+   if(!groups[key]){groups[key]=[];order.push(key)}
+   groups[key].push(f);
+  }
+  var html='';
+  for(var g=0;g<order.length;g++){
+   var dk=order[g];
+   var gf=groups[dk];
+   html+='<div class="date-group"><div class="date-header">&#128193; '+dk+' ('+gf.length+')</div>';
+   for(var j=0;j<gf.length;j++){
+    var fi=gf[j];
+    html+='<div class="file-item"><div class="file-info"><div class="file-name">'+fi.name+'</div>'
+     +'<div class="file-size">'+fmtSize(fi.size)+'</div></div>'
+     +'<div class="file-actions">'
+     +'<button class="btn-sm btn-dl" onclick="dlFile(\''+fi.name.replace(/'/g,"\\'")+'\')">下载</button>'
+     +'<button class="btn-sm btn-del" onclick="delFile(\''+fi.name.replace(/'/g,"\\'")+'\')">删除</button>'
+     +'</div></div>';
+   }
+   html+='</div>';
+  }
+  $('fileList').innerHTML=html;
+ }).catch(function(e){
+  $('fileSummary').textContent='加载失败';
+  console.error('Files fetch failed:',e);
+ });
+}
+
+function dlFile(name){
+ window.open('/api/download?name='+encodeURIComponent(name));
+}
+
+function delFile(name){
+ var password=prompt('请输入管理密码:');
+ if(!password)return;
+ if(!confirm('确定删除 '+name+'？'))return;
+ fetch('/api/files?name='+encodeURIComponent(name),{
+  method:'DELETE',
+  headers:{'X-Password':password}
+ }).then(function(r){return r.json()}).then(function(d){
+  if(d.ok){showToast('已删除');refreshFiles()}
+  else showToast('删除失败: '+(d.error||'未知错误'),true);
+ }).catch(function(e){showToast('删除失败',true);console.error(e)});
+}
+
+window.onload=refreshFiles;
+</script>
+</body>
+</html>

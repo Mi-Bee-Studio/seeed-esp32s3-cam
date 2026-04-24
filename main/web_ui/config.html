@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ParrotCam 配置</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#f0f2f1;color:#333;font-size:14px}
+.header{background:#2d8659;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:8px}
+.header h1{font-size:16px;font-weight:600}
+.header .ver{font-size:12px;opacity:.7}
+.main{padding:12px;max-width:600px;margin:0 auto;padding-bottom:60px}
+.card{background:#fff;border-radius:8px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.card-title{font-size:15px;color:#2d8659;margin-bottom:10px;font-weight:600;border-bottom:1px solid #e8e8e8;padding-bottom:6px}
+.field{margin-bottom:10px}
+.field:last-child{margin-bottom:0}
+.field label{display:block;font-size:13px;color:#666;margin-bottom:4px;font-weight:500}
+.field input[type="text"],
+.field input[type="password"],
+.field input[type="number"],
+.field select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:14px;font-family:inherit;background:#fafafa;color:#333}
+.field input:focus,.field select:focus{outline:none;border-color:#2d8659;background:#fff}
+.field input[type="checkbox"]{margin-right:6px;transform:scale(1.2);vertical-align:middle}
+.inline{display:flex;align-items:center;gap:8px}
+.inline label{margin-bottom:0}
+.port-field{width:80px !important;flex-shrink:0}
+.range-row{display:flex;align-items:center;gap:10px}
+.range-row input[type="range"]{flex:1}
+.range-val{min-width:36px;text-align:center;font-weight:600;color:#2d8659;font-size:15px}
+.scan-btn{padding:6px 14px;background:#2d8659;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap}
+.scan-btn:hover{background:#246e48}
+.scan-btn:disabled{background:#aaa;cursor:not-allowed}
+.btn-row{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+.btn{padding:10px 20px;border:none;border-radius:6px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit}
+.btn-save{background:#2d8659;color:#fff}
+.btn-save:hover{background:#246e48}
+.btn-reboot{background:#e67e22;color:#fff}
+.btn-reboot:hover{background:#cf6d17}
+.btn-reset{background:#e74c3c;color:#fff}
+.btn-reset:hover{background:#c0392b}
+.ssid-row{display:flex;gap:6px}
+.ssid-row select,.ssid-row input{flex:1}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #ddd;display:flex;z-index:10}
+.bottom-nav a{flex:1;text-align:center;padding:10px 0;font-size:12px;color:#888;text-decoration:none}
+.bottom-nav a.active{color:#2d8659;font-weight:600}
+.bottom-nav a:hover{background:#f5f5f5}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);padding:10px 24px;border-radius:8px;font-size:14px;z-index:100;opacity:0;transition:opacity .3s;pointer-events:none;font-weight:500}
+.toast.show{opacity:1}
+.toast.ok{background:#2d8659;color:#fff}
+.toast.err{background:#e74c3c;color:#fff}
+.checkbox-row{display:flex;align-items:center;margin-bottom:10px}
+.checkbox-row label{margin-bottom:0;font-size:14px;color:#333;cursor:pointer}
+.sub-section{margin-top:12px}
+.sub-title{font-size:13px;color:#888;margin-bottom:8px;font-weight:500}
+</style>
+</head>
+<body>
+<div class="header">
+<span>&#9881;</span>
+<h1>ParrotCam <span class="ver">配置</span></h1>
+</div>
+<div class="main">
+
+<!-- WiFi -->
+<div class="card">
+<div class="card-title">WiFi 配置</div>
+<div class="field">
+<label>可用网络</label>
+<div class="ssid-row">
+<select id="scanResult"><option value="">-- 请先扫描 --</option></select>
+<button class="scan-btn" id="scanBtn" onclick="scanWiFi()">扫描网络</button>
+</div>
+</div>
+<div class="field">
+<label>SSID（手动输入或从上方选择）</label>
+<input type="text" id="wifi_ssid" placeholder="WiFi名称">
+</div>
+<div class="field">
+<label>密码</label>
+<input type="password" id="wifi_pass" placeholder="WiFi密码">
+</div>
+</div>
+
+<!-- NAS -->
+<div class="card">
+<div class="card-title">NAS 配置</div>
+<div class="sub-section">
+<div class="sub-title">FTP</div>
+<div class="checkbox-row">
+<input type="checkbox" id="ftp_enabled">
+<label for="ftp_enabled">启用FTP上传</label>
+</div>
+<div class="field">
+<div class="inline">
+<div style="flex:1"><label>服务器</label><input type="text" id="ftp_host" placeholder="192.168.1.100"></div>
+<div><label>端口</label><input type="number" id="ftp_port" class="port-field" value="21" min="1" max="65535"></div>
+</div>
+</div>
+<div class="field">
+<label>用户名</label>
+<input type="text" id="ftp_user" placeholder="ftp用户名">
+</div>
+<div class="field">
+<label>密码</label>
+<input type="password" id="ftp_pass" placeholder="ftp密码">
+</div>
+<div class="field">
+<label>远程路径</label>
+<input type="text" id="ftp_path" placeholder="/ParrotCam">
+</div>
+</div>
+<div class="sub-section">
+<div class="sub-title">WebDAV</div>
+<div class="checkbox-row">
+<input type="checkbox" id="webdav_enabled">
+<label for="webdav_enabled">启用WebDAV上传</label>
+</div>
+<div class="field">
+<label>URL</label>
+<input type="text" id="webdav_url" placeholder="http://192.168.1.100:5005">
+</div>
+<div class="field">
+<label>用户名</label>
+<input type="text" id="webdav_user" placeholder="webdav用户名">
+</div>
+<div class="field">
+<label>密码</label>
+<input type="password" id="webdav_pass" placeholder="webdav密码">
+</div>
+</div>
+</div>
+
+<!-- Recording -->
+<div class="card">
+<div class="card-title">录制参数</div>
+<div class="field">
+<label>分辨率</label>
+<select id="resolution">
+<option value="0">VGA (640x480)</option>
+<option value="1">SVGA (800x600)</option>
+<option value="2">XGA (1024x768)</option>
+</select>
+</div>
+<div class="field">
+<label>帧率 (FPS)</label>
+<div class="range-row">
+<input type="range" id="fps" min="1" max="30" value="10">
+<span class="range-val" id="fpsVal">10</span>
+</div>
+</div>
+<div class="field">
+<label>片段时长</label>
+<select id="segment_sec">
+<option value="60">1 分钟</option>
+<option value="120">2 分钟</option>
+<option value="180">3 分钟</option>
+<option value="300">5 分钟</option>
+<option value="600">10 分钟</option>
+<option value="900">15 分钟</option>
+<option value="1800">30 分钟</option>
+</select>
+</div>
+<div class="field">
+<label>JPEG 质量 (1-63)</label>
+<div class="range-row">
+<input type="range" id="jpeg_quality" min="1" max="63" value="12">
+<span class="range-val" id="jpegVal">12</span>
+</div>
+</div>
+<div class="field">
+<label>设备名称</label>
+<input type="text" id="device_name" placeholder="ParrotCam">
+</div>
+</div>
+
+<!-- System -->
+<div class="card">
+<div class="card-title">系统设置</div>
+<div class="field">
+<label>Web 管理密码</label>
+<input type="password" id="web_password" placeholder="留空则不修改">
+</div>
+<div class="field">
+<label>确认密码</label>
+<input type="password" id="web_password_confirm" placeholder="再次输入新密码">
+</div>
+<div class="btn-row">
+<button class="btn btn-save" onclick="saveConfig()">保存配置</button>
+<button class="btn btn-reboot" onclick="rebootDevice()">重启设备</button>
+<button class="btn btn-reset" onclick="factoryReset()">恢复出厂</button>
+</div>
+</div>
+
+</div>
+
+<nav class="bottom-nav">
+<a href="/">&#128202; 仪表盘</a>
+<a href="/config.html" class="active">&#9881; 配置</a>
+<a href="/files.html">&#128193; 文件</a>
+<a href="/preview.html">&#128249; 预览</a>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function $(s){return document.getElementById(s)}
+
+/* ---- Toast ---- */
+var toastTimer=null;
+function showToast(msg,isErr){
+ var t=$('toast');
+ t.textContent=msg;
+ t.className='toast show '+(isErr?'err':'ok');
+ clearTimeout(toastTimer);
+ toastTimer=setTimeout(function(){t.className='toast'},3000);
+}
+
+/* ---- Range sliders ---- */
+$('fps').oninput=function(){$('fpsVal').textContent=this.value};
+$('jpeg_quality').oninput=function(){$('jpegVal').textContent=this.value};
+
+/* ---- Load config ---- */
+function loadConfig(){
+ fetch('/api/config').then(function(r){return r.json()}).then(function(d){
+  if(!d.ok)return;
+  var v=d.data;
+  $('wifi_ssid').value=v.wifi_ssid||'';
+  $('wifi_pass').value=v.wifi_pass||'';
+  $('device_name').value=v.device_name||'';
+  $('ftp_host').value=v.ftp_host||'';
+  $('ftp_port').value=v.ftp_port||21;
+  $('ftp_user').value=v.ftp_user||'';
+  $('ftp_pass').value=v.ftp_pass||'';
+  $('ftp_path').value=v.ftp_path||'/ParrotCam';
+  $('ftp_enabled').checked=!!v.ftp_enabled;
+  $('webdav_url').value=v.webdav_url||'';
+  $('webdav_user').value=v.webdav_user||'';
+  $('webdav_pass').value=v.webdav_pass||'';
+  $('webdav_enabled').checked=!!v.webdav_enabled;
+  $('resolution').value=v.resolution!=null?v.resolution:1;
+  $('fps').value=v.fps||10;$('fpsVal').textContent=$('fps').value;
+  $('segment_sec').value=v.segment_sec||300;
+  $('jpeg_quality').value=v.jpeg_quality||12;$('jpegVal').textContent=$('jpeg_quality').value;
+  $('web_password').value=v.web_password||'';
+ }).catch(function(e){console.error('Load config failed:',e)});
+}
+
+/* ---- WiFi scan ---- */
+function scanWiFi(){
+ var btn=$('scanBtn');
+ btn.disabled=true;btn.textContent='扫描中...';
+ fetch('/api/scan').then(function(r){return r.json()}).then(function(d){
+  btn.disabled=false;btn.textContent='扫描网络';
+  if(!d.ok){showToast('扫描失败',true);return}
+  var sel=$('scanResult');
+  sel.innerHTML='<option value="">-- 选择网络 --</option>';
+  var nets=d.data.networks||[];
+  nets.sort(function(a,b){return b.rssi-a.rssi});
+  for(var i=0;i<nets.length;i++){
+   var n=nets[i];
+   var lock=n.auth>0?' \uD83D\uDD12':'';
+   var opt=document.createElement('option');
+   opt.value=n.ssid;
+   opt.textContent=n.ssid+' ('+n.rssi+'dBm)'+lock;
+   sel.appendChild(opt);
+  }
+  sel.onchange=function(){
+   if(this.value)$('wifi_ssid').value=this.value;
+  };
+  showToast('发现 '+nets.length+' 个网络');
+ }).catch(function(e){
+  btn.disabled=false;btn.textContent='扫描网络';
+  showToast('扫描失败',true);console.error(e);
+ });
+}
+
+/* ---- Gather form data ---- */
+function gatherFormData(){
+ var cfg={
+  wifi_ssid:$('wifi_ssid').value,
+  wifi_pass:$('wifi_pass').value,
+  device_name:$('device_name').value,
+  ftp_host:$('ftp_host').value,
+  ftp_port:parseInt($('ftp_port').value)||21,
+  ftp_user:$('ftp_user').value,
+  ftp_pass:$('ftp_pass').value,
+  ftp_path:$('ftp_path').value,
+  ftp_enabled:$('ftp_enabled').checked,
+  webdav_url:$('webdav_url').value,
+  webdav_user:$('webdav_user').value,
+  webdav_pass:$('webdav_pass').value,
+  webdav_enabled:$('webdav_enabled').checked,
+  resolution:parseInt($('resolution').value),
+  fps:parseInt($('fps').value),
+  segment_sec:parseInt($('segment_sec').value),
+  jpeg_quality:parseInt($('jpeg_quality').value)
+ };
+ /* Only send password if user changed it (not masked "****") */
+ var wp=$('web_password').value;
+ if(wp&&wp!=='****'){
+  cfg.web_password=wp;
+ }
+ return cfg;
+}
+
+/* ---- Save config ---- */
+function saveConfig(){
+ var newPw=$('web_password').value;
+ var confirmPw=$('web_password_confirm').value;
+ if(newPw&&newPw!=='****'&&newPw!==confirmPw){
+  showToast('两次输入的密码不一致',true);
+  return;
+ }
+ var password=prompt('请输入管理密码:');
+ if(!password)return;
+
+ var cfg=gatherFormData();
+
+ fetch('/api/config',{
+  method:'POST',
+  headers:{
+   'Content-Type':'application/json',
+   'X-Password':password
+  },
+  body:JSON.stringify(cfg)
+ }).then(function(r){return r.json()}).then(function(d){
+  if(d.ok){
+   showToast('配置已保存');
+   $('web_password_confirm').value='';
+   loadConfig();
+  }else{
+   showToast('保存失败: '+(d.error||'未知错误'),true);
+  }
+ }).catch(function(e){
+  showToast('保存失败',true);console.error(e);
+ });
+}
+
+/* ---- Reboot ---- */
+function rebootDevice(){
+ if(!confirm('确定要重启设备？'))return;
+ var password=prompt('请输入管理密码:');
+ if(!password)return;
+ fetch('/api/config',{
+  method:'POST',
+  headers:{
+   'Content-Type':'application/json',
+   'X-Password':password
+  },
+  body:JSON.stringify({reboot:true})
+ }).catch(function(){});
+ showToast('设备正在重启...');
+}
+
+/* ---- Factory reset ---- */
+function factoryReset(){
+ if(!confirm('确定要恢复出厂设置？所有配置将被清除，设备将重启。'))return;
+ var password=prompt('请输入管理密码:');
+ if(!password)return;
+ fetch('/api/reset',{
+  method:'POST',
+  headers:{'X-Password':password}
+ }).then(function(r){return r.json()}).then(function(d){
+  if(d.ok) showToast('正在恢复出厂设置...');
+  else showToast('操作失败: '+(d.error||'未知错误'),true);
+ }).catch(function(e){
+  showToast('操作失败',true);console.error(e);
+ });
+}
+
+/* ---- Init ---- */
+window.onload=loadConfig;
+</script>
+</body>
+</html>

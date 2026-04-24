@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ParrotCam 实时预览</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#f0f2f1;color:#333;font-size:14px}
+.header{background:#2d8659;color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
+.header-left{display:flex;align-items:center;gap:8px}
+.header h1{font-size:16px;font-weight:600}
+.header .ver{font-size:12px;opacity:.7}
+.fs-btn{background:rgba(255,255,255,.2);color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;font-family:inherit}
+.fs-btn:hover{background:rgba(255,255,255,.35)}
+.main{padding:12px;max-width:860px;margin:0 auto;padding-bottom:60px}
+.preview-card{background:#000;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.15);position:relative}
+#stream{width:100%;display:block;background:#000;min-height:200px}
+.placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;color:#666;min-height:300px;font-size:15px}
+.placeholder .spinner{width:32px;height:32px;border:3px solid #333;border-top-color:#2d8659;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.status-bar{background:#fff;border-radius:8px;padding:10px 14px;margin-top:10px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 3px rgba(0,0,0,.08);font-size:13px;flex-wrap:wrap;gap:8px}
+.status-left{display:flex;align-items:center;gap:12px}
+.status-item{display:flex;align-items:center;gap:4px}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.on{background:#2d8659}
+.dot.off{background:#e74c3c;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.dot.loading{background:#e67e22;animation:pulse .8s infinite}
+.status-label{color:#888}
+.status-val{font-weight:500}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #ddd;display:flex;z-index:10}
+.bottom-nav a{flex:1;text-align:center;padding:10px 0;font-size:12px;color:#888;text-decoration:none}
+.bottom-nav a.active{color:#2d8659;font-weight:600}
+.bottom-nav a:hover{background:#f5f5f5}
+#preview-container:fullscreen .preview-card,#preview-container:-webkit-full-screen .preview-card{border-radius:0;height:100vh;display:flex;align-items:center;justify-content:center}
+#preview-container:fullscreen #stream,#preview-container:-webkit-full-screen #stream{max-height:100vh;object-fit:contain}
+</style>
+</head>
+<body>
+<div class="header">
+<div class="header-left">
+<span>&#128247;</span>
+<h1>ParrotCam <span class="ver">实时预览</span></h1>
+</div>
+<button class="fs-btn" onclick="toggleFullscreen()">&#9974; 全屏</button>
+</div>
+<div class="main">
+<div id="preview-container">
+<div class="preview-card">
+<div class="placeholder" id="placeholder">
+<div class="spinner"></div>
+正在连接摄像头...
+</div>
+<img id="stream" style="display:none" alt="实时画面">
+</div>
+</div>
+<div class="status-bar">
+<div class="status-left">
+<div class="status-item">
+<span class="status-label">状态:</span>
+<span class="dot loading" id="statusDot"></span>
+<span class="status-val" id="statusText">连接中</span>
+</div>
+<div class="status-item">
+<span class="status-label">帧率:</span>
+<span class="status-val" id="fps">--</span>
+</div>
+</div>
+</div>
+</div>
+<nav class="bottom-nav">
+<a href="/">&#128202; 仪表盘</a>
+<a href="/config.html">&#9881; 配置</a>
+<a href="/files.html">&#128193; 文件</a>
+<a href="/preview.html" class="active">&#128249; 预览</a>
+</nav>
+<script>
+var img=document.getElementById('stream');
+var placeholder=document.getElementById('placeholder');
+var statusDot=document.getElementById('statusDot');
+var statusText=document.getElementById('statusText');
+var fpsEl=document.getElementById('fps');
+var connected=false;
+var frameCount=0;
+var lastTime=Date.now();
+var retryTimer=null;
+
+function updateConnected(){
+ connected=true;
+ clearTimeout(retryTimer);
+ placeholder.style.display='none';
+ img.style.display='block';
+ statusDot.className='dot on';
+ statusText.textContent='已连接';
+ statusText.style.color='#2d8659';
+}
+
+function updateDisconnected(msg){
+ connected=false;
+ statusDot.className='dot off';
+ statusText.textContent=msg||'连接断开';
+ statusText.style.color='#e74c3c';
+ if(retryTimer)clearTimeout(retryTimer);
+ retryTimer=setTimeout(function(){
+  statusDot.className='dot loading';
+  statusText.textContent='重新连接中';
+  statusText.style.color='#e67e22';
+  img.src='/stream?t='+Date.now();
+ },3000);
+}
+
+img.onload=function(){
+ frameCount++;
+ updateConnected();
+};
+
+img.onerror=function(){
+ updateDisconnected('连接断开');
+};
+
+img.src='/stream';
+
+setInterval(function(){
+ if(!connected)return;
+ var now=Date.now();
+ var elapsed=now-lastTime;
+ if(elapsed>0){
+  var f=Math.round(frameCount*1000/elapsed);
+  fpsEl.textContent=f+' fps';
+ }
+ frameCount=0;
+ lastTime=now;
+},1000);
+
+function toggleFullscreen(){
+ var c=document.getElementById('preview-container');
+ if(document.fullscreenElement||document.webkitFullscreenElement){
+  if(document.exitFullscreen)document.exitFullscreen();
+  else if(document.webkitExitFullscreen)document.webkitExitFullscreen();
+ }else{
+  if(c.requestFullscreen)c.requestFullscreen();
+  else if(c.webkitRequestFullscreen)c.webkitRequestFullscreen();
+ }
+}
+</script>
+</body>
+</html>

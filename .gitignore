@@ -1,0 +1,11 @@
+build/
+sdkconfig.old
+sdkconfig
+managed_components/
+dependencies.lock
+.sisyphus/
+setup_idf_env.ps1
+*.bak
+*.swp
+.DS_Store
+Thumbs.db
