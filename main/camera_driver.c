@@ -19,11 +19,14 @@
 #include "esp_camera.h"
 #include "esp_log.h"
 #include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/gpio.h"
 #include "sensor.h"
 
 static const char *TAG = "camera";
 
-/* XIAO ESP32S3 Sense DVP pin mapping */
+/* XIAO ESP32S3 Sense DVP pin mapping（与 Arduino CameraWebServer 官方定义一致） */
 #define CAM_PIN_PWDN  -1
 #define CAM_PIN_RESET -1
 #define CAM_PIN_XCLK  10
@@ -33,10 +36,10 @@ static const char *TAG = "camera";
 #define CAM_PIN_D6    11
 #define CAM_PIN_D5    12
 #define CAM_PIN_D4    14
-#define CAM_PIN_D3    15
-#define CAM_PIN_D2    16
+#define CAM_PIN_D3    16
+#define CAM_PIN_D2    18
 #define CAM_PIN_D1    17
-#define CAM_PIN_D0    18
+#define CAM_PIN_D0    15
 #define CAM_PIN_VSYNC 38
 #define CAM_PIN_HREF  47
 #define CAM_PIN_PCLK  13
@@ -79,6 +82,9 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
         return ESP_OK;
     }
 
+    /* Release GPIO10 from SDMMC (SD card CMD) so camera can use it as XCLK */
+    gpio_reset_pin(CAM_PIN_XCLK);
+
     camera_config_t config = {
         .pin_xclk     = CAM_PIN_XCLK,
         .pin_sccb_sda = CAM_PIN_SIOD,
@@ -103,6 +109,7 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
         .frame_size    = res_to_framesize(res),
         .jpeg_quality  = quality,
         .fb_count      = 2,                /* double buffer in PSRAM */
+        .fb_location   = CAMERA_FB_IN_PSRAM,
         .grab_mode     = CAMERA_GRAB_LATEST,
     };
 
@@ -138,6 +145,18 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
     }
     ESP_LOGI(TAG, "Sensor: %s, Resolution: %s, Quality: %d",
              sensor_name, camera_res_to_str(res), quality);
+
+    /* Warmup: allow sensor to stabilize auto-exposure */
+    ESP_LOGI(TAG, "Warming up sensor (discarding initial frames)...");
+    for (int i = 0; i < 10; i++) {
+        camera_fb_t *warmup_fb = esp_camera_fb_get();
+        if (warmup_fb) {
+            ESP_LOGD(TAG, "Warmup frame %d: %zu bytes", i, warmup_fb->len);
+            esp_camera_fb_return(warmup_fb);
+        } else {
+            ESP_LOGD(TAG, "Warmup frame %d: NULL", i);
+        }
+    }
 
     /* Test capture to verify pipeline */
     camera_fb_t *fb = esp_camera_fb_get();

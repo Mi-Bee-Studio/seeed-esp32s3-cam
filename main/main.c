@@ -277,22 +277,11 @@ static void health_monitor_task(void *arg)
  *   2.  配置管理器初始化（从 NVS 加载配置）
  *   3.  状态 LED 初始化
  *   4.  SPIFFS 文件系统挂载（Web UI 资源）
- *   5.  SD 卡存储初始化
- *   5a. 启动时清理不完整的 AVI 文件
- *   6.  从 SD 卡配置文件覆盖 NVS 配置
- *   7.  WiFi 初始化（AP 或 STA 模式）
- *   8.  摄像头初始化（根据配置设置分辨率/帧率/画质）
- *   9.  NTP 时间同步（仅 STA 已连接时）
- *  10.  NAS 上传器初始化
- *  11.  视频录像器初始化并注册分段回调
- *  12.  MJPEG 实时流初始化
- *  13.  Web 服务器启动并注册 MJPEG 流
- *  14.  LED 更新为当前 WiFi 状态
- *  15.  等待 STA 连接成功后启动录像
- *  16.  启动 BOOT 按键监控任务（长按 5 秒恢复出厂）
- *  17.  配置看门狗（30 秒超时，触发 panic）
- *  18.  启动 SD 卡热插拔监控任务（Core 1）
- *  19.  启动健康状态监控任务（Core 1）
+ *   5.  摄像头初始化（GPIO10 作为 XCLK，必须在 SD 卡之前）
+ *   6.  SD 卡存储初始化
+ *   6a. 启动时清理不完整的 AVI 文件
+ *   7.  从 SD 卡配置文件覆盖 NVS 配置
+ *   8.  WiFi 初始化（AP 或 STA 模式）
  */
 /* ------------------------------------------------------------------ */
 /*  app_main                                                           */
@@ -328,35 +317,37 @@ void app_main(void)
     /* 第4步：挂载SPIFFS文件系统，用于存放Web管理界面页面 */
     init_spiffs();
 
-    /* ---- 5. SD card storage ------------------------------------------ */
-    /* 第5步：初始化SD卡存储管理器 */
+    /* ---- 5. Camera (before SD card to claim GPIO10 for XCLK) ------- */
+    /* 第5步：初始化摄像头（必须在SD卡之前，避免GPIO10被SDMMC占用导致NO-SOI） */
+    {
+        camera_res_t res = CAMERA_RES_VGA; /* Force VGA for initial bring-up */
+        switch (cfg->resolution) {
+            case 0:  res = CAMERA_RES_VGA;  break;
+            case 1:  res = CAMERA_RES_SVGA; break;
+            case 2:  res = CAMERA_RES_XGA;  break;
+            default: res = CAMERA_RES_VGA; break;
+        }
+        camera_init(res, cfg->fps, cfg->jpeg_quality);
+    }
+
+    /* ---- 6. SD card storage ------------------------------------------ */
+    /* 第6步：初始化SD卡存储管理器 */
     storage_init();
 
-    /* ---- 5a. Boot-time cleanup of incomplete AVI files --------------- */
-    /* 第5a步：清理上次异常关机遗留的不完整AVI文件 */
+    /* ---- 6a. Boot-time cleanup of incomplete AVI files --------------- */
+    /* 第6a步：清理上次异常关机遗留的不完整AVI文件 */
     if (storage_is_available()) {
         recorder_cleanup_incomplete();
     }
 
-    /* ---- 6. Config SD override --------------------------------------- */
-    /* 第6步：从SD卡的wifi.txt/nas.txt文件读取配置，覆盖NVS中的值 */
+    /* ---- 7. Config SD override --------------------------------------- */
+    /* 第7步：从SD卡的wifi.txt/nas.txt文件读取配置，覆盖NVS中的值 */
     config_load_from_sd();
     cfg = config_get();
 
-    /* ---- 7. WiFi ----------------------------------------------------- */
-    /* 第7步：初始化WiFi，根据配置启动AP热点或STA客户端模式 */
+    /* ---- 8. WiFi ----------------------------------------------------- */
+    /* 第8步：初始化WiFi，根据配置启动AP热点或STA客户端模式 */
     wifi_init();
-
-    /* ---- 8. Camera --------------------------------------------------- */
-    /* 第8步：初始化摄像头，按配置设置分辨率(VGA/SVGA/XGA)、帧率和JPEG画质 */
-    camera_res_t res = CAMERA_RES_SVGA;
-    switch (cfg->resolution) {
-        case 0:  res = CAMERA_RES_VGA;  break;
-        case 1:  res = CAMERA_RES_SVGA; break;
-        case 2:  res = CAMERA_RES_XGA;  break;
-        default: res = CAMERA_RES_SVGA; break;
-    }
-    camera_init(res, cfg->fps, cfg->jpeg_quality);
 
     /* ---- 9. Time sync (only if STA connected) ----------------------- */
     /* 第9步：仅在STA已连接时初始化SNTP时间同步 */

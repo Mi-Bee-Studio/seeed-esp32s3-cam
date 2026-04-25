@@ -53,6 +53,9 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .checkbox-row label{margin-bottom:0;font-size:14px;color:#333;cursor:pointer}
 .sub-section{margin-top:12px}
 .sub-title{font-size:13px;color:#888;margin-bottom:8px;font-weight:500}
+.pw-wrap{position:relative}
+.pw-wrap input{padding-right:36px}
+.pw-wrap .eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);cursor:pointer;user-select:none;font-size:18px;color:#888;line-height:1}
 </style>
 </head>
 <body>
@@ -78,7 +81,9 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </div>
 <div class="field">
 <label>密码</label>
+<div class="pw-wrap">
 <input type="password" id="wifi_pass" placeholder="WiFi密码">
+<span class="eye" onclick="togPw(this)">&#128065;</span>
 </div>
 </div>
 
@@ -103,7 +108,10 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </div>
 <div class="field">
 <label>密码</label>
+<div class="pw-wrap">
 <input type="password" id="ftp_pass" placeholder="ftp密码">
+<span class="eye" onclick="togPw(this)">&#128065;</span>
+</div>
 </div>
 <div class="field">
 <label>远程路径</label>
@@ -126,7 +134,9 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </div>
 <div class="field">
 <label>密码</label>
+<div class="pw-wrap">
 <input type="password" id="webdav_pass" placeholder="webdav密码">
+<span class="eye" onclick="togPw(this)">&#128065;</span>
 </div>
 </div>
 </div>
@@ -179,11 +189,17 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <div class="card-title">系统设置</div>
 <div class="field">
 <label>Web 管理密码</label>
+<div class="pw-wrap">
 <input type="password" id="web_password" placeholder="留空则不修改">
+<span class="eye" onclick="togPw(this)">&#128065;</span>
+</div>
 </div>
 <div class="field">
 <label>确认密码</label>
+<div class="pw-wrap">
 <input type="password" id="web_password_confirm" placeholder="再次输入新密码">
+<span class="eye" onclick="togPw(this)">&#128065;</span>
+</div>
 </div>
 <div class="btn-row">
 <button class="btn btn-save" onclick="saveConfig()">保存配置</button>
@@ -370,6 +386,13 @@ function factoryReset(){
 }
 
 /* ---- Init ---- */
+
+/* ---- Password eye toggle ---- */
+function togPw(el){
+ var inp=el.previousElementSibling;
+ if(inp.type==='password'){inp.type='text';el.textContent='\uD83D\uDC41';}
+ else{inp.type='password';el.textContent='\uD83D\uDC40';}
+}
 window.onload=loadConfig;
 </script>
 </body>

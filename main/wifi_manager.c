@@ -17,6 +17,7 @@
 
 #include "wifi_manager.h"
 #include "config_manager.h"
+#include "status_led.h"
 
 #include <string.h>
 #include "esp_wifi.h"
@@ -46,21 +47,82 @@ static char s_ip_str[16] = "0.0.0.0";
 /* ---- reconnect timer (one-shot, 60 s) ---- */
 static TimerHandle_t s_reconnect_timer = NULL;
 
+/* Forward declarations */
+static void get_ap_ssid(char *buf, size_t len);
+static void wifi_event_handler(void *arg, esp_event_base_t base,
+                               int32_t id, void *event_data);
+
 /** @brief WiFi 重连定时器回调函数，60 秒后触发重连 */
 static void reconnect_timer_cb(TimerHandle_t timer)
 {
-    ESP_LOGI(TAG, "Reconnect timer fired, retry %d", ++s_retry_count);
+    s_retry_count++;
+    ESP_LOGI(TAG, "Reconnect timer fired, retry %d", s_retry_count);
+
+    if (s_retry_count >= 3) {
+        ESP_LOGW(TAG, "STA failed %d times, falling back to AP mode", s_retry_count);
+
+        /* Stop retry timer */
+        xTimerStop(s_reconnect_timer, 0);
+
+        /* Tear down STA */
+        esp_wifi_stop();
+        esp_wifi_deinit();
+        if (s_netif_sta) {
+            esp_netif_destroy(s_netif_sta);
+            s_netif_sta = NULL;
+        }
+
+        /* Start AP mode */
+        s_netif_ap = esp_netif_create_default_wifi_ap();
+
+        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+        ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+        ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
+                            IP_EVENT_ASSIGNED_IP_TO_CLIENT,
+                            wifi_event_handler, NULL, NULL));
+
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+
+        wifi_config_t ap_config = {0};
+        get_ap_ssid((char *)ap_config.ap.ssid, sizeof(ap_config.ap.ssid));
+        strlcpy((char *)ap_config.ap.password, "12345678", sizeof(ap_config.ap.password));
+        ap_config.ap.channel = 1;
+        ap_config.ap.max_connection = 4;
+        ap_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
+
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
+        ESP_ERROR_CHECK(esp_wifi_start());
+
+        /* Set static IP for AP netif */
+        esp_netif_ip_info_t ip_info = {0};
+        IP4_ADDR(&ip_info.ip, 192, 168, 4, 1);
+        IP4_ADDR(&ip_info.gw, 192, 168, 4, 1);
+        IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
+        esp_netif_dhcps_stop(s_netif_ap);
+        esp_netif_set_ip_info(s_netif_ap, &ip_info);
+        esp_netif_dhcps_start(s_netif_ap);
+
+        snprintf(s_ip_str, sizeof(s_ip_str), "192.168.4.1");
+        s_state = WIFI_STATE_AP;
+        s_retry_count = 0;
+
+        led_set_status(LED_AP_MODE);
+        ESP_LOGI(TAG, "AP fallback started, SSID=%s, IP=192.168.4.1", ap_config.ap.ssid);
+        return;
+    }
+
     esp_wifi_connect();
 }
 
 /* ---- MAC helper for AP SSID ---- */
-/** @brief 根据设备 MAC 地址生成 AP 热点 SSID（格式：ParrotCam-XXXX） */
+/** @brief 根据设备 MAC 地址生成 AP 热点 SSID（格式：MiBeeHomeCam-XXXX） */
 static void get_ap_ssid(char *buf, size_t len)
 {
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
     uint16_t suffix = ((uint16_t)mac[4] << 8) | mac[5];
-    snprintf(buf, len, "ParrotCam-%04X", suffix);
+    snprintf(buf, len, "MiBeeHomeCam-%04X", suffix);
 }
 
 /* ---- event handler ---- */
