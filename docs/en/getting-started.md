@@ -82,7 +82,7 @@ First compilation requires downloading dependent components, taking 3-5 minutes.
 
 After successful compilation, the firmware is located at:
 ```
-build/parrot_cam.bin
+build/mibee_homecam.bin
 ```
 
 ---

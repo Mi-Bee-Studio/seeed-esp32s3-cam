@@ -77,8 +77,123 @@ Access-Control-Allow-Headers: Content-Type, X-Password
 | 9 | POST | `/api/record?action=start\|stop` | **Yes** | Control recording |
 | 10 | POST | `/api/reset` | **Yes** | Factory reset |
 | 11 | GET | `/stream` | No | MJPEG real-time video stream |
-| 12 | OPTIONS | `/*` | No | CORS preflight request |
-| 13 | GET | `/*` | No | Static files (SPIFFS) |
+| 12 | POST | `/api/files/batch` | **Yes** | Batch delete files |
+| 13 | GET | `/metrics` | No | Prometheus metrics (text format) |
+| 14 | OPTIONS | `/*` | No | CORS preflight request |
+
+## `/api/status` Response Fields
+
+`/api/status` returns JSON with following fields:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "recording": false,
+    "wifi_state": "STA_CONNECTED",
+    "sd_available": 75.5,
+    "sd_total": 29.7,
+    "sd_free_percent": 75.5,
+    "camera_sensor": "OV2640",
+    "camera_res": "SVGA",
+    "camera_quality": 12,
+    "chip_temp": 42.5,
+    "free_heap": 185432,
+    "free_psram": 4194304
+  }
+}
+```
+
+#### New Field: `chip_temp`
+
+- **Type**: `number` (temperature in Celsius)
+- **Range**: 20-80°C (typical ESP32-S3 operating range)
+- **Description**: Internal ESP32-S3 die temperature
+- **Added in**: Version with temperature monitoring support
+
+### `/api/files/batch` - Batch File Operations
+
+Delete multiple recording files in a single request.
+
+**Request**:
+```json
+{
+  "names": ["file1.avi", "file2.avi", "file3.avi"]
+}
+```
+
+**Response**:
+```json
+{
+  "ok": true,
+  "data": {
+    "deleted": 2,
+    "failed": 1
+  }
+}
+```
+
+**Authentication**: Required (X-Password header or ?password= query param)
+
+---
+
+### `/metrics` - Prometheus Metrics
+
+Expose device metrics in Prometheus text exposition format for external monitoring.
+
+**Request**: `GET /metrics`
+
+**Response**: `text/plain` (no authentication required)
+
+**Available Metrics**:
+
+```text
+# HELP esp_free_heap_bytes Free heap memory bytes
+# TYPE esp_free_heap_bytes gauge
+esp_free_heap_bytes 185432
+
+# HELP esp_free_psram_bytes Free PSRAM memory bytes
+# TYPE esp_free_psram_bytes gauge
+esp_free_psram_bytes 4194304
+
+# HELP esp_chip_temp_celsius ESP32-S3 chip temperature
+# TYPE esp_chip_temp_celsius gauge
+esp_chip_temp_celsius 42.5
+
+# HELP esp_recording_state Recording state (0=IDLE, 1=RECORDING, 2=PAUSED, 3=ERROR)
+# TYPE esp_recording_state gauge
+esp_recording_state 0
+
+# HELP sd_free_bytes SD card free bytes
+# TYPE sd_free_bytes gauge
+sd_free_bytes 22385920
+
+# HELP sd_total_bytes SD card total bytes
+# TYPE sd_total_bytes gauge
+sd_total_bytes 31457280
+
+# HELP sd_free_percent SD card free percentage
+# TYPE sd_free_percent gauge
+sd_free_percent 71.1
+
+# HELP wifi_state WiFi state (0=AP, 1=STA_CONNECTING, 2=STA_CONNECTED, 3=STA_DISCONNECTED)
+# TYPE wifi_state gauge
+wifi_state 2
+
+# HELP upload_queue_size NAS upload queue size
+# TYPE upload_queue_size gauge
+upload_queue_size 0
+```
+
+**Prometheus Scrape Configuration**:
+
+```yaml
+scrape_configs:
+  - job_name: 'esp32-cam'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['192.168.1.100:80']
+```
 
 ## HTTP Status Codes
 

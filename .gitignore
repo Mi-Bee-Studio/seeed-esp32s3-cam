@@ -63,3 +63,7 @@ Thumbs.db
 Desktop.ini
 .playwright-mcp
 build_log.txt
+
+# Test screenshots (root only)
+/*-test.png
+/*-check.png

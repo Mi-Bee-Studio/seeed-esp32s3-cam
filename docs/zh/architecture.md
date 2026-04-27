@@ -1,4 +1,4 @@
-# 系统架构
+﻿# 系统架构
 
 ## 1. 系统概览
 
@@ -209,12 +209,16 @@ Browser 实时渲染
 | GET | `/api/files` | 否 | 录像文件列表 |
 | DELETE | `/api/files` | 是 | 删除指定文件 |
 | GET | `/api/download?name=xxx` | 否 | 下载录像文件 |
+| POST | `/api/files/batch` | 是 | 批量删除文件 |
 | GET | `/api/scan` | 否 | WiFi AP 扫描 |
 | POST | `/api/time` | 是 | 手动设置时间 |
 | POST | `/api/record?action=start\|stop` | 是 | 录像控制 |
 | POST | `/api/reset` | 是 | 恢复出厂设置 |
 | OPTIONS | `/*` | 否 | CORS 预检 |
 | GET | `/*` | 否 | 静态文件（Web UI） |
+
+| POST | `/api/files/batch` | 是 | 批量删除文件 |
+| GET | `/metrics` | 否 | Prometheus 监控指标 |
 
 认证方式：通过 `X-Password` 请求头或 `?password=xxx` 查询参数传递管理密码。
 

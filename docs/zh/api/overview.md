@@ -1,4 +1,4 @@
-# API 概述
+﻿# API 概述
 
 > ESP32-S3 摄像头监控固件 REST API 文档
 
@@ -110,7 +110,134 @@ SD 卡配置文件 > NVS 存储 > 编译时默认值
 ### SPIFFS 分区
 
 Web 界面静态文件存储在 SPIFFS 分区（约 256KB），路径前缀 `/spiffs/`。
+Web 界面静态文件存储在 SPIFFS 分区（约 256KB），路径前缀 `/spiffs/`。
 
+### 服务器配置
+
+| 参数 | 值 |
+|------|-----|
+| 端口 | 80 |
+| 最大 URI 处理器 | 20 |
+| 任务栈大小 | 8192 字节 |
+| 接收超时 | 30 秒 |
+| 发送超时 | 30 秒 |
+| URI 匹配模式 | 通配符（wildcard） |
+
+## `/api/status` 响应字段
+
+`/api/status` 返回包含以下字段的 JSON：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "recording": false,
+    "wifi_state": "STA_CONNECTED",
+    "sd_available": 75.5,
+    "sd_total": 29.7,
+    "sd_free_percent": 75.5,
+    "camera_sensor": "OV2640",
+    "camera_res": "SVGA",
+    "camera_quality": 12,
+    "chip_temp": 42.5,
+    "free_heap": 185432,
+    "free_psram": 4194304
+  }
+}
+```
+
+### 新增字段：`chip_temp`
+
+- **类型**：`number`（温度，摄氏度）
+- **范围**：20-80°C（ESP32-S3 典型工作范围）
+- **说明**：ESP32-S3 内核温度
+- **新增版本**：支持温度监控功能的版本
+
+### `/api/files/batch` - 批量文件操作
+
+批量删除录制文件，单次请求可删除多个文件。
+
+**请求**：
+```json
+{
+  "names": ["file1.avi", "file2.avi", "file3.avi"]
+}
+```
+
+**响应**：
+```json
+{
+  "ok": true,
+  "data": {
+    "deleted": 2,
+    "failed": 1
+  }
+}
+```
+
+**认证**：需要（X-Password 请求头或 ?password= 查询参数）
+
+---
+
+### `/metrics` - Prometheus 监控指标
+
+以 Prometheus text exposition 格式暴露设备指标，供外部监控系统使用。
+
+**请求**：`GET /metrics`
+
+**响应**：`text/plain`（无需认证）
+
+**可用指标**：
+
+```text
+# HELP esp_free_heap_bytes Free heap memory bytes
+# TYPE esp_free_heap_bytes gauge
+esp_free_heap_bytes 185432
+
+# HELP esp_free_psram_bytes Free PSRAM memory bytes
+# TYPE esp_free_psram_bytes gauge
+esp_free_psram_bytes 4194304
+
+# HELP esp_chip_temp_celsius ESP32-S3 chip temperature
+# TYPE esp_chip_temp_celsius gauge
+esp_chip_temp_celsius 42.5
+
+# HELP esp_recording_state Recording state (0=IDLE, 1=RECORDING, 2=PAUSED, 3=ERROR)
+# TYPE esp_recording_state gauge
+esp_recording_state 0
+
+# HELP sd_free_bytes SD card free bytes
+# TYPE sd_free_bytes gauge
+sd_free_bytes 22385920
+
+# HELP sd_total_bytes SD card total bytes
+# TYPE sd_total_bytes gauge
+sd_total_bytes 31457280
+
+# HELP sd_free_percent SD card free percentage
+# TYPE sd_free_percent gauge
+sd_free_percent 71.1
+
+# HELP wifi_state WiFi state (0=AP, 1=STA_CONNECTING, 2=STA_CONNECTED, 3=STA_DISCONNECTED)
+# TYPE wifi_state gauge
+wifi_state 2
+
+# HELP upload_queue_size NAS upload queue size
+# TYPE upload_queue_size gauge
+upload_queue_size 0
+```
+
+**Prometheus 抓取配置**：
+
+```yaml
+scrape_configs:
+  - job_name: 'esp32-cam'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['192.168.1.100:80']
+```
+
+## 附录
 ### 服务器配置
 
 | 参数 | 值 |

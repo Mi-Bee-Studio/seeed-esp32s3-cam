@@ -1,0 +1,36 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: espressif/idf:v5.4
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build firmware
+        run: |
+          . ${IDF_PATH}/export.sh
+          idf.py set-target esp32s3
+          idf.py build
+      
+      - name: Package firmware
+        run: |
+          mkdir -p release
+          cp build/mibee_homecam.bin release/
+          cp build/bootloader/bootloader.bin release/
+          cp build/partition_table/partition-table.bin release/
+          echo "esptool.py --chip esp32s3 -b 460800 write_flash 0x0 bootloader.bin 0x8000 partition-table.bin 0x10000 mibee_homecam.bin" > release/flash_command.txt
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

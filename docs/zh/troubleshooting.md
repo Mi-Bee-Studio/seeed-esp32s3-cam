@@ -1,4 +1,4 @@
-# 故障排除
+﻿# 故障排除
 
 ## 1. 日志查看
 
@@ -134,6 +134,76 @@ if (ev_err != ESP_OK && ev_err != ESP_ERR_INVALID_STATE) {
 5. 尝试重新格式化（FAT32，分配单元 64 KB）
 
 **解决**：更换 TF 卡或重新格式化。支持热插拔，插入后 10 秒内自动检测并恢复。
+
+---
+
+### SD 卡 SPI 高速模式初始化失败
+
+**现象**：固件升级后 SD 卡无法初始化，串口日志显示重复失败：
+
+
+
+
+
+E (xxx) sdmmc_sd: sdmmc_enable_hs_mode_and_check: send_csd returned 0x108
+
+E (xxx) vfs_fat_sdmmc: sdmmc_card_init failed (0x108).
+
+E (xxx) vfs_fat_sdmmc: esp_vfs_fat_sdspi_sdcard_init failed (0x108).
+
+W (xxx) storage: SD card init attempt N/5 failed: ESP_ERR_INVALID_RESPONSE (0x108)
+
+
+
+
+
+设备正常运行但 SD 卡不可用（无录像，`/api/status` 显示 `sd_free_percent: 0` 且异常大的 `sd_total_bytes`）。
+
+
+
+**根因**：固件使用 SPI 模式（1 位）进行 SD 卡通信。将 SPI 时钟设置为 `SDMMC_FREQ_HIGHSPEED`（40MHz）时，SPI 模式下的 CMD6 高速模式切换命令会失败。并非所有 SD 卡都支持高速 SPI 协商。
+
+
+
+
+
+
+
+I (xxx) storage: Initializing SD card (SPI mode): CS=21 SCK=7 MOSI=9 MISO=8
+
+I (xxx) sdspi_transaction: cmd=5, R1 response: command not supported
+
+E (xxx) sdmmc_sd: sdmmc_enable_hs_mode_and_check: send_csd returned 0x108
+
+
+
+
+
+
+
+
+
+
+// Correct for SPI mode
+
+sdspi_device_config_t dev_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
+
+// Use SDMMC_FREQ_DEFAULT (20MHz), NOT SDMMC_FREQ_HIGHSPEED (40MHz)
+
+// High-speed mode CMD6 is not reliable in SPI mode
+
+
+
+
+
+**预防**：修改 SD 卡参数时，务必在实际硬件上测试。SPI 模式的速度能力与 SDMMC 模式（4 位）不同。
+
+
+
+---
+
+---
+
 
 ---
 

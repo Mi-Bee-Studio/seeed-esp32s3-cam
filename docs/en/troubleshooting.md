@@ -137,6 +137,78 @@ if (ev_err != ESP_OK && ev_err != ESP_ERR_INVALID_STATE) {
 
 ---
 
+
+
+### SD Card Initialization Fails with SPI High-Speed Mode
+
+
+
+**Symptom**: SD card works fine with previous firmware but fails to initialize after upgrade. Serial log shows repeated failures:
+
+
+
+```
+
+E (xxx) sdmmc_sd: sdmmc_enable_hs_mode_and_check: send_csd returned 0x108
+
+E (xxx) vfs_fat_sdmmc: sdmmc_card_init failed (0x108).
+
+E (xxx) vfs_fat_sdmmc: esp_vfs_fat_sdspi_sdcard_init failed (0x108).
+
+W (xxx) storage: SD card init attempt N/5 failed: ESP_ERR_INVALID_RESPONSE (0x108)
+
+```
+
+
+
+Device runs normally except SD card is unavailable (no recording, `/api/status` shows `sd_free_percent: 0` and abnormally large `sd_total_bytes`).
+
+
+
+**Root Cause**: The firmware uses SPI mode (1-bit) for SD card communication. Setting the SPI clock to `SDMMC_FREQ_HIGHSPEED` (40MHz) causes the CMD6 high-speed mode switching command to fail in SPI mode. Not all SD cards support high-speed SPI negotiation.
+
+
+
+**Log Signature**:
+
+```
+
+I (xxx) storage: Initializing SD card (SPI mode): CS=21 SCK=7 MOSI=9 MISO=8
+
+I (xxx) sdspi_transaction: cmd=5, R1 response: command not supported
+
+E (xxx) sdmmc_sd: sdmmc_enable_hs_mode_and_check: send_csd returned 0x108
+
+```
+
+
+
+**Fix**: In `storage_manager.c`, ensure the SPI clock frequency is set to `SDMMC_FREQ_DEFAULT` (20MHz), not `SDMMC_FREQ_HIGHSPEED` (40MHz). The 20MHz default provides reliable SPI operation with download speeds of approximately 300-600 KB/s.
+
+
+
+```c
+
+// Correct for SPI mode
+
+sdspi_device_config_t dev_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
+
+// Use SDMMC_FREQ_DEFAULT (20MHz), NOT SDMMC_FREQ_HIGHSPEED (40MHz)
+
+// High-speed mode CMD6 is not reliable in SPI mode
+
+```
+
+
+
+**Prevention**: When modifying SD card parameters, always test with the actual hardware. SPI mode has different speed capabilities than SDMMC mode (4-bit).
+
+
+
+---
+
+---
+
 ### Recording Not Starting
 
 **Symptom**: LED is off but `/api/status` shows `recording: false`.

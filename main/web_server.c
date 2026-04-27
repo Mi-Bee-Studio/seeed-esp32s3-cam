@@ -28,6 +28,7 @@
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
 #include "nas_uploader.h"
 #include "mjpeg_streamer.h"
 
@@ -37,6 +38,8 @@
 #include <dirent.h>
 
 static const char *TAG = "web";
+
+extern float get_chip_temp(void);
 
 static httpd_handle_t s_server = NULL;
 static uint16_t s_port = 0;
@@ -193,6 +196,7 @@ static esp_err_t api_status_handler(httpd_req_t *req)
     nas_uploader_get_status(last_upload, sizeof(last_upload), &upload_queue, &upload_paused);
     cJSON_AddStringToObject(data, "last_upload", last_upload);
     cJSON_AddNumberToObject(data, "upload_queue", upload_queue);
+    cJSON_AddNumberToObject(data, "chip_temp", (double)get_chip_temp());
 
     return json_ok(req, data);
 }
@@ -364,6 +368,66 @@ static esp_err_t api_files_delete_handler(httpd_req_t *req)
 }
 
 /* ------------------------------------------------------------------ */
+/*  POST /api/files/batch                                              */
+/* ------------------------------------------------------------------ */
+
+/** @brief Batch delete multiple recording files */
+static esp_err_t api_files_batch_handler(httpd_req_t *req)
+{
+    if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+
+    char buf[2048];
+    int len = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (len <= 0) {
+        return json_error(req, "Empty request body", HTTPD_400_BAD_REQUEST);
+    }
+    buf[len] = '\0';
+
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        return json_error(req, "Invalid JSON", HTTPD_400_BAD_REQUEST);
+    }
+
+    cJSON *names_arr = cJSON_GetObjectItem(root, "names");
+    if (!cJSON_IsArray(names_arr)) {
+        cJSON_Delete(root);
+        return json_error(req, "Missing 'names' array", HTTPD_400_BAD_REQUEST);
+    }
+
+    const char *current = recorder_get_current_file();
+    int deleted = 0, failed = 0;
+
+    for (int i = 0; i < cJSON_GetArraySize(names_arr); i++) {
+        cJSON *item = cJSON_GetArrayItem(names_arr, i);
+        const char *name = cJSON_GetStringValue(item);
+        if (!name) { failed++; continue; }
+
+        /* Block path traversal */
+        if (strstr(name, "..")) { failed++; continue; }
+
+        /* Do not delete currently recording file */
+        if (current && strcmp(name, current) == 0) { failed++; continue; }
+
+        char path[256];
+        snprintf(path, sizeof(path), "/sdcard/recordings/%s", name);
+
+        if (remove(path) == 0) {
+            storage_unregister_file(name);
+            deleted++;
+        } else {
+            failed++;
+        }
+    }
+
+    cJSON_Delete(root);
+
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddNumberToObject(data, "deleted", deleted);
+    cJSON_AddNumberToObject(data, "failed", failed);
+    return json_ok(req, data);
+}
+
+/* ------------------------------------------------------------------ */
 /*  GET /api/download?name=xxx                                         */
 /* ------------------------------------------------------------------ */
 
@@ -420,7 +484,7 @@ static esp_err_t api_download_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Content-Disposition", disp);
     set_cors_headers(req);
 
-    char buf[1024];
+    char buf[4096];
     size_t n;
     while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
         if (httpd_resp_send_chunk(req, buf, n) != ESP_OK) {
@@ -638,7 +702,7 @@ static esp_err_t static_file_handler(httpd_req_t *req)
     httpd_resp_set_type(req, type);
     set_cors_headers(req);
 
-    char buf[1024];
+    char buf[4096];
     size_t n;
     while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
         httpd_resp_send_chunk(req, buf, n);
@@ -648,7 +712,74 @@ static esp_err_t static_file_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+
 /* ------------------------------------------------------------------ */
+/*  GET /metrics                                                     */
+/* ------------------------------------------------------------------ */
+
+/** @brief 处理GET /metrics请求，返回Prometheus格式的系统指标 */
+static esp_err_t metrics_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/plain");
+    set_cors_headers(req);
+
+    char buf[2048];
+    int len = 0;
+
+    /* 收集系统指标 */
+    uint32_t free_heap = esp_get_free_heap_size();
+    uint32_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    float temp = get_chip_temp();
+    recorder_state_t rs = recorder_get_state();
+    storage_info_t sd;
+    storage_get_info(&sd);
+    wifi_state_t ws = wifi_get_state();
+    int upload_queue = 0;
+    bool upload_paused = false;
+    char last_upload[32] = "";
+    nas_uploader_get_status(last_upload, sizeof(last_upload), &upload_queue, &upload_paused);
+
+    len = snprintf(buf, sizeof(buf),
+        "# HELP esp_free_heap_bytes Free heap memory\n"
+        "# TYPE esp_free_heap_bytes gauge\n"
+        "esp_free_heap_bytes %lu\n"
+        "# HELP esp_free_psram_bytes Free PSRAM memory\n"
+        "# TYPE esp_free_psram_bytes gauge\n"
+        "esp_free_psram_bytes %lu\n"
+        "# HELP esp_chip_temp_celsius ESP32-S3 chip temperature in Celsius\n"
+        "# TYPE esp_chip_temp_celsius gauge\n"
+        "esp_chip_temp_celsius %.1f\n"
+        "# HELP esp_recording_state Recording state (0=idle, 1=recording)\n"
+        "# TYPE esp_recording_state gauge\n"
+        "esp_recording_state %d\n"
+        "# HELP sd_free_bytes SD card free bytes\n"
+        "# TYPE sd_free_bytes gauge\n"
+        "sd_free_bytes %llu\n"
+        "# HELP sd_total_bytes SD card total bytes\n"
+        "# TYPE sd_total_bytes gauge\n"
+        "sd_total_bytes %llu\n"
+        "# HELP sd_free_percent SD card free space percentage\n"
+        "# TYPE sd_free_percent gauge\n"
+        "sd_free_percent %.1f\n"
+        "# HELP wifi_state WiFi connection state (0=disconnected, 1=STA connected, 2=AP mode)\n"
+        "# TYPE wifi_state gauge\n"
+        "wifi_state %d\n"
+        "# HELP upload_queue_size Number of files queued for upload\n"
+        "# TYPE upload_queue_size gauge\n"
+        "upload_queue_size %d\n",
+        (unsigned long)free_heap,
+        (unsigned long)free_psram,
+        temp,
+        rs == RECORDER_RECORDING ? 1 : 0,
+        (unsigned long long)sd.free_bytes,
+        (unsigned long long)sd.total_bytes,
+        storage_get_free_percent(),
+        ws == WIFI_STATE_STA_CONNECTED ? 1 : (ws == WIFI_STATE_AP ? 2 : 0),
+        upload_queue);
+
+    httpd_resp_send(req, buf, len);
+    return ESP_OK;
+}
 /*  URI handler registration table                                     */
 /* ------------------------------------------------------------------ */
 
@@ -664,13 +795,15 @@ static const uri_entry_t s_uris[] = {
     { "/api/config",   HTTP_POST,   api_config_post_handler   },
     { "/api/files",    HTTP_GET,    api_files_get_handler     },
     { "/api/files",    HTTP_DELETE, api_files_delete_handler  },
+    { "/api/files/batch", HTTP_POST,  api_files_batch_handler  },
     { "/api/download", HTTP_GET,    api_download_handler      },
     { "/api/scan",     HTTP_GET,    api_scan_handler          },
     { "/api/time",     HTTP_POST,   api_time_handler          },
     { "/api/record",   HTTP_POST,   api_record_handler        },
     { "/api/reset",    HTTP_POST,   api_reset_handler         },
     { "/api/format",   HTTP_POST,   api_format_handler        },
-    /* MJPEG stream — before wildcard to avoid conflict */
+    { "/metrics",      HTTP_GET,    metrics_handler           },
+/* MJPEG stream — before wildcard to avoid conflict */
     { "/stream",       HTTP_GET,    mjpeg_stream_handler      },
     /* CORS preflight — wildcard */
     { "/*",            HTTP_OPTIONS, options_handler           },

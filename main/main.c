@@ -62,8 +62,13 @@
 #include "web_server.h"
 #include "mjpeg_streamer.h"
 #include "nas_uploader.h"
+#include "driver/temperature_sensor.h"
 
 static const char *TAG = "main";
+
+static float s_chip_temp = 0.0f;
+
+float get_chip_temp(void) { return s_chip_temp; }
 
 /* Factory-reset: hold BOOT button (GPIO0) for 5 seconds */
 #define BOOT_BTN_GPIO    0
@@ -249,6 +254,10 @@ static void health_monitor_task(void *arg)
 
     ESP_LOGI(TAG, "Health monitor started");
 
+    temperature_sensor_handle_t temp_sensor = NULL;
+    temperature_sensor_config_t temp_cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(10, 80);
+    ESP_ERROR_CHECK(temperature_sensor_install(&temp_cfg, &temp_sensor));
+    ESP_ERROR_CHECK(temperature_sensor_enable(temp_sensor));
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(60000));
 
@@ -257,15 +266,20 @@ static void health_monitor_task(void *arg)
         uint32_t rec_hwm = recorder_get_stack_hwm();
         uint32_t nas_hwm = nas_uploader_get_stack_hwm();
 
-        ESP_LOGI(TAG, "HEALTH: heap=%lu PSRAM=%lu rec_hwm=%lu nas_hwm=%lu",
+        temperature_sensor_get_celsius(temp_sensor, &s_chip_temp);
+
+        ESP_LOGI(TAG, "HEALTH: heap=%lu PSRAM=%lu rec_hwm=%lu nas_hwm=%lu temp=%.1f°C",
                  (unsigned long)free_heap, (unsigned long)free_psram,
-                 (unsigned long)rec_hwm, (unsigned long)nas_hwm);
+                 (unsigned long)rec_hwm, (unsigned long)nas_hwm, s_chip_temp);
 
         if (free_heap < 20000) {
             ESP_LOGE(TAG, "CRITICAL: Free heap below 20KB (%lu bytes)", (unsigned long)free_heap);
         }
         if (free_psram < 500000) {
             ESP_LOGW(TAG, "WARNING: Free PSRAM below 500KB (%lu bytes)", (unsigned long)free_psram);
+        }
+        if (s_chip_temp > 70.0f) {
+            ESP_LOGW(TAG, "WARNING: Chip temperature high (%.1f°C)", s_chip_temp);
         }
     }
 }

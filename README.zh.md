@@ -1,4 +1,4 @@
-# ESP32-S3 摄像头监控
+﻿# ESP32-S3 摄像头监控
 
 > 基于 XIAO ESP32-S3 Sense 的智能监控摄像头固件
 
@@ -14,7 +14,11 @@
 - 💾 TF 卡热插拔，自动恢复录像
 - 🔍 OV2640 / OV3660 自动检测
 - 🛡️ 看门狗 + 健康监控，长期稳定运行
-
+- 🌡️ ESP32-S3 芯片温度监测，Web 仪表盘实时显示
+- 📊 Prometheus `/metrics` 端点，支持外部监控系统对接
+- 📁 批量文件操作：多选、下载、删除
+- 🎨 Mi&Bee 紫色主题，全站统一视觉风格
+- 🚀 GitHub Actions CI/CD，自动构建发布固件
 ## 快速开始
 
 ```bash
@@ -47,12 +51,14 @@ idf.py -p COM3 flash monitor
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/status` | 设备状态（录像、WiFi、存储、摄像头） |
+| GET | `/api/status` | 设备状态（录像、WiFi、存储、摄像头、温度） |
 | GET | `/stream` | MJPEG 实时视频流 |
 | POST | `/api/config` | 修改配置（需认证） |
 | POST | `/api/record?action=start\|stop` | 录像控制（需认证） |
 | GET | `/api/files` | 录像文件列表 |
 | GET | `/api/download?name=xxx` | 下载录像文件 |
+| POST | `/api/files/batch` | 批量删除文件（需认证） |
+| GET | `/metrics` | Prometheus 监控指标（text 格式） |
 
 默认管理密码：`admin`。👉 [完整 API 文档](docs/zh/api/overview.md)
 

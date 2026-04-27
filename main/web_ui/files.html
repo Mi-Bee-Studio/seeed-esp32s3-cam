@@ -6,21 +6,24 @@
 <title>MiBeeHomeCam 文件管理</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#f0f2f1;color:#333;font-size:14px}
-.header{background:#2d8659;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:8px}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#FAFAFA;color:#333;font-size:14px}
+.header{background:#7C3AED;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:8px}
 .header h1{font-size:16px;font-weight:600}
 .header .ver{font-size:12px;opacity:.7}
 .main{padding:12px;max-width:600px;margin:0 auto;padding-bottom:60px}
-.card{background:#fff;border-radius:8px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.card{background:#fff;border-radius:8px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(124,58,237,.08)}
 .card-title{font-size:13px;color:#888;margin-bottom:8px;font-weight:500}
 .bar-wrap{background:#e0e0e0;border-radius:4px;height:10px;margin:6px 0;overflow:hidden}
 .bar-fill{height:100%;border-radius:4px;transition:width .5s}
-.bar-fill.ok{background:#2d8659}
+.bar-fill.ok{background:#7C3AED}
 .bar-fill.warn{background:#e67e22}
 .bar-fill.crit{background:#e74c3c}
 .bar-text{font-size:12px;color:#666}
 .date-group{margin-bottom:14px}
-.date-header{font-size:14px;font-weight:600;color:#2d8659;padding:6px 0;border-bottom:1px solid #e8e8e8;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.date-header{font-size:14px;font-weight:600;color:#7C3AED;padding:6px 0;border-bottom:1px solid #e8e8e8;margin-bottom:8px;display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+.date-header::before{content:'▼ ';font-size:0.8em}
+.date-header.collapsed::before{content:'▶ ';}
+.date-group.collapsed .file-item{display:none}
 .file-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f0f0f0}
 .file-item:last-child{border-bottom:none}
 .file-info{flex:1;min-width:0}
@@ -28,19 +31,26 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .file-size{font-size:12px;color:#999;margin-top:2px}
 .file-actions{display:flex;gap:6px;flex-shrink:0;margin-left:8px}
 .btn-sm{padding:5px 12px;border:none;border-radius:4px;font-size:12px;cursor:pointer;font-family:inherit}
-.btn-dl{background:#2d8659;color:#fff}
-.btn-dl:hover{background:#246e48}
+.btn-dl{background:#7C3AED;color:#fff}
+.btn-dl:hover{background:#5B21B6}
 .btn-del{background:#e74c3c;color:#fff}
 .btn-del:hover{background:#c0392b}
+.file-item.selected{background:rgba(124,58,237,.06)}
+.file-check{margin-right:8px;cursor:pointer;flex-shrink:0}
+#batch-bar{display:none;padding:8px 12px;background:#f3f0f6;border-bottom:1px solid #e5e1eb;align-items:center;gap:8px;flex-wrap:wrap}
+.grp-btn{background:none;border:1px solid #7C3AED;color:#7C3AED;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:0.8em;font-family:inherit}
+.grp-btn:hover{background:rgba(124,58,237,.08)}
+.grp-btn.del{border-color:#e74c3c;color:#e74c3c}
+.grp-btn.del:hover{background:rgba(231,76,60,.08)}
 .empty{text-align:center;padding:30px;color:#999;font-size:14px}
 .summary{font-size:13px;color:#666;margin-bottom:4px}
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #ddd;display:flex;z-index:10}
 .bottom-nav a{flex:1;text-align:center;padding:10px 0;font-size:12px;color:#888;text-decoration:none}
-.bottom-nav a.active{color:#2d8659;font-weight:600}
+.bottom-nav a.active{color:#7C3AED;font-weight:600}
 .bottom-nav a:hover{background:#f5f5f5}
 .toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);padding:10px 24px;border-radius:8px;font-size:14px;z-index:100;opacity:0;transition:opacity .3s;pointer-events:none;font-weight:500}
 .toast.show{opacity:1}
-.toast.ok{background:#2d8659;color:#fff}
+.toast.ok{background:#7C3AED;color:#fff}
 .toast.err{background:#e74c3c;color:#fff}
 </style>
 </head>
@@ -48,6 +58,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <div class="header">
 <span>&#128247;</span>
 <h1>MiBeeHomeCam <span class="ver">文件管理</span></h1>
+<span style="margin-left:auto;cursor:pointer;font-size:12px;opacity:.8" id="authBtn" onclick="toggleAuth()">🔒 登录</span>
 </div>
 <div class="main">
 
@@ -59,6 +70,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 
 <div class="card">
 <div class="card-title" id="fileSummary">加载中...</div>
+<div id="batch-bar"><span id="sel-count">0 selected</span><button class="btn-sm" onclick="batchDownloadSelected()" style="background:#7C3AED;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-family:inherit">⬇ Download</button><button class="btn-sm" onclick="batchDeleteSelected()" style="background:#e74c3c;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-family:inherit">🗑 Delete</button></div>
 <div id="fileList"></div>
 </div>
 
@@ -74,6 +86,17 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <div class="toast" id="toast"></div>
 
 <script>
+/* ---- Auth Helper ---- */
+function getStoredPassword(){return localStorage.getItem('cam_password')||''}
+function setStoredPassword(p){localStorage.setItem('cam_password',p)}
+function clearStoredPassword(){localStorage.removeItem('cam_password')}
+function authHeaders(){var p=getStoredPassword();return p?{'X-Password':p}:{}}
+function authFetch(url,opts){opts=opts||{};opts.headers=Object.assign({},opts.headers||{},authHeaders());return fetch(url,opts).then(function(r){if(r.status===401){clearStoredPassword();showLoginDialog();throw new Error('Unauthorized')}return r})}
+function showLoginDialog(cb){var p=prompt('请输入管理密码:');if(!p)return;fetch('/api/status',{headers:{'X-Password':p}}).then(function(r){if(r.ok){setStoredPassword(p);updateAuthUI();if(cb)cb()}else{alert('密码错误');showLoginDialog(cb)}})}
+function requireAuth(cb){if(getStoredPassword())cb();else showLoginDialog(cb)}
+function updateAuthUI(){var btn=document.getElementById('authBtn');if(btn)btn.textContent=getStoredPassword()?'🔓 登出':'🔒 登录'}
+function toggleAuth(){if(getStoredPassword()){clearStoredPassword();updateAuthUI()}else showLoginDialog()}
+
 function $(s){return document.getElementById(s)}
 
 /* ---- Toast ---- */
@@ -129,10 +152,17 @@ function refreshFiles(){
   for(var g=0;g<order.length;g++){
    var dk=order[g];
    var gf=groups[dk];
-   html+='<div class="date-group"><div class="date-header">&#128193; '+dk+' ('+gf.length+')</div>';
+   html+='<div class="date-group"><div class="date-header" onclick="toggleGroup(this)" data-group="'+g+'">';
+   html+='<input type="checkbox" class="file-check" onclick="event.stopPropagation();toggleGroupSelect(this)">';
+   html+='&#128193; '+dk+' ('+gf.length+')';
+   html+='<span style="margin-left:auto;display:flex;gap:4px">';
+   html+='<button class="grp-btn" onclick="event.stopPropagation();downloadGroup(this)">⬇ All</button>';
+   html+='<button class="grp-btn del" onclick="event.stopPropagation();deleteGroup(this)">🗑 All</button>';
+   html+='</span></div>';
    for(var j=0;j<gf.length;j++){
     var fi=gf[j];
-    html+='<div class="file-item"><div class="file-info"><div class="file-name">'+fi.name+'</div>'
+    html+='<div class="file-item"><input type="checkbox" class="file-check" data-name="'+fi.name+'" onchange="updateSelection()">';
+    html+='<div class="file-info"><div class="file-name">'+fi.name+'</div>'
      +'<div class="file-size">'+fmtSize(fi.size)+'</div></div>'
      +'<div class="file-actions">'
      +'<button class="btn-sm btn-dl" onclick="dlFile(\''+fi.name.replace(/'/g,"\\'")+'\')">下载</button>'
@@ -154,19 +184,115 @@ function dlFile(name){
 
 
 function delFile(name){
- var password=prompt('请输入管理密码:');
- if(!password)return;
- if(!confirm('确定删除 '+name+'？'))return;
- fetch('/api/files?name='+encodeURIComponent(name).replace(/%2F/g,'/'),{
-  method:'DELETE',
-  headers:{'X-Password':password}
- }).then(function(r){return r.json()}).then(function(d){
-  if(d.ok){showToast('已删除');refreshFiles()}
-  else showToast('删除失败: '+(d.error||'未知错误'),true);
- }).catch(function(e){showToast('删除失败',true);console.error(e)});
+ requireAuth(function(){
+  if(!confirm('确定删除 '+name+'？'))return;
+  authFetch('/api/files?name='+encodeURIComponent(name).replace(/%2F/g,'/'),{
+   method:'DELETE'
+  }).then(function(r){return r.json()}).then(function(d){
+   if(d.ok){showToast('已删除');refreshFiles()}
+   else showToast('删除失败: '+(d.error||'未知错误'),true);
+  }).catch(function(e){showToast('删除失败',true);console.error(e)});
+ });
 }
 
-window.onload=refreshFiles;
+/* ---- Batch operations ---- */
+function toggleGroup(el){
+ el.classList.toggle('collapsed');
+ el.parentElement.classList.toggle('collapsed');
+}
+
+function updateSelection(){
+ var bar=$('batch-bar');
+ var count=$('sel-count');
+ var checks=document.querySelectorAll('.file-item .file-check:checked');
+ if(checks.length>0){bar.style.display='flex';count.textContent=checks.length+' selected'}
+ else{bar.style.display='none'}
+ document.querySelectorAll('.file-item').forEach(function(item){
+  var cb=item.querySelector('.file-check');
+  item.classList.toggle('selected',cb&&cb.checked);
+ });
+}
+
+function toggleGroupSelect(cb){
+ var group=cb.closest('.date-group');
+ if(!group)return;
+ group.querySelectorAll('.file-item .file-check').forEach(function(c){c.checked=cb.checked});
+ updateSelection();
+}
+
+function getSelectedNames(){
+ var names=[];
+ document.querySelectorAll('.file-item .file-check:checked').forEach(function(cb){
+  if(cb.dataset.name)names.push(cb.dataset.name);
+ });
+ return names;
+}
+
+function getGroupNames(header){
+ var group=header.parentElement;
+ var names=[];
+ group.querySelectorAll('.file-item .file-check').forEach(function(cb){
+  if(cb.dataset.name)names.push(cb.dataset.name);
+ });
+ return names;
+}
+
+function downloadGroup(btn){
+ var header=btn.closest('.date-header');
+ batchDownload(getGroupNames(header));
+}
+
+function deleteGroup(btn){
+ var header=btn.closest('.date-header');
+ var names=getGroupNames(header);
+ if(!names.length)return;
+ if(!confirm('Delete '+names.length+' files in this folder?'))return;
+ batchDelete(names);
+}
+
+function batchDownloadSelected(){
+ var names=getSelectedNames();
+ if(!names.length)return;
+ batchDownload(names);
+}
+
+function batchDeleteSelected(){
+ var names=getSelectedNames();
+ if(!names.length)return;
+ if(!confirm('Delete '+names.length+' selected files?'))return;
+ batchDelete(names);
+}
+
+function batchDownload(names){
+ var i=0;
+ function next(){
+  if(i>=names.length){showToast('Download complete');return}
+  var a=document.createElement('a');
+  a.href='/api/download?name='+encodeURIComponent(names[i]).replace(/%2F/g,'/');
+  a.download=names[i].split('/').pop();
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  i++;
+  setTimeout(next,1000);
+ }
+ next();
+}
+
+function batchDelete(names){
+ requireAuth(function(){
+  authFetch('/api/files/batch',{
+   method:'POST',
+   headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({names:names})
+  }).then(function(r){return r.json()}).then(function(d){
+   if(d.ok){showToast('Deleted '+d.data.deleted+' files');setTimeout(refreshFiles,500)}
+   else showToast(d.error||'Delete failed',true);
+  }).catch(function(){showToast('Network error',true)});
+ });
+}
+
+window.onload=function(){refreshFiles();updateAuthUI()};
 </script>
 </body>
 </html>

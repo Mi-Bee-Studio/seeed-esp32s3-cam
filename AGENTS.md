@@ -6,7 +6,7 @@
 
 ## OVERVIEW
 
-ESP32-S3 parrot monitoring camera firmware. ESP-IDF v5.x/v6.0, C, dual-core RTOS. Captures MJPEG video, records AVI segments to SD card, uploads to NAS via FTP/WebDAV, serves REST API + web UI.
+ESP32-S3 camera monitoring firmware (MiBeeHomeCam). ESP-IDF v5.x/v6.0, C, dual-core RTOS. Captures MJPEG video, records AVI segments to SD card, uploads to NAS via FTP/WebDAV, serves REST API + web UI. Features temperature monitoring, Prometheus metrics, batch file operations, purple theme, and CI/CD pipeline.
 
 ## STRUCTURE
 
@@ -19,7 +19,7 @@ ESP32-S3 parrot monitoring camera firmware. ESP-IDF v5.x/v6.0, C, dual-core RTOS
 ├── docs/           # API documentation
 ├── partitions.csv  # factory 3.5MB + SPIFFS 256KB + NVS 24KB
 ├── sdkconfig.defaults  # XIAO ESP32-S3 Sense pin config, PSRAM Octal, 8MB flash
-└── CMakeLists.txt  # Top-level project (parrot_cam)
+└── CMakeLists.txt  # Top-level project (mibee_homecam)
 ```
 
 ## WHERE TO LOOK
@@ -35,14 +35,14 @@ ESP32-S3 parrot monitoring camera firmware. ESP-IDF v5.x/v6.0, C, dual-core RTOS
 | Add boot step | `main/main.c` → `app_main()` | Sequential init, numbered comments |
 | Change recording format | `main/video_recorder.c` | AVI MJPEG, segment callback → NAS upload |
 | FTP/WebDAV upload logic | `main/nas_uploader.c` → dispatches to `ftp_client.c` or `webdav_client.c` | Queue-based, background task |
-
+| Add temperature monitoring | `main/temperature_sensor.c` → chip temp integration | `/api/status` chip_temp field, Web dashboard display |
 ## CODE MAP
 
 | Symbol | Location | Role |
 |--------|----------|------|
 | `app_main` | main.c:212 | Entry — 19-step init, spawns 5 tasks |
 | `cam_config_t` | config_manager.h:7 | Central config struct (17 fields, NVS-persisted) |
-| `s_uris[]` | web_server.c:537 | All 10 API endpoints + 2 wildcard handlers |
+| `s_uris[]` | web_server.c:537 | All 15 API endpoints + 2 wildcard handlers (includes `/api/files/batch`, `/metrics`) |
 | `recorder_state_t` | video_recorder.h:7 | IDLE/RECORDING/PAUSED/ERROR state machine |
 | `wifi_state_t` | wifi_manager.h:13 | AP/STA_CONNECTING/STA_CONNECTED/STA_DISCONNECTED |
 | `on_segment_complete` | main.c:61 | Segment callback → enqueues NAS upload + cleanup |
@@ -89,16 +89,21 @@ ESP32-S3 parrot monitoring camera firmware. ESP-IDF v5.x/v6.0, C, dual-core RTOS
 
 ## UNIQUE STYLES
 
-- **Flat module layout**: All 14 C modules in `main/` with no subdirectories — each module = one .c/.h pair
-- **SD card override**: Reads `/sdcard/config/wifi.txt` and `nas.txt` at boot — KEY=VALUE format, overrides NVS
-- **Segment callback chain**: `video_recorder` → `on_segment_complete()` → `nas_uploader_enqueue()` + `storage_cleanup()`
-- **Circular storage**: Auto-deletes oldest files when free < 20%, stops at 30%
-- **Hot-plug SD**: 10s polling task detects removal (stops recording) and insertion (auto-resumes)
-- **Web UI in SPIFFS**: 4 HTML pages flashed to SPIFFS partition, served by wildcard GET handler
-- **Watchdog**: 30s TWDT with panic — all tasks must feed periodically
-- **Health monitor**: 60s task logs heap/PSRAM/stack HWM, alerts below 20KB heap / 500KB PSRAM
-- **Camera auto-detect**: OV2640 vs OV3660 detected at init, reported in API status
-- **AP SSID**: `MiBeeHomeCam-XXXX` (last 4 hex of MAC), default IP `192.168.4.1`
+- **Flat module layout**: All 14+ C modules in `main/` with no subdirectories — each module = one .c/.h pair |
+- **SD card override**: Reads `/sdcard/config/wifi.txt` and `nas.txt` at boot — KEY=VALUE format, overrides NVS |
+- **Segment callback chain**: `video_recorder` → `on_segment_complete()` → `nas_uploader_enqueue()` + `storage_cleanup()` |
+- **Circular storage**: Auto-deletes oldest files when free < 20%, stops at 30% |
+- **Hot-plug SD**: 10s polling task detects removal (stops recording) and insertion (auto-resumes) |
+- **Web UI in SPIFFS**: 4 HTML pages flashed to SPIFFS partition, served by wildcard GET handler |
+- **Watchdog**: 30s TWDT with panic — all tasks must feed periodically |
+- **Health monitor**: 60s task logs heap/PSRAM/stack HWM, alerts below 20KB heap / 500KB PSRAM |
+- **Camera auto-detect**: OV2640 vs OV3660 detected at init, reported in API status |
+- **Temperature monitoring**: ESP32-S3 internal sensor with `/api/status` chip_temp field and color-coded dashboard |
+- **Prometheus integration**: `/metrics` endpoint with 9 system metrics in text exposition format |
+- **Batch operations**: `/api/files/batch` endpoint for multi-file delete with JSON input |
+- **Purple theme**: Mi&Bee branding with #7C3AED primary, #5B21B6 hover colors |
+- **CI/CD pipeline**: GitHub Actions automated builds on tags with ESP-IDF v5.4 container |
+- **AP SSID**: `MiBeeHomeCam-XXXX` (last 4 hex of MAC), default IP `192.168.4.1` |
 
 ## COMMANDS
 
@@ -126,3 +131,11 @@ idf.py erase-flash
 - **NAS upload**: FTP password and WebDAV password are accepted in POST config but NOT returned in GET config
 - **Max stream clients**: 2 (hardcoded `MAX_STREAM_CLIENTS` in mjpeg_streamer.c)
 - **Config masking**: Password fields returned as `"****"` in GET, POST with `"****"` = no change
+
+### Key Dependencies
+
+- **ESP-IDF**: v5.x or v6.0 (ESP32-S3 support)
+- **cJSON**: Vendored in main/ for JSON parsing
+- **temperature_sensor**: ESP32-S3 internal temperature sensor driver
+- **SPIFFS**: Web interface static file serving
+- **ESP32-S3 Camera driver**: OV2640/OV3660 auto-detection

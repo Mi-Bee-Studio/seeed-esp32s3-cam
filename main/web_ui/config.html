@@ -6,13 +6,13 @@
 <title>MiBeeHomeCam 配置</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#f0f2f1;color:#333;font-size:14px}
-.header{background:#2d8659;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:8px}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#FAFAFA;color:#333;font-size:14px}
+.header{background:#7C3AED;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:8px}
 .header h1{font-size:16px;font-weight:600}
 .header .ver{font-size:12px;opacity:.7}
 .main{padding:12px;max-width:600px;margin:0 auto;padding-bottom:60px}
-.card{background:#fff;border-radius:8px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
-.card-title{font-size:15px;color:#2d8659;margin-bottom:10px;font-weight:600;border-bottom:1px solid #e8e8e8;padding-bottom:6px}
+.card{background:#fff;border-radius:8px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(124,58,237,.08)}
+.card-title{font-size:15px;color:#7C3AED;margin-bottom:10px;font-weight:600;border-bottom:1px solid #e8e8e8;padding-bottom:6px}
 .field{margin-bottom:10px}
 .field:last-child{margin-bottom:0}
 .field label{display:block;font-size:13px;color:#666;margin-bottom:4px;font-weight:500}
@@ -20,21 +20,21 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .field input[type="password"],
 .field input[type="number"],
 .field select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:14px;font-family:inherit;background:#fafafa;color:#333}
-.field input:focus,.field select:focus{outline:none;border-color:#2d8659;background:#fff}
+.field input:focus,.field select:focus{outline:none;border-color:#7C3AED;background:#fff}
 .field input[type="checkbox"]{margin-right:6px;transform:scale(1.2);vertical-align:middle}
 .inline{display:flex;align-items:center;gap:8px}
 .inline label{margin-bottom:0}
 .port-field{width:80px !important;flex-shrink:0}
 .range-row{display:flex;align-items:center;gap:10px}
 .range-row input[type="range"]{flex:1}
-.range-val{min-width:36px;text-align:center;font-weight:600;color:#2d8659;font-size:15px}
-.scan-btn{padding:6px 14px;background:#2d8659;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap}
-.scan-btn:hover{background:#246e48}
+.range-val{min-width:36px;text-align:center;font-weight:600;color:#7C3AED;font-size:15px}
+.scan-btn{padding:6px 14px;background:#7C3AED;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap}
+.scan-btn:hover{background:#5B21B6}
 .scan-btn:disabled{background:#aaa;cursor:not-allowed}
 .btn-row{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
 .btn{padding:10px 20px;border:none;border-radius:6px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit}
-.btn-save{background:#2d8659;color:#fff}
-.btn-save:hover{background:#246e48}
+.btn-save{background:#7C3AED;color:#fff}
+.btn-save:hover{background:#5B21B6}
 .btn-reboot{background:#e67e22;color:#fff}
 .btn-reboot:hover{background:#cf6d17}
 .btn-reset{background:#e74c3c;color:#fff}
@@ -43,11 +43,11 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .ssid-row select,.ssid-row input{flex:1}
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #ddd;display:flex;z-index:10}
 .bottom-nav a{flex:1;text-align:center;padding:10px 0;font-size:12px;color:#888;text-decoration:none}
-.bottom-nav a.active{color:#2d8659;font-weight:600}
+.bottom-nav a.active{color:#7C3AED;font-weight:600}
 .bottom-nav a:hover{background:#f5f5f5}
 .toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);padding:10px 24px;border-radius:8px;font-size:14px;z-index:100;opacity:0;transition:opacity .3s;pointer-events:none;font-weight:500}
 .toast.show{opacity:1}
-.toast.ok{background:#2d8659;color:#fff}
+.toast.ok{background:#7C3AED;color:#fff}
 .toast.err{background:#e74c3c;color:#fff}
 .checkbox-row{display:flex;align-items:center;margin-bottom:10px}
 .checkbox-row label{margin-bottom:0;font-size:14px;color:#333;cursor:pointer}
@@ -62,6 +62,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <div class="header">
 <span>&#9881;</span>
 <h1>MiBeeHomeCam <span class="ver">配置</span></h1>
+<span style="margin-left:auto;cursor:pointer;font-size:12px;opacity:.8" id="authBtn" onclick="toggleAuth()">🔒 登录</span>
 </div>
 <div class="main">
 
@@ -220,6 +221,17 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <div class="toast" id="toast"></div>
 
 <script>
+/* ---- Auth Helper ---- */
+function getStoredPassword(){return localStorage.getItem('cam_password')||''}
+function setStoredPassword(p){localStorage.setItem('cam_password',p)}
+function clearStoredPassword(){localStorage.removeItem('cam_password')}
+function authHeaders(){var p=getStoredPassword();return p?{'X-Password':p}:{}}
+function authFetch(url,opts){opts=opts||{};opts.headers=Object.assign({},opts.headers||{},authHeaders());return fetch(url,opts).then(function(r){if(r.status===401){clearStoredPassword();showLoginDialog();throw new Error('Unauthorized')}return r})}
+function showLoginDialog(cb){var p=prompt('请输入管理密码:');if(!p)return;fetch('/api/status',{headers:{'X-Password':p}}).then(function(r){if(r.ok){setStoredPassword(p);updateAuthUI();if(cb)cb()}else{alert('密码错误');showLoginDialog(cb)}})}
+function requireAuth(cb){if(getStoredPassword())cb();else showLoginDialog(cb)}
+function updateAuthUI(){var btn=document.getElementById('authBtn');if(btn)btn.textContent=getStoredPassword()?'🔓 登出':'🔒 登录'}
+function toggleAuth(){if(getStoredPassword()){clearStoredPassword();updateAuthUI()}else showLoginDialog()}
+
 function $(s){return document.getElementById(s)}
 
 /* ---- Toast ---- */
@@ -324,64 +336,35 @@ function gatherFormData(){
 function saveConfig(){
  var newPw=$('web_password').value;
  var confirmPw=$('web_password_confirm').value;
- if(newPw&&newPw!=='****'&&newPw!==confirmPw){
-  showToast('两次输入的密码不一致',true);
-  return;
- }
- var password=prompt('请输入管理密码:');
- if(!password)return;
-
- var cfg=gatherFormData();
-
- fetch('/api/config',{
-  method:'POST',
-  headers:{
-   'Content-Type':'application/json',
-   'X-Password':password
-  },
-  body:JSON.stringify(cfg)
- }).then(function(r){return r.json()}).then(function(d){
-  if(d.ok){
-   showToast('配置已保存');
-   $('web_password_confirm').value='';
-   loadConfig();
-  }else{
-   showToast('保存失败: '+(d.error||'未知错误'),true);
-  }
- }).catch(function(e){
-  showToast('保存失败',true);console.error(e);
+ if(newPw&&newPw!=='****'&&newPw!==confirmPw){showToast('两次输入的密码不一致',true);return}
+ requireAuth(function(){
+  var cfg=gatherFormData();
+  authFetch('/api/config',{
+   method:'POST',
+   headers:{'Content-Type':'application/json'},
+   body:JSON.stringify(cfg)
+  }).then(function(r){return r.json()}).then(function(d){
+   if(d.ok){showToast('配置已保存');$('web_password_confirm').value='';loadConfig()}
+   else showToast('保存失败: '+(d.error||'未知错误'),true);
+  }).catch(function(e){showToast('保存失败',true);console.error(e)});
  });
 }
 
-/* ---- Reboot ---- */
 function rebootDevice(){
  if(!confirm('确定要重启设备？'))return;
- var password=prompt('请输入管理密码:');
- if(!password)return;
- fetch('/api/config',{
-  method:'POST',
-  headers:{
-   'Content-Type':'application/json',
-   'X-Password':password
-  },
-  body:JSON.stringify({reboot:true})
- }).catch(function(){});
- showToast('设备正在重启...');
+ requireAuth(function(){
+  authFetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reboot:true})}).catch(function(){});
+  showToast('设备正在重启...');
+ });
 }
 
-/* ---- Factory reset ---- */
 function factoryReset(){
  if(!confirm('确定要恢复出厂设置？所有配置将被清除，设备将重启。'))return;
- var password=prompt('请输入管理密码:');
- if(!password)return;
- fetch('/api/reset',{
-  method:'POST',
-  headers:{'X-Password':password}
- }).then(function(r){return r.json()}).then(function(d){
-  if(d.ok) showToast('正在恢复出厂设置...');
-  else showToast('操作失败: '+(d.error||'未知错误'),true);
- }).catch(function(e){
-  showToast('操作失败',true);console.error(e);
+ requireAuth(function(){
+  authFetch('/api/reset',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+   if(d.ok) showToast('正在恢复出厂设置...');
+   else showToast('操作失败: '+(d.error||'未知错误'),true);
+  }).catch(function(e){showToast('操作失败',true);console.error(e)});
  });
 }
 
@@ -393,7 +376,7 @@ function togPw(el){
  if(inp.type==='password'){inp.type='text';el.textContent='\uD83D\uDC41';}
  else{inp.type='password';el.textContent='\uD83D\uDC40';}
 }
-window.onload=loadConfig;
+window.onload=function(){loadConfig();updateAuthUI()};
 </script>
 </body>
 </html>

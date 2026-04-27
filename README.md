@@ -1,6 +1,7 @@
-# ESP32-S3 Camera Monitor
+# MiBeeHomeCam - ESP32-S3 Camera Monitor
 
 > Smart monitoring camera firmware based on XIAO ESP32-S3 Sense
+> MiBeeHomeCam: ESP32-S3 based monitoring camera firmware
 
 ESP32-S3 based monitoring camera firmware with MJPEG real-time streaming, AVI segmented recording, and automatic NAS upload. Developed with ESP-IDF, optimized for 8MB Octal PSRAM, running stable real-time video capture and transmission in resource-constrained embedded environments.
 
@@ -14,6 +15,11 @@ ESP32-S3 based monitoring camera firmware with MJPEG real-time streaming, AVI se
 - 💾 TF card hot-plug, automatic recording resume
 - 🔍 OV2640 / OV3660 auto-detection
 - 🛡️ Watchdog + health monitoring, long-term stable operation
+- 🌡️ ESP32-S3 chip temperature monitoring with Web dashboard
+- 📊 Prometheus `/metrics` endpoint for external monitoring
+- 📁 Batch file operations: select, download, and delete multiple files
+- 🎨 Mi&Bee purple theme across all web pages
+- 🚀 GitHub Actions CI/CD for automated firmware releases
 
 ## Quick Start
 
@@ -47,13 +53,14 @@ Requires ESP-IDF v5.x or v6.0 development environment. 👉 [Detailed Installati
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/status` | Device status (recording, WiFi, storage, camera) |
+| GET | `/api/status` | Device status (recording, WiFi, storage, camera, temperature) |
 | GET | `/stream` | MJPEG real-time video stream |
 | POST | `/api/config` | Modify configuration (requires authentication) |
 | POST | `/api/record?action=start\|stop` | Recording control (requires authentication) |
 | GET | `/api/files` | Recording file list |
 | GET | `/api/download?name=xxx` | Download recording file |
-
+| POST | `/api/files/batch` | Batch delete files (requires authentication) |
+| GET | `/metrics` | Prometheus metrics (text format) |
 Default management password: `admin`. 👉 [Complete API Documentation](docs/en/api/overview.md)
 
 ## Project Structure

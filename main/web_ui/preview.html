@@ -6,24 +6,24 @@
 <title>MiBeeHomeCam 实时预览</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#f0f2f1;color:#333;font-size:14px}
-.header{background:#2d8659;color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#FAFAFA;color:#333;font-size:14px}
+.header{background:#7C3AED;color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
 .header-left{display:flex;align-items:center;gap:8px}
 .header h1{font-size:16px;font-weight:600}
 .header .ver{font-size:12px;opacity:.7}
 .fs-btn{background:rgba(255,255,255,.2);color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;font-family:inherit}
 .fs-btn:hover{background:rgba(255,255,255,.35)}
 .main{padding:12px;max-width:860px;margin:0 auto;padding-bottom:60px}
-.preview-card{background:#000;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.15);position:relative}
+.preview-card{background:#000;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(124,58,237,.12);position:relative}
 #stream{width:100%;display:block;background:#000;min-height:200px}
 .placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;color:#666;min-height:300px;font-size:15px}
-.placeholder .spinner{width:32px;height:32px;border:3px solid #333;border-top-color:#2d8659;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:12px}
+.placeholder .spinner{width:32px;height:32px;border:3px solid #333;border-top-color:#7C3AED;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:12px}
 @keyframes spin{to{transform:rotate(360deg)}}
-.status-bar{background:#fff;border-radius:8px;padding:10px 14px;margin-top:10px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 3px rgba(0,0,0,.08);font-size:13px;flex-wrap:wrap;gap:8px}
+.status-bar{background:#fff;border-radius:8px;padding:10px 14px;margin-top:10px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 3px rgba(124,58,237,.08);font-size:13px;flex-wrap:wrap;gap:8px}
 .status-left{display:flex;align-items:center;gap:12px}
 .status-item{display:flex;align-items:center;gap:4px}
 .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
-.dot.on{background:#2d8659}
+.dot.on{background:#7C3AED}
 .dot.off{background:#e74c3c;animation:pulse 1s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 .dot.loading{background:#e67e22;animation:pulse .8s infinite}
@@ -31,7 +31,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .status-val{font-weight:500}
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #ddd;display:flex;z-index:10}
 .bottom-nav a{flex:1;text-align:center;padding:10px 0;font-size:12px;color:#888;text-decoration:none}
-.bottom-nav a.active{color:#2d8659;font-weight:600}
+.bottom-nav a.active{color:#7C3AED;font-weight:600}
 .bottom-nav a:hover{background:#f5f5f5}
 #preview-container:fullscreen .preview-card,#preview-container:-webkit-full-screen .preview-card{border-radius:0;height:100vh;display:flex;align-items:center;justify-content:center}
 #preview-container:fullscreen #stream,#preview-container:-webkit-full-screen #stream{max-height:100vh;object-fit:contain}
@@ -43,7 +43,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <span>&#128247;</span>
 <h1>MiBeeHomeCam <span class="ver">实时预览</span></h1>
 </div>
-<button class="fs-btn" onclick="toggleFullscreen()">&#9974; 全屏</button>
+<span style="cursor:pointer;font-size:12px;opacity:.8" id="authBtn" onclick="toggleAuth()">🔒 登录</span>
 </div>
 <div class="main">
 <div id="preview-container">
@@ -76,6 +76,17 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <a href="/preview.html" class="active">&#128249; 预览</a>
 </nav>
 <script>
+/* ---- Auth Helper ---- */
+function getStoredPassword(){return localStorage.getItem('cam_password')||''}
+function setStoredPassword(p){localStorage.setItem('cam_password',p)}
+function clearStoredPassword(){localStorage.removeItem('cam_password')}
+function authHeaders(){var p=getStoredPassword();return p?{'X-Password':p}:{}}
+function authFetch(url,opts){opts=opts||{};opts.headers=Object.assign({},opts.headers||{},authHeaders());return fetch(url,opts).then(function(r){if(r.status===401){clearStoredPassword();showLoginDialog();throw new Error('Unauthorized')}return r})}
+function showLoginDialog(cb){var p=prompt('请输入管理密码:');if(!p)return;fetch('/api/status',{headers:{'X-Password':p}}).then(function(r){if(r.ok){setStoredPassword(p);updateAuthUI();if(cb)cb()}else{alert('密码错误');showLoginDialog(cb)}})}
+function requireAuth(cb){if(getStoredPassword())cb();else showLoginDialog(cb)}
+function updateAuthUI(){var btn=document.getElementById('authBtn');if(btn)btn.textContent=getStoredPassword()?'🔓 登出':'🔒 登录'}
+function toggleAuth(){if(getStoredPassword()){clearStoredPassword();updateAuthUI()}else showLoginDialog()}
+
 var img=document.getElementById('stream');
 var placeholder=document.getElementById('placeholder');
 var statusDot=document.getElementById('statusDot');
@@ -93,7 +104,7 @@ function updateConnected(){
  img.style.display='block';
  statusDot.className='dot on';
  statusText.textContent='已连接';
- statusText.style.color='#2d8659';
+ statusText.style.color='#7C3AED';
 }
 
 function updateDisconnected(msg){
@@ -164,6 +175,7 @@ document.querySelectorAll('.bottom-nav a').forEach(function(a){
 /* Also stop on back/forward/close */
 window.addEventListener('beforeunload',stopStream);
 window.addEventListener('pagehide',stopStream);
+updateAuthUI();
 </script>
 </body>
 </html>
