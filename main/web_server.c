@@ -305,7 +305,8 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
 /** @brief 处理GET /api/files请求，返回SD卡录像文件列表（含文件名、大小、日期） */
 static esp_err_t api_files_get_handler(httpd_req_t *req)
 {
-    file_info_t files[64];
+    file_info_t *files = malloc(64 * sizeof(file_info_t));
+    if (!files) return json_error(req, "No memory", HTTPD_500_INTERNAL_SERVER_ERROR);
     int count = storage_list_files(files, 64);
 
     cJSON *data = cJSON_CreateObject();
@@ -318,8 +319,16 @@ static esp_err_t api_files_get_handler(httpd_req_t *req)
         cJSON_AddStringToObject(f, "date", files[i].time_str);
         cJSON_AddItemToArray(arr, f);
     }
+    free(files);
 
     cJSON_AddItemToObject(data, "files", arr);
+
+    /* Add SD card storage info */
+    storage_info_t sd_info;
+    if (storage_get_info(&sd_info) == ESP_OK) {
+        cJSON_AddNumberToObject(data, "sd_total", (double)sd_info.total_bytes);
+        cJSON_AddNumberToObject(data, "sd_free", (double)sd_info.free_bytes);
+    }
     return json_ok(req, data);
 }
 

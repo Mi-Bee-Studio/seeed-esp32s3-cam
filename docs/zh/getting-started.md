@@ -124,7 +124,7 @@ idf.py -p COM3 flash
 
 ```
 上电 → LED 常亮（启动中） → LED 慢闪（AP 模式）
-    → 连接 WiFi "ParrotCam-XXXX"
+    → 连接 WiFi "MiBeeHomeCam-XXXX"
     → 浏览器打开 192.168.4.1
     → 使用密码 admin 登录
     → 配置页填写 WiFi 信息
@@ -139,7 +139,7 @@ idf.py -p COM3 flash
 烧录完成后设备自动重启，串口日志显示：
 
 ```
-I (xxx) main: ParrotCam v0.1 starting...
+I (xxx) main: MiBeeHomeCam v0.1 starting...
 I (xxx) main: Free heap: XXXXX  Free PSRAM: XXXXXXX
 ```
 
@@ -149,7 +149,7 @@ LED 开始慢闪（1 秒周期），表示进入 AP 模式。
 
 #### 3. 连接 WiFi
 
-在手机或电脑上搜索 WiFi 名称：`ParrotCam-XXXX`（XXXX 为 MAC 地址后 4 位十六进制），连接该网络。
+在手机或电脑上搜索 WiFi 名称：`MiBeeHomeCam-XXXX`（XXXX 为 MAC 地址后 4 位十六进制），连接该网络。
 
 #### 4. 打开管理页面
 
@@ -213,7 +213,7 @@ I (xxx) storage: SD card mounted OK
 I (xxx) camera: Sensor: OV2640, Resolution: SVGA, Quality: 12
 I (xxx) web: Web server started on port 80
 I (xxx) main: Recording started
-I (xxx) main: ParrotCam v0.1 initialized successfully
+I (xxx) main: MiBeeHomeCam v0.1 initialized successfully
 I (xxx) main: Camera: OV2640 @ SVGA
 I (xxx) main: WiFi: STA, IP: 192.168.1.xxx
 ```

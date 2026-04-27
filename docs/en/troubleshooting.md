@@ -1,106 +1,106 @@
-# 故障排除
+# Troubleshooting
 
-## 1. 日志查看
+## 1. Log Viewing
 
-### 串口监控
+### Serial Monitor
 
 ```bash
 idf.py -p COM3 monitor
 ```
 
-退出：`Ctrl+]`
+Exit: `Ctrl+]`
 
-### 关键日志标签
+### Key Log Tags
 
-| 标签 | 模块 |
-|------|------|
-| `main` | 主入口、健康监控 |
-| `camera` | 摄像头驱动 |
-| `recorder` | 视频录像器 |
-| `mjpeg` | MJPEG 流服务 |
-| `web` | Web 服务器 |
-| `wifi` | WiFi 管理 |
-| `storage` | SD 卡存储 |
-| `uploader` | NAS 上传 |
-| `status_led` | LED 状态 |
-| `time_sync` | 时间同步 |
+| Tag | Module |
+|-----|--------|
+| `main` | Main entry, health monitoring |
+| `camera` | Camera driver |
+| `recorder` | Video recorder |
+| `mjpeg` | MJPEG streaming service |
+| `web` | Web server |
+| `wifi` | WiFi management |
+| `storage` | SD card storage |
+| `uploader` | NAS upload |
+| `status_led` | LED status |
+| `time_sync` | Time synchronization |
 
-### 健康监控输出
+### Health Monitor Output
 
-每 60 秒自动输出，格式如下：
+Automatically outputs every 60 seconds in the following format:
 
 ```
 I (60000) main: HEALTH: heap=45230 PSRAM=3145728 rec_hwm=1234 nas_hwm=2345
 ```
 
-| 字段 | 含义 |
-|------|------|
-| `heap` | 内部 SRAM 空闲字节数 |
-| `PSRAM` | 外部 PSRAM 空闲字节数 |
-| `rec_hwm` | 录像任务栈高水位（剩余最小值） |
-| `nas_hwm` | 上传任务栈高水位 |
+| Field | Meaning |
+|-------|---------|
+| `heap` | Internal SRAM free bytes |
+| `PSRAM` | External PSRAM free bytes |
+| `rec_hwm` | Recording task stack high water mark (minimum remaining) |
+| `nas_hwm` | Upload task stack high water mark |
 
 ---
 
-## 2. 关键阈值
+## 2. Key Thresholds
 
-| 指标 | 阈值 | 级别 | 日志 |
-|------|------|------|------|
-| 内部堆 < 20 KB | 20000 bytes | `CRITICAL` | `E (xxx) main: CRITICAL: Free heap below 20KB` |
+| Indicator | Threshold | Level | Log |
+|-----------|-----------|-------|-----|
+| Internal heap < 20 KB | 20000 bytes | `CRITICAL` | `E (xxx) main: CRITICAL: Free heap below 20KB` |
 | PSRAM < 500 KB | 500000 bytes | `WARNING` | `W (xxx) main: WARNING: Free PSRAM below 500KB` |
-| SD 卡剩余 < 20% | 20% | `WARNING` | `W (xxx) storage: Storage low (xx.x%), starting cleanup` |
-| 看门狗超时 | 30 秒 | `PANIC` | 系统自动重启 |
-| 连续上传失败 | 10 次 | `PAUSE` | 上传暂停 5 分钟 |
+| SD card free < 20% | 20% | `WARNING` | `W (xxx) storage: Storage low (xx.x%), starting cleanup` |
+| Watchdog timeout | 30 seconds | `PANIC` | System auto restart |
+| Consecutive upload failures | 10 times | `PAUSE` | Upload pauses for 5 minutes |
 
 ---
 
-## 3. 常见问题
+## 3. Common Issues
 
-### WiFi 连接失败
+### WiFi Connection Failure
 
-**现象**：LED 一直快闪，无法连接 WiFi。
+**Symptom**: LED keeps fast blinking, cannot connect to WiFi.
 
-**排查**：
+**Troubleshooting**:
 
-1. 确认 SSID 和密码正确（注意大小写和空格）
-2. 确认路由器为 2.4 GHz（ESP32-S3 不支持 5 GHz）
-3. 检查路由器是否开启了 MAC 地址过滤
-4. 查看串口日志中 `wifi` 标签的输出
-5. 尝试将设备靠近路由器
+1. Confirm SSID and password are correct (note case and spaces)
+2. Confirm router is 2.4 GHz (ESP32-S3 does not support 5 GHz)
+3. Check if router has MAC address filtering enabled
+4. Check serial log output with `wifi` tag
+5. Try moving device closer to router
 
-**解决**：进入 AP 模式重新配置 WiFi，或通过 SD 卡 `wifi.txt` 覆盖。
+**Solution**: Enter AP mode to reconfigure WiFi, or override via SD card `wifi.txt`.
 
 ---
 
-### WiFi 认证反复失败（auth expired / assoc expired）
+### WiFi Authentication Repeated Failures (auth expired / assoc expired)
 
-**现象**：串口日志持续输出 `state: auth -> init (0x200)` 或 `state: assoc -> init (0x400)`，设备能扫描到 AP 但无法连接。
+**Symptom**: Serial log continuously outputs `state: auth -> init (0x200)` or `state: assoc -> init (0x400)`, device can scan AP but cannot connect.
 
-**根因**：XIAO ESP32-S3 开发板 WiFi 发射功率默认偏低（Seeed 官方已知问题，2025年8月前批次），导致认证帧无法正常到达路由器。
+**Root Cause**: XIAO ESP32-S3 development board WiFi transmit power is low by default (Seeed official known issue, batches before August 2025), causing authentication frames to fail to reach the router properly.
 
-**日志特征**：
+**Log Signature**:
 ```
 I (xxx) wifi:state: init -> auth (0xb0)
-I (xxx) wifi:state: auth -> init (0x200)        ← 认证超时
+I (xxx) wifi:state: auth -> init (0x200)        ← Auth timeout
 I (xxx) wifi:state: init -> auth (0xb0)
 I (xxx) wifi:state: auth -> assoc (0x0)
-I (xxx) wifi:state: assoc -> init (0x400)       ← 关联超时
+I (xxx) wifi:state: assoc -> init (0x400)       ← Assoc timeout
 ```
 
-**修复**：在 `wifi_start_sta()` 中 `esp_wifi_start()` 之后调用：
+**Fix**: Call in `wifi_start_sta()` after `esp_wifi_start()`:
 ```c
 int8_t power_param = (int8_t)(15 / 0.25);  // 15 dBm
 esp_wifi_set_max_tx_power(power_param);
 ```
-将发射功率从默认值提升到 15 dBm（Seeed 官方推荐值）。参考：https://wiki.seeedstudio.com/cn/xiao_esp32s3_wifi_usage/
+Increase transmit power from default to 15 dBm (Seeed official recommended value). Reference: https://wiki.seeedstudio.com/cn/xiao_esp32s3_wifi_usage/
 
 ---
 
-### 设备无限重启循环（crash loop）
+### Device Infinite Restart Loop (crash loop)
 
-**现象**：设备上电后立即重启，无限循环。串口日志每次启动都在同一位置 crash。
+**Symptom**: Device restarts immediately after power on, infinite loop. Serial log crashes at same position every time.
 
-**日志特征**：
+**Log Signature**:
 ```
 ESP_ERROR_CHECK failed: esp_err_t 0x103 (ESP_ERR_INVALID_STATE)
 file: "./main/wifi_manager.c" line 199
@@ -109,9 +109,9 @@ abort() was called at PC 0x4037df0f on core 0
 Rebooting...
 ```
 
-**根因**：`wifi_init()` 中 `esp_event_loop_create_default()` 被调用时，默认事件循环已被之前的 WiFi 扫描创建过，返回 `ESP_ERR_INVALID_STATE`，`ESP_ERROR_CHECK` 将其视为致命错误触发 abort。
+**Root Cause**: In `wifi_init()`, when `esp_event_loop_create_default()` is called, the default event loop has already been created by a previous WiFi scan, returning `ESP_ERR_INVALID_STATE`. `ESP_ERROR_CHECK` treats this as a fatal error and triggers abort.
 
-**修复**：不使用 `ESP_ERROR_CHECK`，改为容错处理：
+**Fix**: Instead of using `ESP_ERROR_CHECK`, use fault-tolerant handling:
 ```c
 esp_err_t ev_err = esp_event_loop_create_default();
 if (ev_err != ESP_OK && ev_err != ESP_ERR_INVALID_STATE) {
@@ -121,131 +121,131 @@ if (ev_err != ESP_OK && ev_err != ESP_ERR_INVALID_STATE) {
 ```
 ---
 
-### TF 卡无法识别
+### TF Card Not Recognized
 
-**现象**：串口日志显示 `Failed to mount SD card`，录像不启动。
+**Symptom**: Serial log shows `Failed to mount SD card`, recording does not start.
 
-**排查**：
+**Troubleshooting**:
 
-1. 确认 TF 卡已正确插入卡槽
-2. 确认 TF 卡为 FAT32 格式（非 exFAT 或 NTFS）
-3. 尝试更换 Class 10 或更高速度的卡
-4. 在电脑上检查卡是否正常读写
-5. 尝试重新格式化（FAT32，分配单元 64 KB）
+1. Confirm TF card is properly inserted in slot
+2. Confirm TF card is FAT32 format (not exFAT or NTFS)
+3. Try replacing with Class 10 or higher speed card
+4. Check if card reads/writes normally on computer
+5. Try reformatting (FAT32, allocation unit 64 KB)
 
-**解决**：更换 TF 卡或重新格式化。支持热插拔，插入后 10 秒内自动检测并恢复。
-
----
-
-### 录像未启动
-
-**现象**：LED 熄灭但 `/api/status` 显示 `recording: false`。
-
-**排查**：
-
-1. 确认 SD 卡已挂载：`/api/status` 中 `sd_available: true`
-2. 检查 SD 卡剩余空间是否充足
-3. 查看串口日志中 `recorder` 标签是否有错误
-4. 确认摄像头初始化成功
-
-**解决**：手动通过 API 启动录像：`POST /api/record?action=start`。
+**Solution**: Replace TF card or reformat. Supports hot-plug, automatically detects and recovers within 10 seconds after insertion.
 
 ---
 
-### Web 页面无法访问
+### Recording Not Starting
 
-**现象**：浏览器无法打开设备 IP。
+**Symptom**: LED is off but `/api/status` shows `recording: false`.
 
-**排查**：
+**Troubleshooting**:
 
-1. 确认设备与浏览器在同一局域网
-2. 检查设备 IP 是否正确（串口日志或路由器 DHCP 列表）
-3. 确认防火墙未阻止访问
-4. 尝试使用 `curl` 测试：`curl http://<设备IP>/api/status`
-5. 检查串口日志中 `web` 标签是否显示 `Web server started`
+1. Confirm SD card is mounted: `sd_available: true` in `/api/status`
+2. Check if SD card free space is sufficient
+3. Check serial log for errors with `recorder` tag
+4. Confirm camera initialized successfully
 
-**解决**：如果 Web 服务启动失败，重启设备。
-
----
-
-### NAS 上传失败
-
-**现象**：录像完成但文件未上传到 NAS。
-
-**排查**：
-
-1. 确认 NAS 服务器地址、端口、路径配置正确
-2. 确认用户名和密码正确
-3. 确认 FTP/WebDAV 服务已启动
-4. 确认设备与 NAS 在同一网络
-5. 查看串口日志中 `uploader` 标签的错误信息
-6. 检查连续失败计数是否达到上限（10 次后暂停 5 分钟）
-
-**解决**：通过 API 重新配置 NAS 参数，或检查 NAS 服务器端日志。
+**Solution**: Manually start recording via API: `POST /api/record?action=start`.
 
 ---
 
-### 视频流卡顿或无法播放
+### Web Page Cannot Access
 
-**现象**：`/stream` 页面画面卡住或无法加载。
+**Symptom**: Browser cannot open device IP.
 
-**排查**：
+**Troubleshooting**:
 
-1. 确认并发客户端数 ≤ 2（超过返回 503）
-2. 降低分辨率（VGA 比 SVGA/XGA 流畅）
-3. 降低 JPEG 质量（数值增大）
-4. 降低帧率
-5. 检查 WiFi 信号强度（`/api/status` 中 RSSI 值）
+1. Confirm device and browser are on the same LAN
+2. Check if device IP is correct (serial log or router DHCP list)
+3. Confirm firewall is not blocking access
+4. Try using `curl` to test: `curl http://<deviceIP>/api/status`
+5. Check if serial log shows `Web server started` with `web` tag
 
-**解决**：在配置页面降低分辨率或帧率，减少网络带宽需求。
-
----
-
-### 设备频繁重启
-
-**现象**：设备运行一段时间后自动重启。
-
-**排查**：
-
-1. 查看串口日志中的 crash dump 或 panic 信息
-2. 检查堆内存是否低于 20 KB（健康监控输出）
-3. 检查看门狗是否触发超时（30 秒无喂狗）
-4. 确认电源供电充足（USB 3.0 或 5V/1A+ 适配器）
-5. 检查 PSRAM 是否低于 500 KB
-
-**解决**：如因内存不足，降低分辨率或帧率。如因电源问题，更换供电方式。
+**Solution**: If web service failed to start, restart device.
 
 ---
 
-## 4. 恢复方法
+### NAS Upload Failure
 
-### 方法一：BOOT 按钮恢复
+**Symptom**: Recording completed but files not uploaded to NAS.
 
-1. 设备上电状态下
-2. 按住 BOOT 按钮（GPIO0）保持 5 秒
-3. LED 变为双闪（错误状态）
-4. 2 秒后设备自动重启
-5. 重启后恢复为 AP 模式（所有配置清空）
+**Troubleshooting**:
 
-### 方法二：API 恢复出厂
+1. Confirm NAS server address, port, path configuration is correct
+2. Confirm username and password are correct
+3. Confirm FTP/WebDAV service is started
+4. Confirm device and NAS are on the same network
+5. Check serial log for error messages with `uploader` tag
+6. Check if consecutive failure count reached limit (pauses 5 minutes after 10 failures)
+
+**Solution**: Reconfigure NAS parameters via API, or check NAS server-side logs.
+
+---
+
+### Video Stream Stuttering or Not Playing
+
+**Symptom**: `/stream` page freezes or cannot load.
+
+**Troubleshooting**:
+
+1. Confirm concurrent clients ≤ 2 (returns 503 if exceeded)
+2. Lower resolution (VGA is smoother than SVGA/XGA)
+3. Lower JPEG quality (increase value)
+4. Lower frame rate
+5. Check WiFi signal strength (RSSI value in `/api/status`)
+
+**Solution**: Lower resolution or frame rate in configuration page to reduce network bandwidth requirements.
+
+---
+
+### Device Frequent Restarts
+
+**Symptom**: Device automatically restarts after running for a period.
+
+**Troubleshooting**:
+
+1. Check serial log for crash dump or panic information
+2. Check if heap memory is below 20 KB (health monitor output)
+3. Check if watchdog triggered timeout (no喂狗 for 30 seconds)
+4. Confirm power supply is sufficient (USB 3.0 or 5V/1A+ adapter)
+5. Check if PSRAM is below 500 KB
+
+**Solution**: If due to insufficient memory, lower resolution or frame rate. If due to power issues, change power supply method.
+
+---
+
+## 4. Recovery Methods
+
+### Method 1: BOOT Button Recovery
+
+1. While device is powered on
+2. Hold BOOT button (GPIO0) for 5 seconds
+3. LED becomes double blink (error state)
+4. Device automatically restarts after 2 seconds
+5. After restart, enters AP mode (all configuration cleared)
+
+### Method 2: API Factory Reset
 
 ```bash
-curl -X POST http://<设备IP>/api/reset \
+curl -X POST http://<deviceIP>/api/reset \
   -H "X-Password: admin"
 ```
 
-### 方法三：擦除 Flash
+### Method 3: Erase Flash
 
-通过 ESP-IDF 工具完全擦除 Flash（包括 NVS 配置）：
+Completely erase Flash via ESP-IDF tools (including NVS configuration):
 
 ```bash
 idf.py -p COM3 erase-flash
 ```
 
-擦除后需要重新烧录固件：
+After erasing, need to re-flash firmware:
 
 ```bash
 idf.py -p COM3 flash monitor
 ```
 
-> **注意**：恢复出厂设置将清除所有配置（WiFi、NAS、密码等），恢复为默认值 `admin`，设备重启后进入 AP 模式。TF 卡上的录像文件不受影响。
+> **Note**: Factory reset will clear all configuration (WiFi, NAS, password, etc.), restore to default value `admin`, device enters AP mode after restart. Recording files on TF card are not affected.

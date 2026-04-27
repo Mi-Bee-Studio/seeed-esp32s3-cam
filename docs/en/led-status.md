@@ -1,72 +1,72 @@
-# LED 状态指示灯说明
+# LED Status Indicator Guide
 
-设备板载 LED（GPIO21，低电平点亮）通过不同的闪烁模式指示当前运行状态。
+The onboard LED (GPIO21, active-low) indicates the current operating status through different blinking patterns.
 
-## 状态对照表
+## Status Reference Table
 
-| LED 模式 | 视觉表现 | 状态含义 |
-|----------|----------|----------|
-| 常亮 | ━━━━━━━━ | 系统启动中 |
-| 慢闪（1 秒周期） | ━━ ── ━━ ── | AP 热点模式（未连接路由器） |
-| 快闪（200ms 周期） | ━─ ━─ ━─ ━─ | 正在连接 WiFi |
-| 熄灭 | ──────── | 正常运行（已连接路由器） |
-| 双闪 | ━━ ━━ ──────── | 错误状态（初始化失败 / 录像异常） |
+| LED Mode | Visual Display | Status Meaning |
+|----------|---------------|----------------|
+| Solid | ━━━━━━━━ | System booting |
+| Slow blink (1-second cycle) | ━━ ── ━━ ── | AP hotspot mode (not connected to router) |
+| Fast blink (200ms cycle) | ━─ ━─ ━─ ━─ | Connecting to WiFi |
+| Off | ──────── | Normal operation (connected to router) |
+| Double blink | ━━ ━━ ──────── | Error state (initialization failed / recording anomaly) |
 
-## 详细说明
+## Detailed Description
 
-### 常亮 — 系统启动中
+### Solid — System Booting
 
-开机后 LED 常亮，表示系统正在执行初始化流程（加载配置、初始化摄像头、挂载 SD 卡、启动 WiFi 等）。通常持续 2-3 秒。
+After power-on, LED stays solid indicating the system is executing initialization process (loading configuration, initializing camera, mounting SD card, starting WiFi, etc.). Usually lasts 2-3 seconds.
 
-### 慢闪 — AP 热点模式
+### Slow Blink — AP Hotspot Mode
 
-设备以 AP 模式运行，发射 WiFi 热点（SSID: `MiBeeHomeCam-XXXX`），可通过 `192.168.4.1` 访问管理页面。
+Device runs in AP mode, emitting WiFi hotspot (SSID: `MiBeeHomeCam-XXXX`), accessible via `192.168.4.1`.
 
-出现此状态的场景：
-- 首次使用，尚未配置 WiFi
-- WiFi 连接失败 3 次后自动回退
-- 手动切换到 AP 模式
+Scenarios where this state appears:
+- First use, WiFi not yet configured
+- Auto fallback after 3 WiFi connection failures
+- Manually switched to AP mode
 
-**处理方式**：连接设备热点，打开管理页面配置正确的 WiFi 信息。
+**Solution**: Connect to device hotspot, open management page to configure correct WiFi information.
 
-### 快闪 — 正在连接 WiFi
+### Fast Blink — Connecting to WiFi
 
-设备正在尝试连接路由器。如果长时间停留在此状态，请检查：
-- WiFi 名称是否正确
-- WiFi 密码是否正确
-- 路由器是否在信号范围内
+Device is attempting to connect to router. If stuck in this state for a long time, please check:
+- Whether WiFi name is correct
+- Whether WiFi password is correct
+- Whether router is within signal range
 
-3 次连接失败（每次间隔 60 秒）后，设备自动切换到 AP 热点模式（慢闪）。
+After 3 connection failures (60-second interval each), device automatically switches to AP hotspot mode (slow blink).
 
-### 熄灭 — 正常运行
+### Off — Normal Operation
 
-设备已成功连接路由器，摄像头、录像、Web 服务均正常运行。此时可通过路由器分配的 IP 地址访问管理页面。
+Device has successfully connected to router, camera, recording, and web services are all running normally. At this point, access the management page via the IP address assigned by router.
 
-**如何查看 IP**：
-- 登录路由器管理页面查看已连接设备
-- 使用局域网扫描工具（如 Fing）
-- 通过 AP 模式连接后在管理页面查看
+**How to find IP**:
+- Login to router management page to view connected devices
+- Use LAN scanning tool (such as Fing)
+- View in management page after connecting via AP mode
 
-### 双闪 — 错误状态
+### Double Blink — Error State
 
-设备检测到严重错误：
-- 摄像头初始化失败
-- 录像过程异常
-- 其他关键模块故障
+Device has detected a serious error:
+- Camera initialization failed
+- Recording process anomaly
+- Other critical module failure
 
-**处理方式**：
-1. 尝试重启设备（长按 Boot 按钮 5 秒恢复出厂，或在管理页面点击重启）
-2. 检查硬件连接（摄像头排线、SD 卡是否插好）
-3. 查看串口日志获取详细错误信息
+**Solution**:
+1. Try restarting device (hold Boot button 5 seconds for factory reset, or click restart in management page)
+2. Check hardware connections (camera cable, SD card insertion)
+3. View serial logs for detailed error information
 
-## 快速判断流程
+## Quick Diagnosis Flow
 
 ```
-开机 → LED 常亮？
-  ├─ 是 → 等待初始化完成
-  └─ 否 → 
-       ├─ 灭 → 设备正常运行，连路由器 IP 访问
-       ├─ 慢闪 → AP 模式，连 MiBeeHomeCam-XXXX 热点配置 WiFi
-       ├─ 快闪 → 正在连 WiFi，等待或检查密码
-       └─ 双闪 → 设备故障，检查硬件或重启
+Power on → LED solid?
+  ├─ Yes → Wait for initialization to complete
+  └─ No →
+       ├─ Off → Device running normally, access via router IP
+       ├─ Slow blink → AP mode, connect to MiBeeHomeCam-XXXX hotspot to configure WiFi
+       ├─ Fast blink → Connecting to WiFi, wait or check password
+       └─ Double blink → Device fault, check hardware or restart
 ```

@@ -19,11 +19,11 @@
   "data": {
     "wifi_ssid": "MyWiFi",
     "wifi_pass": "****",
-    "device_name": "ParrotCam",
+    "device_name": "MiBeeHomeCam",
     "ftp_host": "192.168.1.200",
     "ftp_port": 21,
     "ftp_user": "ftpuser",
-    "ftp_path": "/ParrotCam",
+    "ftp_path": "/MiBeeHomeCam",
     "ftp_enabled": true,
     "webdav_url": "",
     "webdav_user": "",
@@ -43,11 +43,11 @@
 |------|------|------|
 | `wifi_ssid` | string | WiFi 网络名称，空字符串表示 AP 模式 |
 | `wifi_pass` | string | WiFi 密码，已设置时显示 `"****"`，未设置时显示 `""` |
-| `device_name` | string | 设备名称（默认 `"ParrotCam"`） |
+| `device_name` | string | 设备名称（默认 `"MiBeeHomeCam"`） |
 | `ftp_host` | string | FTP 服务器地址 |
 | `ftp_port` | number | FTP 端口（默认 `21`） |
 | `ftp_user` | string | FTP 用户名 |
-| `ftp_path` | string | FTP 上传路径（默认 `"/ParrotCam"`） |
+| `ftp_path` | string | FTP 上传路径（默认 `"/MiBeeHomeCam"`） |
 | `ftp_enabled` | bool | 是否启用 FTP 上传 |
 | `webdav_url` | string | WebDAV 服务器地址 |
 | `webdav_user` | string | WebDAV 用户名 |
@@ -275,12 +275,12 @@ await fetch('/api/config', {
 |--------|------|--------|------|
 | `wifi_ssid` | string | `""` | 空表示 AP 模式 |
 | `wifi_pass` | string | `""` | WiFi 密码 |
-| `device_name` | string | `"ParrotCam"` | 设备名称 |
+| `device_name` | string | `"MiBeeHomeCam"` | 设备名称 |
 | `ftp_host` | string | `""` | FTP 服务器 |
 | `ftp_port` | number | `21` | FTP 端口 |
 | `ftp_user` | string | `""` | FTP 用户名 |
 | `ftp_pass` | string | `""` | FTP 密码 |
-| `ftp_path` | string | `"/ParrotCam"` | FTP 路径 |
+| `ftp_path` | string | `"/MiBeeHomeCam"` | FTP 路径 |
 | `ftp_enabled` | bool | `false` | FTP 上传开关 |
 | `webdav_url` | string | `""` | WebDAV 地址 |
 | `webdav_user` | string | `""` | WebDAV 用户名 |

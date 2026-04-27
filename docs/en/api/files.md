@@ -1,18 +1,18 @@
-# 文件管理接口
+# File Management Interface
 
-> [← 配置接口](config.md) | [设备控制 →](control.md)
+> [← Configuration Interface](config.md) | [Device Control →](control.md)
 
 ---
 
-## GET /api/files — 获取录制文件列表
+## GET /api/files — Get Recording File List
 
-获取 SD 卡 `/sdcard/recordings/` 目录下的录制文件列表。
+Get recording file list under SD card `/sdcard/recordings/` directory.
 
-**认证**：无需认证
+**Authentication**: None required
 
-**源码**：`api_files_get_handler`（web_server.c）
+**Source**: `api_files_get_handler` (web_server.c)
 
-**响应示例**：
+**Response Example**:
 ```json
 {
   "ok": true,
@@ -33,23 +33,23 @@
 }
 ```
 
-**响应字段说明**：
+**Response Field Description**:
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `files` | array | 文件信息数组，最多返回 64 个文件 |
-| `files[].name` | string | 文件名 |
-| `files[].size` | number | 文件大小（字节） |
-| `files[].date` | string | 文件日期/时间字符串 |
+| Field | Type | Description |
+|-------|------|-------------|
+| `files` | array | File info array, returns max 64 files |
+| `files[].name` | string | Filename |
+| `files[].size` | number | File size (bytes) |
+| `files[].date` | string | File date/time string |
 
-> 无文件或 SD 卡未插入时返回空数组：`{"ok": true, "data": {"files": []}}`
+> Returns empty array when no files or SD card not inserted: `{"ok": true, "data": {"files": []}}`
 
-**cURL 示例**：
+**cURL Example**:
 ```bash
 curl http://192.168.4.1/api/files
 ```
 
-**JavaScript 示例**：
+**JavaScript Example**:
 ```javascript
 const resp = await fetch('/api/files');
 const { data } = await resp.json();
@@ -60,48 +60,48 @@ data.files.forEach(f => {
 
 ---
 
-## DELETE /api/files?name=xxx — 删除文件
+## DELETE /api/files?name=xxx — Delete File
 
-删除 SD 卡上指定的录制文件。
+Delete specified recording file on SD card.
 
-**认证**：需要密码认证
+**Authentication**: Password required
 
-**源码**：`api_files_delete_handler`（web_server.c）
+**Source**: `api_files_delete_handler` (web_server.c)
 
-**查询参数**：
+**Query Parameters**:
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `name` | string | 是 | 要删除的文件名（不含路径前缀） |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | Yes | Filename to delete (without path prefix) |
 
-**安全机制**：
-- 文件名中包含 `..` 的请求将被拒绝（防止路径遍历攻击）
-- 实际删除路径为 `/sdcard/recordings/<name>`
+**Security Mechanism**:
+- Requests with `..` in filename are rejected (prevents path traversal attacks)
+- Actual delete path is `/sdcard/recordings/<name>`
 
-**成功响应**：
+**Success Response**:
 ```json
 {
   "ok": true
 }
 ```
 
-**错误响应**：
+**Error Responses**:
 
-| 状态码 | 条件 | 错误信息 |
-|--------|------|----------|
-| 401 | 未提供正确密码 | `"Unauthorized"` |
-| 400 | 缺少查询参数 | `"Missing query"` |
-| 400 | 缺少 name 参数 | `"Missing name parameter"` |
-| 400 | 文件名包含 `..` | `"Invalid name"` |
-| 404 | 文件不存在或删除失败 | `"File not found or delete failed"` |
+| Status Code | Condition | Error Message |
+|-------------|-----------|---------------|
+| 401 | Wrong or missing password | `"Unauthorized"` |
+| 400 | Missing query parameter | `"Missing query"` |
+| 400 | Missing name parameter | `"Missing name parameter"` |
+| 400 | Filename contains `..` | `"Invalid name"` |
+| 404 | File does not exist or delete failed | `"File not found or delete failed"` |
 
-**cURL 示例**：
+**cURL Example**:
 ```bash
 curl -X DELETE "http://192.168.4.1/api/files?name=20260424_120000.avi" \
   -H "X-Password: admin"
 ```
 
-**JavaScript 示例**：
+**JavaScript Example**:
 ```javascript
 async function deleteFile(filename) {
   const resp = await fetch(
@@ -117,58 +117,58 @@ async function deleteFile(filename) {
 
 ---
 
-## GET /api/download?name=xxx — 下载文件
+## GET /api/download?name=xxx — Download File
 
-下载 SD 卡上指定的录制文件，返回 AVI 格式的二进制数据。
+Download specified recording file on SD card, returns AVI format binary data.
 
-**认证**：无需认证
+**Authentication**: None required
 
-**源码**：`api_download_handler`（web_server.c）
+**Source**: `api_download_handler` (web_server.c)
 
-**查询参数**：
+**Query Parameters**:
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `name` | string | 是 | 要下载的文件名（不含路径前缀） |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | Yes | Filename to download (without path prefix) |
 
-**安全机制**：
-- 文件名中包含 `..` 的请求将被拒绝（防止路径遍历攻击）
-- 实际下载路径为 `/sdcard/recordings/<name>`
+**Security Mechanism**:
+- Requests with `..` in filename are rejected (prevents path traversal attacks)
+- Actual download path is `/sdcard/recordings/<name>`
 
-**响应头**：
+**Response Headers**:
 ```
 Content-Type: video/avi
-Content-Length: <文件大小>
-Content-Disposition: attachment; filename="<文件名>"
+Content-Length: <file size>
+Content-Disposition: attachment; filename="<filename"
 Access-Control-Allow-Origin: *
 ```
 
-**响应体**：二进制 AVI 数据，以 1024 字节分块传输。
+**Response Body**: Binary AVI data, transferred in 1024-byte chunks.
 
-**错误响应**：
+**Error Responses**:
 
-| 状态码 | 条件 | 错误信息 |
-|--------|------|----------|
-| 400 | 缺少查询参数 | `"Missing query"` |
-| 400 | 缺少 name 参数 | `"Missing name parameter"` |
-| 400 | 文件名包含 `..` | `"Invalid name"` |
-| 404 | 文件不存在 | `"File not found"` |
+| Status Code | Condition | Error Message |
+|-------------|-----------|---------------|
+| 400 | Missing query parameter | `"Missing query"` |
+| 400 | Missing name parameter | `"Missing name parameter"` |
+| 400 | Filename contains `..` | `"Invalid name"` |
+| 404 | File does not exist | `"File not found"` |
 
-**cURL 示例**：
+**cURL Example**:
 ```bash
-# 下载并保存为本地文件
+# Download and save as local file
 curl -o video.avi "http://192.168.4.1/api/download?name=20260424_120000.avi"
 ```
 
-**JavaScript 示例**：
+**JavaScript Example**:
 ```javascript
 async function downloadFile(filename) {
   const resp = await fetch(
     `/api/download?name=${encodeURIComponent(filename)}`
   );
-  if (!resp.ok) throw new Error(`下载失败: ${resp.status}`);
+  if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
   const blob = await resp.blob();
-  // 创建下载链接
+  // Create download link
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

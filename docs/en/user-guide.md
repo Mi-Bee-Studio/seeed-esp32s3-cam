@@ -1,178 +1,178 @@
-# 使用手册
+# User Guide
 
-> ESP32-S3 摄像头监控固件的日常使用指南
+> Daily usage guide for ESP32-S3 Camera Monitor firmware
 
-## 概述
+## Overview
 
-本文档介绍 ESP32-S3 摄像头监控固件的日常使用方法，包括 Web 管理界面操作、配置参数说明、录像与存储管理、NAS 上传等功能。
+This document describes the daily usage methods of ESP32-S3 Camera Monitor firmware, including Web management interface operations, configuration parameter descriptions, recording and storage management, NAS upload functions, etc.
 
-## Web 管理界面
+## Web Management Interface
 
-设备内置 HTTP 服务器，提供 Web 管理界面和 REST API。
+The device has a built-in HTTP server providing Web management interface and REST API.
 
-### 访问地址
+### Access Address
 
-| 模式 | 地址 |
-|------|------|
-| AP 模式 | `http://192.168.4.1` |
-| STA 模式 | `http://<设备IP>` |
+| Mode | Address |
+|------|---------|
+| AP Mode | `http://192.168.4.1` |
+| STA Mode | `http://<deviceIP>` |
 
-- AP 模式：连接 WiFi 热点 `ParrotCam-XXXX`（密码 `12345678`），然后访问 `http://192.168.4.1`
-- STA 模式：设备连接路由器后，通过路由器分配的 IP 访问
+- AP Mode: Connect to WiFi hotspot `MiBeeHomeCam-XXXX` (password `12345678`), then access `http://192.168.4.1`
+- STA Mode: After device connects to router, access via the IP assigned by router
 
-### 登录密码
+### Login Password
 
-默认管理密码：`admin`。涉及写操作的 API 请求需要通过 `X-Password` 请求头或 `?password=xxx` 查询参数传递密码。
+Default management password: `admin`. API requests involving write operations need to pass the password via `X-Password` request header or `?password=xxx` query parameter.
 
-### 页面说明
+### Page Description
 
-| 页面 | 功能 |
-|------|------|
-| index | 状态总览（录像状态、WiFi、存储、摄像头型号、运行时间） |
-| config | 配置管理（WiFi、录像、NAS 上传等全部参数） |
-| preview | 实时视频预览（浏览器内 MJPEG 流） |
-| files | 录像文件管理（浏览、下载、删除） |
+| Page | Function |
+|------|----------|
+| index | Status overview (recording status, WiFi, storage, camera model, uptime) |
+| config | Configuration management (all parameters including WiFi, recording, NAS upload) |
+| preview | Real-time video preview (MJPEG stream in browser) |
+| files | Recording file management (browse, download, delete) |
 
-## 配置管理
+## Configuration Management
 
-### 通过 Web 界面
+### Via Web Interface
 
-打开 `config` 页面，直接修改各项参数并保存。修改后立即生效，同时持久化到 NVS 闪存。
+Open the `config` page, directly modify parameters and save. Changes take effect immediately and are persisted to NVS flash.
 
-### 通过 API
+### Via API
 
-使用 `POST /api/config` 接口修改配置，需附带 `X-Password` 认证：
+Use `POST /api/config` interface to modify configuration, requires `X-Password` authentication:
 
 ```bash
-# 修改 WiFi
+# Modify WiFi
 curl -X POST http://192.168.4.1/api/config \
   -H 'Content-Type: application/json' -H 'X-Password: admin' \
   -d '{"wifi_ssid":"MyWiFi","wifi_pass":"mypassword"}'
 
-# 修改视频参数
+# Modify video parameters
 curl -X POST http://192.168.4.1/api/config \
   -H 'Content-Type: application/json' -H 'X-Password: admin' \
   -d '{"resolution":1,"fps":10,"jpeg_quality":12,"segment_sec":300}'
 ```
 
-> 密码字段传 `"****"` 表示不修改，传实际值则更新。
+> For password fields, passing `"****"` means no modification, passing actual value updates it.
 
-### 完整配置参数表
+### Complete Configuration Parameter Table
 
-#### WiFi 配置
+#### WiFi Configuration
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `wifi_ssid` | string | `""` | WiFi 名称，为空则进入 AP 模式 |
-| `wifi_pass` | string | `""` | WiFi 密码 |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `wifi_ssid` | string | `""` | WiFi name, enters AP mode if empty |
+| `wifi_pass` | string | `""` | WiFi password |
 
-#### 设备配置
+#### Device Configuration
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `device_name` | string | `"ParrotCam"` | 设备名称 |
-| `web_password` | string | `"admin"` | Web 管理密码 |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `device_name` | string | `"MiBeeHomeCam"` | Device name |
+| `web_password` | string | `"admin"` | Web management password |
 
-#### FTP 配置
+#### FTP Configuration
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `ftp_host` | string | `""` | FTP 服务器地址 |
-| `ftp_port` | uint16 | `21` | FTP 端口 |
-| `ftp_user` | string | `""` | FTP 用户名 |
-| `ftp_pass` | string | `""` | FTP 密码（GET 请求返回 `****`） |
-| `ftp_path` | string | `"/ParrotCam"` | FTP 上传路径 |
-| `ftp_enabled` | bool | `false` | 是否启用 FTP 上传 |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `ftp_host` | string | `""` | FTP server address |
+| `ftp_port` | uint16 | `21` | FTP port |
+| `ftp_user` | string | `""` | FTP username |
+| `ftp_pass` | string | `""` | FTP password (returns `****` on GET) |
+| `ftp_path` | string | `"/MiBeeHomeCam"` | FTP upload path |
+| `ftp_enabled` | bool | `false` | Enable FTP upload |
 
-#### WebDAV 配置
+#### WebDAV Configuration
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `webdav_url` | string | `""` | WebDAV 服务器 URL |
-| `webdav_user` | string | `""` | WebDAV 用户名 |
-| `webdav_pass` | string | `""` | WebDAV 密码（GET 请求返回 `****`） |
-| `webdav_enabled` | bool | `false` | 是否启用 WebDAV 上传 |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `webdav_url` | string | `""` | WebDAV server URL |
+| `webdav_user` | string | `""` | WebDAV username |
+| `webdav_pass` | string | `""` | WebDAV password (returns `****` on GET) |
+| `webdav_enabled` | bool | `false` | Enable WebDAV upload |
 
-#### 视频配置
+#### Video Configuration
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `resolution` | uint8 | `1` | 分辨率：0=VGA(640×480), 1=SVGA(800×600), 2=XGA(1024×768) |
-| `fps` | uint8 | `10` | 帧率，范围 1-30 |
-| `segment_sec` | uint16 | `300` | 录像分段时长（秒） |
-| `jpeg_quality` | uint8 | `12` | JPEG 画质，1-63，数值越低画质越好 |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `resolution` | uint8 | `1` | Resolution: 0=VGA(640×480), 1=SVGA(800×600), 2=XGA(1024×768) |
+| `fps` | uint8 | `10` | Frame rate, range 1-30 |
+| `segment_sec` | uint16 | `300` | Recording segment duration (seconds) |
+| `jpeg_quality` | uint8 | `12` | JPEG quality, 1-63, lower value means better quality |
 
-## LED 指示灯
+## LED Indicator
 
-板载 LED（GPIO21，低电平有效）通过不同闪烁模式反映设备当前状态：
+The onboard LED (GPIO21, active-low) reflects the device's current status through different blinking patterns:
 
-| 模式 | LED 表现 | 含义 |
-|------|----------|------|
-| LED_STARTING | 常亮 | 系统启动中 |
-| LED_AP_MODE | 慢闪（1 秒周期） | AP 热点模式，等待配置 |
-| LED_WIFI_CONNECTING | 快闪（200ms 周期） | 正在连接 WiFi |
-| LED_RUNNING | 熄灭 | 正常运行，录像中 |
-| LED_ERROR | 双闪 | 错误状态（SD 卡故障等） |
+| Mode | LED Behavior | Meaning |
+|------|-------------|---------|
+| LED_STARTING | Solid | System booting |
+| LED_AP_MODE | Slow blink (1-second cycle) | AP hotspot mode, waiting for configuration |
+| LED_WIFI_CONNECTING | Fast blink (200ms cycle) | Connecting to WiFi |
+| LED_RUNNING | Off | Normal operation, recording |
+| LED_ERROR | Double blink | Error state (SD card failure, etc.) |
 
-**双闪时序详解**（LED_ERROR）：
+**Double Blink Timing Details** (LED_ERROR):
 
 ```
-ON 200ms → OFF 200ms → ON 200ms → OFF 1000ms → 循环
-|← 第1次闪烁 →|← 第2次闪烁 →|←  长间隔   →|
+ON 200ms → OFF 200ms → ON 200ms → OFF 1000ms → Loop
+|← 1st blink →|← 2nd blink →|← long interval →|
 ```
 
-## WiFi 配置
+## WiFi Configuration
 
-### AP 模式
+### AP Mode
 
-设备首次启动或未配置 WiFi 时自动进入 AP 模式：
+Device automatically enters AP mode on first boot or when WiFi is not configured:
 
-- SSID：`ParrotCam-XXXX`（XXXX 为 MAC 地址后 4 位十六进制）
-- 密码：`12345678`
-- IP 地址：`192.168.4.1`
-- 加密方式：WPA2-PSK
-- 最大连接数：4
+- SSID: `MiBeeHomeCam-XXXX` (XXXX is last 4 hex digits of MAC address)
+- Password: `12345678`
+- IP Address: `192.168.4.1`
+- Encryption: WPA2-PSK
+- Max connections: 4
 
-### 切换到 STA 模式
+### Switch to STA Mode
 
-配置 `wifi_ssid` 和 `wifi_pass` 后重启，设备自动连接路由器。设置后需重启切换模式。
+After configuring `wifi_ssid` and `wifi_pass`, restart the device. Device automatically connects to router. Restart required to switch modes.
 
-### 自动重连
+### Auto Reconnect
 
-STA 模式下断开后，设备每 60 秒自动尝试重连，无需手动干预。
+In STA mode, after disconnection, device automatically attempts to reconnect every 60 seconds without manual intervention.
 
-## 录像管理
+## Recording Management
 
-### 自动录像
+### Auto Recording
 
-设备启动后，如果 SD 卡就绪，会自动开始录像。
+After device boots, if SD card is ready, recording starts automatically.
 
-### 手动控制
+### Manual Control
 
-通过 API 手动开始或停止录像：
+Manually start or stop recording via API:
 
 ```bash
-# 开始录像
+# Start recording
 curl -X POST "http://192.168.4.1/api/record?action=start" \
   -H "X-Password: admin"
 
-# 停止录像
+# Stop recording
 curl -X POST "http://192.168.4.1/api/record?action=stop" \
   -H "X-Password: admin"
 ```
 
-### 录像格式
+### Recording Format
 
-- **格式**：AVI（MJPEG 编码）
-- **分段**：按 `segment_sec`（默认 300 秒 = 5 分钟）自动分段
-- **文件命名**：`REC_YYYYMMDD_HHMMSS.avi`（如 `REC_20260424_143000.avi`）
-- **存储路径**：`/sdcard/recordings/YYYY-MM/DD/`（按日期分目录）
+- **Format**: AVI (MJPEG encoding)
+- **Segmentation**: Auto-segmented by `segment_sec` (default 300 seconds = 5 minutes)
+- **File naming**: `REC_YYYYMMDD_HHMMSS.avi` (e.g., `REC_20260424_143000.avi`)
+- **Storage path**: `/sdcard/recordings/YYYY-MM/DD/` (organized by date)
 
-每个分段完成后自动触发：NAS 上传 → 存储清理 → 开启下一段。
+After each segment completes: NAS upload → Storage cleanup → Start next segment.
 
-## 存储管理
+## Storage Management
 
-### 录像路径
+### Recording Path
 
 ```
 /sdcard/recordings/
@@ -185,89 +185,89 @@ curl -X POST "http://192.168.4.1/api/record?action=stop" \
 │       └── ...
 ```
 
-### 循环存储
+### Circular Storage
 
-当 SD 卡剩余空间不足时自动清理：
+Automatic cleanup when SD card free space is insufficient:
 
-- **低于 20%**：开始删除最早的录像文件
-- **持续清理直到 30%**：每次分段录像完成后检查
-- 安全限制：单次清理最多删除 100 个文件
+- **Below 20%**: Start deleting oldest recording files
+- **Continue cleanup until 30%**: Check after each segment recording completes
+- Safety limit: Max 100 files deleted per single cleanup
 
-### 启动清理
+### Startup Cleanup
 
-设备启动时会自动扫描 `/sdcard/recordings/` 目录，删除 RIFF 头大小为 0 的不完整 AVI 文件（通常是异常断电导致）。
+On device startup, automatically scans `/sdcard/recordings/` directory and deletes incomplete AVI files with RIFF header size of 0 (usually caused by abnormal power-off).
 
-### SD 卡热插拔
+### SD Card Hot-plug
 
-设备每 10 秒检测一次 SD 卡状态：
+Device checks SD card status every 10 seconds:
 
-| 事件 | 行为 |
-|------|------|
-| SD 卡拔出 | 停止当前录像，LED 显示错误状态 |
-| SD 卡插入 | 重新挂载，自动恢复录像，LED 恢复正常 |
+| Event | Behavior |
+|-------|----------|
+| SD card removed | Stop current recording, LED shows error state |
+| SD card inserted | Remount, automatically resume recording, LED returns to normal |
 
-## NAS 上传
+## NAS Upload
 
-### FTP 上传配置
+### FTP Upload Configuration
 
-| 参数 | 说明 |
-|------|------|
-| `ftp_host` | FTP 服务器 IP 或域名 |
-| `ftp_port` | FTP 端口，默认 21 |
-| `ftp_user` | FTP 登录用户名 |
-| `ftp_pass` | FTP 登录密码 |
-| `ftp_path` | 上传目标路径，默认 `/ParrotCam` |
-| `ftp_enabled` | 设为 `true` 启用 |
+| Parameter | Description |
+|-----------|-------------|
+| `ftp_host` | FTP server IP or domain name |
+| `ftp_port` | FTP port, default 21 |
+| `ftp_user` | FTP login username |
+| `ftp_pass` | FTP login password |
+| `ftp_path` | Upload target path, default `/MiBeeHomeCam` |
+| `ftp_enabled` | Set to `true` to enable |
 
-### WebDAV 上传配置
+### WebDAV Upload Configuration
 
-| 参数 | 说明 |
-|------|------|
-| `webdav_url` | WebDAV 服务器完整 URL |
-| `webdav_user` | WebDAV 用户名 |
-| `webdav_pass` | WebDAV 密码 |
-| `webdav_enabled` | 设为 `true` 启用 |
+| Parameter | Description |
+|-----------|-------------|
+| `webdav_url` | WebDAV server complete URL |
+| `webdav_user` | WebDAV username |
+| `webdav_pass` | WebDAV password |
+| `webdav_enabled` | Set to `true` to enable |
 
-FTP 和 WebDAV 可同时启用，FTP 优先尝试。
+FTP and WebDAV can be enabled simultaneously, FTP is tried first.
 
-### 上传队列
+### Upload Queue
 
-- 队列容量：16 个文件
-- 每个文件最多重试 3 次
-- 连续失败 10 次后暂停上传 5 分钟
-- 后台任务异步处理，不影响录像
+- Queue capacity: 16 files
+- Max 3 retries per file
+- After 10 consecutive failures, pause upload for 5 minutes
+- Background task processes asynchronously without affecting recording
 
-### 查看上传状态
+### View Upload Status
 
 ```bash
 curl http://192.168.4.1/api/status
 ```
 
-返回 `upload_queue`（待上传数）和 `last_upload`（上次上传时间）。
+Returns `upload_queue` (pending upload count) and `last_upload` (last upload time).
 
-## TF 卡配置覆盖
+## TF Card Configuration Override
 
-设备启动时会读取 SD 卡上的配置文件，优先级高于 NVS 中保存的配置。
+On startup, device reads configuration files on SD card, which have higher priority than configurations saved in NVS.
 
 ### wifi.txt
 
-路径：`/sdcard/config/wifi.txt`
+Path: `/sdcard/config/wifi.txt`
 
 ```
-SSID=你的WiFi名称
-PASS=你的WiFi密码
+SSID=YourWiFiName
+PASS=YourWiFiPassword
 ```
 
 ### nas.txt
 
-路径：`/sdcard/config/nas.txt`
+Path: `/sdcard/config/nas.txt`
 
 ```
 FTP_HOST=192.168.1.100
 FTP_PORT=21
 FTP_USER=admin
 FTP_PASS=your_password
-FTP_PATH=/ParrotCam
+FTP_PATH=/MiBeeHomeCam
 FTP_ENABLED=true
 WEBDAV_URL=https://dav.example.com/path
 WEBDAV_USER=user
@@ -275,50 +275,50 @@ WEBDAV_PASS=pass
 WEBDAV_ENABLED=false
 ```
 
-以 `#` 开头的行会被忽略。
+Lines starting with `#` are ignored.
 
-### 配置优先级
-
-```
-TF 卡配置文件 > NVS 闪存 > 默认值
-```
-
-从 TF 卡读取的配置会同步写回 NVS，确保一致性。
-
-## 视频流
-
-### 浏览器查看
-
-直接在浏览器中打开：
+### Configuration Priority
 
 ```
-http://<设备IP>/stream
+TF Card Config Files > NVS Flash > Default Values
 ```
 
-### 客户端限制
+Configurations read from TF card are synchronized back to NVS to ensure consistency.
 
-最多支持 **2 个**同时连接的流客户端。超过限制时返回 503 错误。
+## Video Stream
 
-### 调整画质
+### Browser Viewing
 
-通过 `POST /api/config` 修改视频参数：
+Open directly in browser:
 
-| 参数 | 可选值 | 说明 |
-|------|--------|------|
-| `resolution` | 0, 1, 2 | VGA(640×480)、SVGA(800×600)、XGA(1024×768) |
-| `fps` | 1-30 | 帧率，越高越流畅但占用更多带宽 |
-| `jpeg_quality` | 1-63 | 画质，数值越低画质越好（建议 10-20） |
+```
+http://<deviceIP>/stream
+```
 
-## 时间管理
+### Client Limit
 
-### 自动同步
+Supports maximum **2** simultaneously connected streaming clients. Returns 503 error when limit exceeded.
 
-STA 模式下设备启动后会自动通过 NTP 同步时间：
+### Adjust Quality
 
-- 服务器：`cn.pool.ntp.org`、`ntp.aliyun.com`
-- 同步超时：5 秒（超时后异步继续）
+Modify video parameters via `POST /api/config`:
 
-### 手动设置
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| `resolution` | 0, 1, 2 | VGA(640×480), SVGA(800×600), XGA(1024×768) |
+| `fps` | 1-30 | Frame rate, higher is smoother but uses more bandwidth |
+| `jpeg_quality` | 1-63 | Quality, lower value means better quality (recommended 10-20) |
+
+## Time Management
+
+### Auto Sync
+
+In STA mode, device automatically syncs time via NTP after startup:
+
+- Servers: `cn.pool.ntp.org`, `ntp.aliyun.com`
+- Sync timeout: 5 seconds (continues asynchronously after timeout)
+
+### Manual Setting
 
 ```bash
 curl -X POST http://192.168.4.1/api/time \
@@ -327,23 +327,23 @@ curl -X POST http://192.168.4.1/api/time \
   -d '{"year":2026,"month":4,"day":24,"hour":14,"min":30,"sec":0}'
 ```
 
-## 恢复出厂设置
+## Factory Reset
 
-### 方法一：BOOT 按钮
+### Method 1: BOOT Button
 
-按住 BOOT 按钮（GPIO0）**5 秒**，设备会自动恢复出厂设置并重启。
+Hold BOOT button (GPIO0) for **5 seconds**, device automatically restores factory settings and restarts.
 
-### 方法二：Web 界面
+### Method 2: Web Interface
 
-在 Web 配置页面点击"恢复出厂设置"按钮。
+Click "Factory Reset" button on Web configuration page.
 
-### 方法三：API
+### Method 3: API
 
 ```bash
 curl -X POST http://192.168.4.1/api/reset \
   -H "X-Password: admin"
 ```
 
-### 恢复结果
+### Reset Result
 
-所有配置参数恢复为默认值（WiFi 清空、密码重置为 `admin`），设备重启后进入 AP 模式。TF 卡中的录像文件不会被删除。
+All configuration parameters restored to default values (WiFi cleared, password reset to `admin`), device enters AP mode after restart. Recording files on TF card are not deleted.

@@ -1,13 +1,13 @@
-# 完整示例
+# Complete Examples
 
-> [← WiFi 扫描](wifi.md) | [API 概述](overview.md)
+> [← WiFi Scan](wifi.md) | [API Overview](overview.md)
 
 ---
 
-## JavaScript API 客户端封装
+## JavaScript API Client封装
 
 ```javascript
-class ParrotCamAPI {
+class MiBeeHomeCam API {
   constructor(baseURL = '', password = 'admin') {
     this.base = baseURL;
     this.password = password;
@@ -110,106 +110,106 @@ class ParrotCamAPI {
 }
 ```
 
-## JavaScript 使用示例
+## JavaScript Usage Examples
 
 ```javascript
-const cam = new ParrotCamAPI('http://192.168.4.1', 'admin');
+const cam = new MiBeeHomeCamAPI('http://192.168.4.1', 'admin');
 
-// 获取并显示状态
+// Get and display status
 async function showStatus() {
   const { data } = await cam.getStatus();
-  console.log(`录像: ${data.recording}`);
+  console.log(`Recording: ${data.recording}`);
   console.log(`WiFi: ${data.wifi_state} (${data.ip})`);
-  console.log(`存储: ${data.sd_free_percent}% 可用`);
-  console.log(`运行: ${Math.floor(data.uptime / 3600)}h ${Math.floor((data.uptime % 3600) / 60)}m`);
+  console.log(`Storage: ${data.sd_free_percent}% free`);
+  console.log(`Uptime: ${Math.floor(data.uptime / 3600)}h ${Math.floor((data.uptime % 3600) / 60)}m`);
 }
 
-// 配置 WiFi 并开始录像
+// Configure WiFi and start recording
 async function quickSetup(ssid, pass) {
   await cam.updateConfig({ wifi_ssid: ssid, wifi_pass: pass });
-  console.log('WiFi 已配置，设备将连接网络');
+  console.log('WiFi configured, device will connect to network');
 }
 
-// 下载所有录制文件
+// Download all recording files
 async function downloadAll() {
   const { data } = await cam.getFiles();
   for (const file of data.files) {
-    console.log(`正在下载: ${file.name} (${(file.size / 1048576).toFixed(1)} MB)`);
+    console.log(`Downloading: ${file.name} (${(file.size / 1048576).toFixed(1)} MB)`);
     const blob = await cam.downloadFile(file.name);
-    // 处理下载的文件...
+    // Process downloaded file...
   }
 }
 ```
 
 ---
 
-## cURL 命令手册
+## cURL Command Manual
 
-### 设备状态与配置
+### Device Status and Configuration
 
 ```bash
-# 查看设备状态
+# View device status
 curl http://192.168.4.1/api/status
 
-# 查看当前配置
+# View current configuration
 curl http://192.168.4.1/api/config
 
-# 修改设备名称
+# Modify device name
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
   -H "X-Password: admin" \
   -d '{"device_name": "KitchenCam"}'
 
-# 配置 WiFi 连接（重启后生效）
+# Configure WiFi connection (effective after reboot)
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
   -H "X-Password: admin" \
   -d '{"wifi_ssid": "HomeWiFi", "wifi_pass": "wifipassword"}'
 ```
 
-### 录像控制
+### Recording Control
 
 ```bash
-# 开始录像
+# Start recording
 curl -X POST "http://192.168.4.1/api/record?action=start" \
   -H "X-Password: admin"
 
-# 停止录像
+# Stop recording
 curl -X POST "http://192.168.4.1/api/record?action=stop" \
   -H "X-Password: admin"
 ```
 
-### 文件管理
+### File Management
 
 ```bash
-# 列出所有录制文件
+# List all recording files
 curl http://192.168.4.1/api/files
 
-# 下载指定文件
+# Download specified file
 curl -o recording.avi "http://192.168.4.1/api/download?name=20260424_120000.avi"
 
-# 删除指定文件
+# Delete specified file
 curl -X DELETE "http://192.168.4.1/api/files?name=20260424_120000.avi" \
   -H "X-Password: admin"
 ```
 
-### 网络与时间
+### Network and Time
 
 ```bash
-# 扫描 WiFi
+# Scan WiFi
 curl http://192.168.4.1/api/scan
 
-# 手动设置时间
+# Manually set time
 curl -X POST http://192.168.4.1/api/time \
   -H "Content-Type: application/json" \
   -H "X-Password: admin" \
   -d '{"year": 2026, "month": 4, "day": 24, "hour": 14, "min": 30, "sec": 0}'
 ```
 
-### NAS 上传配置
+### NAS Upload Configuration
 
 ```bash
-# 配置 FTP 上传
+# Configure FTP upload
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
   -H "X-Password: admin" \
@@ -218,39 +218,39 @@ curl -X POST http://192.168.4.1/api/config \
     "ftp_port": 21,
     "ftp_user": "camuser",
     "ftp_pass": "camsecret",
-    "ftp_path": "/ParrotCam",
+    "ftp_path": "/MiBeeHomeCam",
     "ftp_enabled": true
   }'
 
-# 配置 WebDAV 上传
+# Configure WebDAV upload
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
   -H "X-Password: admin" \
   -d '{
-    "webdav_url": "https://dav.example.com/ParrotCam",
+    "webdav_url": "https://dav.example.com/MiBeeHomeCam",
     "webdav_user": "davuser",
     "webdav_pass": "davsecret",
     "webdav_enabled": true
   }'
 ```
 
-### 摄像头参数
+### Camera Parameters
 
 ```bash
-# 设置为 XGA 分辨率、15 FPS
+# Set to XGA resolution, 15 FPS
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
   -H "X-Password: admin" \
   -d '{"resolution": 2, "fps": 15}'
 
-# 设置高质量 JPEG（数值越小质量越高）
+# Set high quality JPEG (lower value = higher quality)
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
   -H "X-Password: admin" \
   -d '{"jpeg_quality": 6}'
 ```
 
-### 恢复出厂设置
+### Factory Reset
 
 ```bash
 curl -X POST http://192.168.4.1/api/reset \

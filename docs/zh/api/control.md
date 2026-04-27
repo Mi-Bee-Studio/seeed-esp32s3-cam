@@ -206,7 +206,7 @@ setDeviceTime(new Date());
 |--------|--------|
 | wifi_ssid | `""` (AP 模式) |
 | wifi_pass | `""` |
-| device_name | `"ParrotCam"` |
+| device_name | `"MiBeeHomeCam"` |
 | web_password | `"admin"` |
 | resolution | `1` (SVGA) |
 | fps | `10` |

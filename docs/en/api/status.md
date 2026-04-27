@@ -1,16 +1,16 @@
-# GET /api/status — 获取设备状态
+# GET /api/status — Get Device Status
 
-> [← API 概述](overview.md) | [配置接口 →](config.md)
+> [← API Overview](overview.md) | [Configuration Interface →](config.md)
 
 ---
 
-获取设备当前运行状态，包括录像、存储、WiFi、摄像头、时间同步和上传队列信息。
+Get current device running status, including recording, storage, WiFi, camera, time sync, and upload queue information.
 
-**认证**：无需认证
+**Authentication**: None required
 
-**源码**：`api_status_handler`（web_server.c）
+**Source**: `api_status_handler` (web_server.c)
 
-**响应示例**：
+**Response Example**:
 ```json
 {
   "ok": true,
@@ -31,31 +31,31 @@
 }
 ```
 
-**响应字段说明**：
+**Response Field Description**:
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `recording` | string | 录像状态：`"idle"` 空闲、`"recording"` 录制中、`"paused"` 已暂停、`"error"` 错误 |
-| `current_file` | string | 当前录像文件名（AVI 格式），空闲时为空字符串 `""` |
-| `sd_free_percent` | number | SD 卡剩余空间百分比（如 `85.5` 表示 85.5%） |
-| `wifi_ssid` | string | 已配置的 WiFi SSID，空字符串表示 AP 模式 |
-| `wifi_state` | string | WiFi 状态：`"AP"` 热点模式、`"STA"` 已连接路由器、`"disconnected"` 未连接 |
-| `ip` | string | 当前 IP 地址字符串 |
-| `camera` | string | 摄像头传感器型号：`"OV2640"`、`"OV3660"`、`"unknown"` |
-| `resolution` | string | 当前分辨率名称：`"VGA"`、`"SVGA"`、`"XGA"` |
-| `time_synced` | bool | NTP 时间是否已同步 |
-| `uptime` | number | 自开机以来的运行秒数 |
-| `last_upload` | string | 最近一次上传的文件名，无上传记录时为空字符串 |
-| `upload_queue` | number | 等待上传的文件数量 |
+| Field | Type | Description |
+|-------|------|-------------|
+| `recording` | string | Recording status: `"idle"` idle, `"recording"` recording, `"paused"` paused, `"error"` error |
+| `current_file` | string | Current recording filename (AVI format), empty string `""` when idle |
+| `sd_free_percent` | number | SD card free space percentage (e.g., `85.5` means 85.5%) |
+| `wifi_ssid` | string | Configured WiFi SSID, empty string indicates AP mode |
+| `wifi_state` | string | WiFi status: `"AP"` hotspot mode, `"STA"` connected to router, `"disconnected"` not connected |
+| `ip` | string | Current IP address string |
+| `camera` | string | Camera sensor model: `"OV2640"`, `"OV3660"`, `"unknown"` |
+| `resolution` | string | Current resolution name: `"VGA"`, `"SVGA"`, `"XGA"` |
+| `time_synced` | bool | Whether NTP time has been synced |
+| `uptime` | number | Seconds running since boot |
+| `last_upload` | string | Most recent uploaded filename, empty string if no upload record |
+| `upload_queue` | number | Number of files waiting to upload |
 
-**cURL 示例**：
+**cURL Example**:
 ```bash
 curl http://192.168.4.1/api/status
 ```
 
-**JavaScript 示例**：
+**JavaScript Example**:
 ```javascript
 const resp = await fetch('/api/status');
 const { data } = await resp.json();
-console.log(`录像状态: ${data.recording}, 剩余空间: ${data.sd_free_percent}%`);
+console.log(`Recording: ${data.recording}, Free space: ${data.sd_free_percent}%`);
 ```

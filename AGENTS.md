@@ -98,7 +98,7 @@ ESP32-S3 parrot monitoring camera firmware. ESP-IDF v5.x/v6.0, C, dual-core RTOS
 - **Watchdog**: 30s TWDT with panic — all tasks must feed periodically
 - **Health monitor**: 60s task logs heap/PSRAM/stack HWM, alerts below 20KB heap / 500KB PSRAM
 - **Camera auto-detect**: OV2640 vs OV3660 detected at init, reported in API status
-- **AP SSID**: `ParrotCam-XXXX` (last 4 hex of MAC), default IP `192.168.4.1`
+- **AP SSID**: `MiBeeHomeCam-XXXX` (last 4 hex of MAC), default IP `192.168.4.1`
 
 ## COMMANDS
 

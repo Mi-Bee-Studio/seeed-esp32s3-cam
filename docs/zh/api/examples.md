@@ -7,7 +7,7 @@
 ## JavaScript API 客户端封装
 
 ```javascript
-class ParrotCamAPI {
+class MiBeeHomeCam API {
   constructor(baseURL = '', password = 'admin') {
     this.base = baseURL;
     this.password = password;
@@ -113,7 +113,7 @@ class ParrotCamAPI {
 ## JavaScript 使用示例
 
 ```javascript
-const cam = new ParrotCamAPI('http://192.168.4.1', 'admin');
+const cam = new MiBeeHomeCamAPI('http://192.168.4.1', 'admin');
 
 // 获取并显示状态
 async function showStatus() {
@@ -218,7 +218,7 @@ curl -X POST http://192.168.4.1/api/config \
     "ftp_port": 21,
     "ftp_user": "camuser",
     "ftp_pass": "camsecret",
-    "ftp_path": "/ParrotCam",
+    "ftp_path": "/MiBeeHomeCam",
     "ftp_enabled": true
   }'
 
@@ -227,7 +227,7 @@ curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
   -H "X-Password: admin" \
   -d '{
-    "webdav_url": "https://dav.example.com/ParrotCam",
+    "webdav_url": "https://dav.example.com/MiBeeHomeCam",
     "webdav_user": "davuser",
     "webdav_pass": "davsecret",
     "webdav_enabled": true

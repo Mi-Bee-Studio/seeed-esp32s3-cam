@@ -17,7 +17,7 @@
 | AP 模式 | `http://192.168.4.1` |
 | STA 模式 | `http://<设备IP>` |
 
-- AP 模式：连接 WiFi 热点 `ParrotCam-XXXX`（密码 `12345678`），然后访问 `http://192.168.4.1`
+- AP 模式：连接 WiFi 热点 `MiBeeHomeCam-XXXX`（密码 `12345678`），然后访问 `http://192.168.4.1`
 - STA 模式：设备连接路由器后，通过路由器分配的 IP 访问
 
 ### 登录密码
@@ -70,7 +70,7 @@ curl -X POST http://192.168.4.1/api/config \
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `device_name` | string | `"ParrotCam"` | 设备名称 |
+| `device_name` | string | `"MiBeeHomeCam"` | 设备名称 |
 | `web_password` | string | `"admin"` | Web 管理密码 |
 
 #### FTP 配置
@@ -81,7 +81,7 @@ curl -X POST http://192.168.4.1/api/config \
 | `ftp_port` | uint16 | `21` | FTP 端口 |
 | `ftp_user` | string | `""` | FTP 用户名 |
 | `ftp_pass` | string | `""` | FTP 密码（GET 请求返回 `****`） |
-| `ftp_path` | string | `"/ParrotCam"` | FTP 上传路径 |
+| `ftp_path` | string | `"/MiBeeHomeCam"` | FTP 上传路径 |
 | `ftp_enabled` | bool | `false` | 是否启用 FTP 上传 |
 
 #### WebDAV 配置
@@ -127,7 +127,7 @@ ON 200ms → OFF 200ms → ON 200ms → OFF 1000ms → 循环
 
 设备首次启动或未配置 WiFi 时自动进入 AP 模式：
 
-- SSID：`ParrotCam-XXXX`（XXXX 为 MAC 地址后 4 位十六进制）
+- SSID：`MiBeeHomeCam-XXXX`（XXXX 为 MAC 地址后 4 位十六进制）
 - 密码：`12345678`
 - IP 地址：`192.168.4.1`
 - 加密方式：WPA2-PSK
@@ -216,7 +216,7 @@ curl -X POST "http://192.168.4.1/api/record?action=stop" \
 | `ftp_port` | FTP 端口，默认 21 |
 | `ftp_user` | FTP 登录用户名 |
 | `ftp_pass` | FTP 登录密码 |
-| `ftp_path` | 上传目标路径，默认 `/ParrotCam` |
+| `ftp_path` | 上传目标路径，默认 `/MiBeeHomeCam` |
 | `ftp_enabled` | 设为 `true` 启用 |
 
 ### WebDAV 上传配置
@@ -267,7 +267,7 @@ FTP_HOST=192.168.1.100
 FTP_PORT=21
 FTP_USER=admin
 FTP_PASS=your_password
-FTP_PATH=/ParrotCam
+FTP_PATH=/MiBeeHomeCam
 FTP_ENABLED=true
 WEBDAV_URL=https://dav.example.com/path
 WEBDAV_USER=user

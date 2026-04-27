@@ -149,14 +149,15 @@ function refreshFiles(){
 }
 
 function dlFile(name){
- window.open('/api/download?name='+encodeURIComponent(name));
+ window.open('/api/download?name='+encodeURIComponent(name).replace(/%2F/g,'/'));
 }
+
 
 function delFile(name){
  var password=prompt('请输入管理密码:');
  if(!password)return;
  if(!confirm('确定删除 '+name+'？'))return;
- fetch('/api/files?name='+encodeURIComponent(name),{
+ fetch('/api/files?name='+encodeURIComponent(name).replace(/%2F/g,'/'),{
   method:'DELETE',
   headers:{'X-Password':password}
  }).then(function(r){return r.json()}).then(function(d){

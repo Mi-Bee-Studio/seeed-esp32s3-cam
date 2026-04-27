@@ -1,16 +1,16 @@
-# GET /api/scan — WiFi 扫描
+# GET /api/scan — WiFi Scan
 
-> [← 视频流](stream.md) | [完整示例 →](examples.md)
+> [← Video Stream](stream.md) | [Complete Examples →](examples.md)
 
 ---
 
-扫描周围的 WiFi 接入点，返回可用网络列表。
+Scan surrounding WiFi access points, return available network list.
 
-**认证**：无需认证
+**Authentication**: None required
 
-**源码**：`api_scan_handler`（web_server.c）
+**Source**: `api_scan_handler` (web_server.c)
 
-**响应示例**：
+**Response Example**:
 ```json
 {
   "ok": true,
@@ -36,38 +36,38 @@
 }
 ```
 
-**响应字段说明**：
+**Response Field Description**:
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `networks` | array | 扫描到的网络数组，最多返回 20 个 |
-| `networks[].ssid` | string | 网络名称（SSID） |
-| `networks[].rssi` | number | 信号强度（负值，越接近 0 信号越强，如 `-45` 强于 `-85`） |
-| `networks[].auth` | number | 认证模式（`wifi_auth_mode_t` 枚举值） |
+| Field | Type | Description |
+|-------|------|-------------|
+| `networks` | array | Scanned networks array, returns max 20 networks |
+| `networks[].ssid` | string | Network name (SSID) |
+| `networks[].rssi` | number | Signal strength (negative value, closer to 0 means stronger signal, e.g., `-45` stronger than `-85`) |
+| `networks[].auth` | number | Authentication mode (`wifi_auth_mode_t` enum value) |
 
-**常见 auth 值**：
+**Common auth Values**:
 
-| 值 | 含义 |
-|----|------|
-| 0 | 开放网络（无密码） |
+| Value | Meaning |
+|-------|---------|
+| 0 | Open network (no password) |
 | 1 | WEP |
 | 2 | WPA-PSK |
 | 3 | WPA2-PSK |
 | 4 | WPA/WPA2-PSK |
 | 5 | WPA2-Enterprise |
 
-**错误响应**：
+**Error Responses**:
 
-| 状态码 | 条件 | 错误信息 |
-|--------|------|----------|
-| 500 | 扫描失败 | `"Scan failed"` |
+| Status Code | Condition | Error Message |
+|-------------|-----------|---------------|
+| 500 | Scan failed | `"Scan failed"` |
 
-**cURL 示例**：
+**cURL Example**:
 ```bash
 curl http://192.168.4.1/api/scan
 ```
 
-**JavaScript 示例**：
+**JavaScript Example**:
 ```javascript
 async function scanWifi() {
   const resp = await fetch('/api/scan');
@@ -75,7 +75,7 @@ async function scanWifi() {
   data.networks
     .sort((a, b) => b.rssi - a.rssi)
     .forEach(n => {
-      console.log(`${n.ssid} — RSSI: ${n.rssi} — 认证: ${n.auth}`);
+      console.log(`${n.ssid} — RSSI: ${n.rssi} — Auth: ${n.auth}`);
     });
 }
 ```

@@ -1,38 +1,38 @@
-# API 概述
+# API Overview
 
-> ESP32-S3 摄像头监控固件 REST API 文档
+> ESP32-S3 Camera Monitor Firmware REST API Documentation
 
-[状态查询](status.md) | [配置接口](config.md) | [文件管理](files.md) | [设备控制](control.md) | [视频流](stream.md) | [WiFi 扫描](wifi.md) | [完整示例](examples.md)
+[Status Query](status.md) | [Configuration Interface](config.md) | [File Management](files.md) | [Device Control](control.md) | [Video Stream](stream.md) | [WiFi Scan](wifi.md) | [Complete Examples](examples.md)
 
 ---
 
-本固件基于 `web_server.c`、`mjpeg_streamer.c`、`config_manager.c` 源码编写，最后更新：2026-04-24。
+This firmware API documentation is based on `web_server.c`, `mjpeg_streamer.c`, `config_manager.c` source code. Last updated: 2026-04-24.
 
-## 基础地址
+## Base Address
 
-| 模式 | 地址 |
-|------|------|
-| AP 模式（默认） | `http://192.168.4.1` |
-| STA 模式 | `http://<设备IP>` |
+| Mode | Address |
+|------|---------|
+| AP Mode (default) | `http://192.168.4.1` |
+| STA Mode | `http://<deviceIP>` |
 
-## 认证机制
+## Authentication
 
-部分接口需要密码认证，支持两种方式传递密码：
+Some endpoints require password authentication. Two methods are supported:
 
-| 方式 | 格式 | 示例 |
-|------|------|------|
-| 请求头 | `X-Password: <密码>` | `X-Password: admin` |
-| 查询参数 | `?password=<密码>` | `?password=admin` |
+| Method | Format | Example |
+|--------|--------|---------|
+| Request Header | `X-Password: <password>` | `X-Password: admin` |
+| Query Parameter | `?password=<password>` | `?password=admin` |
 
-- **默认密码**：`admin`（可通过 `POST /api/config` 修改 `web_password` 字段）
-- 认证逻辑优先检查 `X-Password` 请求头，其次检查 `password` 查询参数
-- 认证失败返回 `401 Unauthorized`，响应体：`{"ok": false, "error": "Unauthorized"}`
+- **Default Password**: `admin` (can be modified via `POST /api/config` by changing `web_password` field)
+- Authentication logic first checks `X-Password` request header, then checks `password` query parameter
+- Authentication failure returns `401 Unauthorized` with response body: `{"ok": false, "error": "Unauthorized"}`
 
-## 统一响应格式
+## Unified Response Format
 
-所有 API 接口返回 `Content-Type: application/json`，格式统一为：
+All API endpoints return `Content-Type: application/json` with unified format:
 
-**成功响应**：
+**Success Response**:
 ```json
 {
   "ok": true,
@@ -40,19 +40,19 @@
 }
 ```
 
-**错误响应**：
+**Error Response**:
 ```json
 {
   "ok": false,
-  "error": "错误描述信息"
+  "error": "Error description message"
 }
 ```
 
-> 注意：`POST /api/config` 成功时返回 `{"ok": true}`，不含 `data` 字段。
+> Note: `POST /api/config` returns `{"ok": true}` on success without `data` field.
 
-## CORS 跨域支持
+## CORS Cross-Origin Support
 
-所有 HTTP 响应（包括错误响应和静态文件）均包含以下 CORS 头：
+All HTTP responses (including error responses and static files) include the following CORS headers:
 
 ```
 Access-Control-Allow-Origin: *
@@ -60,64 +60,64 @@ Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS
 Access-Control-Allow-Headers: Content-Type, X-Password
 ```
 
-`OPTIONS` 请求（预检请求）返回上述 CORS 头和空响应体，状态码 200。
+`OPTIONS` requests (preflight requests) return the above CORS headers and empty response body with status code 200.
 
-## 接口总览
+## Endpoint Overview
 
-| # | 方法 | 路径 | 认证 | 描述 |
-|---|------|------|------|------|
-| 1 | GET | `/api/status` | 否 | 获取设备状态 |
-| 2 | GET | `/api/config` | 否 | 获取当前配置 |
-| 3 | POST | `/api/config` | **是** | 更新配置 |
-| 4 | GET | `/api/files` | 否 | 获取录制文件列表 |
-| 5 | DELETE | `/api/files?name=xxx` | **是** | 删除指定文件 |
-| 6 | GET | `/api/download?name=xxx` | 否 | 下载指定文件 |
-| 7 | GET | `/api/scan` | 否 | 扫描 WiFi 网络 |
-| 8 | POST | `/api/time` | **是** | 手动设置系统时间 |
-| 9 | POST | `/api/record?action=start\|stop` | **是** | 控制录像 |
-| 10 | POST | `/api/reset` | **是** | 恢复出厂设置 |
-| 11 | GET | `/stream` | 否 | MJPEG 实时视频流 |
-| 12 | OPTIONS | `/*` | 否 | CORS 预检请求 |
-| 13 | GET | `/*` | 否 | 静态文件（SPIFFS） |
+| # | Method | Path | Auth | Description |
+|---|--------|------|------|-------------|
+| 1 | GET | `/api/status` | No | Get device status |
+| 2 | GET | `/api/config` | No | Get current configuration |
+| 3 | POST | `/api/config` | **Yes** | Update configuration |
+| 4 | GET | `/api/files` | No | Get recording file list |
+| 5 | DELETE | `/api/files?name=xxx` | **Yes** | Delete specified file |
+| 6 | GET | `/api/download?name=xxx` | No | Download specified file |
+| 7 | GET | `/api/scan` | No | Scan WiFi networks |
+| 8 | POST | `/api/time` | **Yes** | Manually set system time |
+| 9 | POST | `/api/record?action=start\|stop` | **Yes** | Control recording |
+| 10 | POST | `/api/reset` | **Yes** | Factory reset |
+| 11 | GET | `/stream` | No | MJPEG real-time video stream |
+| 12 | OPTIONS | `/*` | No | CORS preflight request |
+| 13 | GET | `/*` | No | Static files (SPIFFS) |
 
-## HTTP 状态码
+## HTTP Status Codes
 
-| 状态码 | 含义 | 触发场景 |
-|--------|------|----------|
-| 200 | 成功 | 请求处理成功 |
-| 400 | 请求错误 | 参数缺失、JSON 格式错误、路径遍历检测 |
-| 401 | 认证失败 | 密码错误或未提供密码（需要认证的接口） |
-| 404 | 资源不存在 | 文件不存在、静态文件未找到 |
-| 500 | 服务器内部错误 | WiFi 扫描失败、时间设置失败 |
-| 503 | 服务不可用 | MJPEG 流客户端连接数已达上限 |
+| Status Code | Meaning | Trigger Scenario |
+|-------------|---------|------------------|
+| 200 | Success | Request processed successfully |
+| 400 | Bad Request | Missing parameters, JSON format error, path traversal detected |
+| 401 | Unauthorized | Wrong password or no password provided (for authenticated endpoints) |
+| 404 | Not Found | File does not exist, static file not found |
+| 500 | Internal Server Error | WiFi scan failed, time setting failed |
+| 503 | Service Unavailable | MJPEG stream client connection limit reached |
 
-## 附录
+## Appendix
 
-### SD 卡路径
+### SD Card Paths
 
-| 用途 | 路径 |
-|------|------|
-| 录制文件 | `/sdcard/recordings/` |
-| WiFi 配置覆盖 | `/sdcard/config/wifi.txt` |
-| NAS 配置覆盖 | `/sdcard/config/nas.txt` |
+| Purpose | Path |
+|---------|------|
+| Recording files | `/sdcard/recordings/` |
+| WiFi configuration override | `/sdcard/config/wifi.txt` |
+| NAS configuration override | `/sdcard/config/nas.txt` |
 
-### 配置优先级
+### Configuration Priority
 
 ```
-SD 卡配置文件 > NVS 存储 > 编译时默认值
+SD Card Config Files > NVS Storage > Compile-time Default Values
 ```
 
-### SPIFFS 分区
+### SPIFFS Partition
 
-Web 界面静态文件存储在 SPIFFS 分区（约 256KB），路径前缀 `/spiffs/`。
+Web interface static files are stored in SPIFFS partition (~256KB), path prefix `/spiffs/`.
 
-### 服务器配置
+### Server Configuration
 
-| 参数 | 值 |
-|------|-----|
-| 端口 | 80 |
-| 最大 URI 处理器 | 20 |
-| 任务栈大小 | 8192 字节 |
-| 接收超时 | 30 秒 |
-| 发送超时 | 30 秒 |
-| URI 匹配模式 | 通配符（wildcard） |
+| Parameter | Value |
+|-----------|-------|
+| Port | 80 |
+| Max URI Handlers | 20 |
+| Task Stack Size | 8192 bytes |
+| Receive Timeout | 30 seconds |
+| Send Timeout | 30 seconds |
+| URI Match Mode | Wildcard |
