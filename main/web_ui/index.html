@@ -71,8 +71,9 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <div class="card-title">WiFi状态</div>
 <div class="row"><span class="label">SSID</span><span class="val" id="wfSsid">--</span></div>
 <div class="row"><span class="label">RSSI</span><span class="val" id="wfRssi">--</span></div>
+<div class="row"><span class="label">Channel</span><span class="val" id="wfChannel">--</span></div>
+<div class="row"><span class="label">Gateway</span><span class="val" id="wfGateway">--</span></div>
 <div class="row"><span class="label">IP</span><span class="val" id="wfIp">--</span></div>
-</div>
 </div>
 
 <div class="grid">
@@ -110,8 +111,7 @@ function fmtTime(s){
  var h=Math.floor(s/3600),m=Math.floor(s%3600/60);
  if(h>0)return h+'h '+m+'m';
  return m+'m';
-}
-function refresh(){
+  return m+'m';
  fetch('/api/status').then(function(r){return r.json()}).then(function(d){
   if(!d.ok)return;
   var v=d.data;
@@ -122,14 +122,23 @@ function refresh(){
   }else{
    rec.className='dot idle';rt.className='status-text idle';rt.textContent='空闲';rf.textContent='';
   }
-  var pct=v.sd_free_percent||0;
   var bar=$('sdBar'),txt=$('sdText');
-  bar.style.width=pct+'%';
-  bar.className='bar-fill '+(pct>20?'ok':pct>10?'warn':'crit');
-  txt.textContent='已用 '+(100-pct).toFixed(1)+'%';
+  if(v.sd_total_bytes!=null&&v.sd_free_bytes!=null){
+   var used=v.sd_total_bytes-v.sd_free_bytes;
+   var pct=used*100/v.sd_total_bytes;
+   bar.style.width=pct+'%';
+   bar.className='bar-fill '+(pct>90?'crit':pct>70?'warn':'ok');
+   txt.textContent='已用 '+fmtSize(used)+' / '+fmtSize(v.sd_total_bytes)+' ('+Math.round(pct)+'%)';
+  }else{
+   bar.style.width='0%';txt.textContent='--';
+  }
+
   $('wfSsid').textContent=v.wifi_ssid||'--';
   $('wfRssi').textContent=v.wifi_rssi!=null?v.wifi_rssi+'dBm':'--';
+  $('wfChannel').textContent=v.wifi_channel!=null?v.wifi_channel:'--';
+  $('wfGateway').textContent=v.wifi_gateway||'--';
   $('wfIp').textContent=v.ip||'--';
+
   $('camModel').textContent=v.camera||'--';
   $('camRes').textContent=v.resolution||'--';
   $('sysUp').textContent=v.uptime!=null?fmtTime(v.uptime):'--';

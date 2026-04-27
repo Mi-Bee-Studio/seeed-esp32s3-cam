@@ -60,6 +60,11 @@ static int s_file_cache_count = 0;
 static int s_file_cache_head = 0;  /* oldest entry index (for ring eviction) */
 /* ---- internal helpers ---- */
 
+/* Forward declarations */
+static void list_files_recursive(const char *dirpath, file_info_t *files, int max_count, int *count);
+static void storage_rebuild_cache(void);
+
+
 /**
  * @brief 文件信息比较函数，按文件名升序排列（即最旧时间戳优先）
  */
@@ -173,12 +178,15 @@ esp_err_t storage_init(void)
     ESP_LOGI(TAG, "  Name: %s", s_card->cid.name);
     ESP_LOGI(TAG, "  Size: %lluMB", ((uint64_t)s_card->csd.capacity) * s_card->csd.sector_size / (1024 * 1024));
 
-    // Create recordings directory if it doesn't exist
+    /* Create recordings directory if it doesn't exist */
     struct stat st;
     if (stat(RECORDINGS_PATH, &st) != 0) {
         mkdir(RECORDINGS_PATH, 0775);
         ESP_LOGI(TAG, "Created recordings directory");
     }
+    
+    /* Rebuild file cache from existing files on SD card */
+    storage_rebuild_cache();
 
     return ESP_OK;
 }
@@ -207,6 +215,35 @@ float storage_get_free_percent(void)
     uint64_t free_space = (uint64_t)free_clusters * cluster_size;
     if (total == 0) return 0.0f;
     return (float)free_space / (float)total * 100.0f;
+}
+
+/**
+ * @brief 获取SD卡存储信息（总容量和剩余空间）
+ */
+esp_err_t storage_get_info(storage_info_t *info)
+{
+    if (!s_sd_available || !s_card || !info) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    /* Use FatFs f_getfree to get total and free space */
+    DWORD free_clusters = 0;
+    FATFS *fs = NULL;
+    FRESULT res = f_getfree("0:", &free_clusters, &fs);
+    if (res != FR_OK || !fs) {
+        ESP_LOGE(TAG, "f_getfree failed: %d", res);
+        return ESP_FAIL;
+    }
+    
+    uint32_t total_clusters = (fs->n_fatent - 2);  /* FAT has 2 reserved entries */
+    uint64_t sector_size = fs->ssize;
+    uint64_t sectors_per_cluster = fs->csize;
+    uint64_t cluster_size = sector_size * sectors_per_cluster;
+    
+    info->total_bytes = (uint64_t)total_clusters * cluster_size;
+    info->free_bytes = (uint64_t)free_clusters * cluster_size;
+    
+    return ESP_OK;
 }
 
 /**
@@ -253,6 +290,46 @@ static void list_files_recursive(const char *dirpath, file_info_t *files, int ma
         (*count)++;
     }
     closedir(dir);
+}
+
+/**
+ * @brief Rebuild the file cache from SD card (one-time operation)
+ *
+ * Scans all .avi files and populates s_file_cache so file list
+ * is available immediately after boot, not only after first segment completes.
+ */
+static void storage_rebuild_cache(void)
+{
+    if (!s_sd_available) {
+        ESP_LOGW(TAG, "SD card not available, skipping cache rebuild");
+        return;
+    }
+    
+    xSemaphoreTake(s_sd_mutex, portMAX_DELAY);
+    
+    /* Scan all .avi files into heap buffer (too large for stack) */
+    file_info_t *temp_files = malloc(FILE_CACHE_SIZE * sizeof(file_info_t));
+    if (!temp_files) {
+        xSemaphoreGive(s_sd_mutex);
+        ESP_LOGE(TAG, "No memory for file cache rebuild");
+        return;
+    }
+    int count = 0;
+    list_files_recursive(RECORDINGS_PATH, temp_files, FILE_CACHE_SIZE, &count);
+    
+    /* Sort files by name (oldest first) */
+    qsort(temp_files, count, sizeof(file_info_t), compare_file_info);
+    
+    /* Copy to cache (truncate if too many) */
+    s_file_cache_count = (count < FILE_CACHE_SIZE) ? count : FILE_CACHE_SIZE;
+    for (int i = 0; i < s_file_cache_count; i++) {
+        s_file_cache[i] = temp_files[i];
+    }
+    free(temp_files);
+    
+    xSemaphoreGive(s_sd_mutex);
+    
+    ESP_LOGI(TAG, "Rebuilt file cache: %d files found", s_file_cache_count);
 }
 
 /**

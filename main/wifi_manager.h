@@ -53,7 +53,8 @@ char *wifi_get_ip_str(void);        // Returns current IP string (static buffer)
 esp_err_t wifi_start_ap(void);
 /** @brief 启动 WiFi STA 客户端模式连接路由器 */
 esp_err_t wifi_start_sta(void);
-/** @brief 扫描周围 WiFi 热点，返回找到的数量，失败返回 -1 */
 int wifi_scan(wifi_ap_info_t *aps, int max_count);   // Returns number of APs found, or -1 on error
 /** @brief 判断当前是否处于 STA 模式（正在连接或已连接） */
 bool wifi_is_sta(void);             // true if in STA mode (or trying)
+/** @brief 获取 STA 模式的 netif 句柄 */
+struct esp_netif_obj *wifi_get_sta_netif(void);

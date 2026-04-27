@@ -25,9 +25,11 @@
 #include "time_sync.h"
 #include "camera_driver.h"
 #include "video_recorder.h"
+#include "esp_wifi.h"
+#include "esp_netif.h"
+#include "esp_timer.h"
 #include "nas_uploader.h"
 #include "mjpeg_streamer.h"
-#include "esp_timer.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -137,6 +139,11 @@ static esp_err_t api_status_handler(httpd_req_t *req)
         rs == RECORDER_RECORDING || rs == RECORDER_PAUSED ? recorder_get_current_file() : "");
 
     /* SD card */
+    storage_info_t sd_info;
+    if (storage_get_info(&sd_info) == ESP_OK) {
+        cJSON_AddNumberToObject(data, "sd_total_bytes", (double)sd_info.total_bytes);
+        cJSON_AddNumberToObject(data, "sd_free_bytes", (double)sd_info.free_bytes);
+    }
     cJSON_AddNumberToObject(data, "sd_free_percent", storage_get_free_percent());
 
     /* WiFi */
@@ -149,7 +156,24 @@ static esp_err_t api_status_handler(httpd_req_t *req)
 
     cJSON_AddStringToObject(data, "ip", wifi_get_ip_str());
 
-    /* Camera */
+    /* WiFi RSSI, channel, and gateway (only in STA mode) */
+    if (ws == WIFI_STATE_STA_CONNECTED) {
+        wifi_ap_record_t ap_info;
+        if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+            cJSON_AddNumberToObject(data, "wifi_rssi", ap_info.rssi);
+            cJSON_AddNumberToObject(data, "wifi_channel", (double)ap_info.primary);
+        }
+        esp_netif_t *netif = wifi_get_sta_netif();
+        if (netif) {
+            esp_netif_ip_info_t ip_info;
+            if (esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+                char gateway_str[16];
+                snprintf(gateway_str, sizeof(gateway_str), IPSTR, IP2STR(&ip_info.gw));
+                cJSON_AddStringToObject(data, "wifi_gateway", gateway_str);
+            }
+        }
+    }
+
     cJSON_AddStringToObject(data, "camera",
         camera_get_sensor() == CAMERA_SENSOR_OV2640 ? "OV2640" :
         camera_get_sensor() == CAMERA_SENSOR_OV3660 ? "OV3660" : "unknown");
@@ -328,9 +352,6 @@ static esp_err_t api_files_delete_handler(httpd_req_t *req)
 
     storage_unregister_file(name);
     return json_ok(req, NULL);
-        return json_error(req, "File not found or delete failed", HTTPD_404_NOT_FOUND);
-
-    return json_ok(req, NULL);
 }
 
 /* ------------------------------------------------------------------ */
@@ -351,17 +372,32 @@ static esp_err_t api_download_handler(httpd_req_t *req)
     /* Path traversal protection — allow subdirectory slashes but block .. */
     if (strstr(name, ".."))
         return json_error(req, "Invalid name", HTTPD_400_BAD_REQUEST);
+    
+    /* Check if file is currently being recorded */
+    const char *current_file = recorder_get_current_file();
+    if (current_file && current_file[0] != '\0') {
+        /* Get relative path from current_file */
+        const char *relpath = current_file;
+        const char *prefix = "/sdcard/recordings/";
+        if (strncmp(current_file, prefix, strlen(prefix)) == 0) {
+            relpath = current_file + strlen(prefix);
+        }
+        if (strcmp(name, relpath) == 0) {
+            httpd_resp_set_status(req, "409 Conflict");
+            return json_error(req, "File is currently being recorded", 0);
+        }
+    }
 
+    
     char path[256];
     snprintf(path, sizeof(path), "/sdcard/recordings/%s", name);
-
     FILE *f = fopen(path, "rb");
     if (!f)
         return json_error(req, "File not found", HTTPD_404_NOT_FOUND);
 
-    /* Get file size for Content-Length */
+    /* Get file size for Content-Length (skip if 0 - file is being written) */
     struct stat st;
-    if (stat(path, &st) == 0) {
+    if (stat(path, &st) == 0 && st.st_size > 0) {
         char hdr[32];
         snprintf(hdr, sizeof(hdr), "%ld", (long)st.st_size);
         httpd_resp_set_hdr(req, "Content-Length", hdr);

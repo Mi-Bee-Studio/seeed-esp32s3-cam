@@ -250,7 +250,12 @@ bool wifi_is_sta(void)
     return s_state != WIFI_STATE_AP;
 }
 
-/** @brief 启动 WiFi AP 热点模式，配置静态 IP 192.168.4.1 */
+/** @brief 获取 STA 模式的 netif 句柄（用于获取 WiFi 网关信息） */
+esp_netif_t *wifi_get_sta_netif(void)
+{
+    return s_netif_sta;
+}
+
 esp_err_t wifi_start_ap(void)
 {
     s_netif_ap = esp_netif_create_default_wifi_ap();

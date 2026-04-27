@@ -34,16 +34,28 @@ typedef struct {
     char time_str[32];
 } file_info_t;
 
+/**
+ * @brief SD卡存储信息结构体
+ *
+ * total_bytes: SD卡总容量（字节）
+ * free_bytes:  SD卡剩余空间（字节）
+ */
+typedef struct {
+    uint64_t total_bytes;
+    uint64_t free_bytes;
+} storage_info_t;
 /** @brief 初始化SD卡，配置1线SDMMC模式并挂载FAT文件系统 */
 esp_err_t storage_init(void);
 /** @brief 获取SD卡剩余空间占总空间的百分比 */
 float storage_get_free_percent(void);
-/** @brief 递归列出所有录像文件信息，结果按文件名排序 */
+/** @brief 获取SD卡存储信息（总容量、剩余空间） */
+esp_err_t storage_get_info(storage_info_t *info);
+/** @brief 获取录像文件列表（从内存缓存，毫秒级响应） */
 int storage_list_files(file_info_t *files, int max_count);
 /** @brief 删除最旧的录像文件 */
 esp_err_t storage_delete_oldest(void);
 /** @brief 存储空间自动清理，低于20%时删除旧文件直到30%以上 */
-esp_err_t storage_cleanup(void);   // Called after each segment write
+esp_err_t storage_cleanup(void);
 /** @brief 检查SD卡是否可用 */
 bool storage_is_available(void);
 /** @brief 检查SD卡是否仍然挂载 */
