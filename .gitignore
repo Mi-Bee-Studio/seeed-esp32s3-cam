@@ -61,3 +61,5 @@ htmlcov/
 ehthumbs.db
 Thumbs.db
 Desktop.ini
+.playwright-mcp
+build_log.txt

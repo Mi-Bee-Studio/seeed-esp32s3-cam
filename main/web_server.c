@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 ParrotCam Authors
+ * Copyright (C) 2024 MiBeeHomeCam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 #include "camera_driver.h"
 #include "video_recorder.h"
 #include "nas_uploader.h"
+#include "mjpeg_streamer.h"
 #include "esp_timer.h"
 
 #include <string.h>
@@ -325,6 +326,10 @@ static esp_err_t api_files_delete_handler(httpd_req_t *req)
     if (remove(path) != 0)
         return json_error(req, "File not found or delete failed", HTTPD_404_NOT_FOUND);
 
+    storage_unregister_file(name);
+    return json_ok(req, NULL);
+        return json_error(req, "File not found or delete failed", HTTPD_404_NOT_FOUND);
+
     return json_ok(req, NULL);
 }
 
@@ -508,6 +513,46 @@ static esp_err_t api_reset_handler(httpd_req_t *req)
 }
 
 /* ------------------------------------------------------------------ */
+/*  POST /api/format                                                   */
+/* ------------------------------------------------------------------ */
+
+/** @brief 处理POST /api/format请求，格式化SD卡（需密码认证，会擦除所有数据） */
+static esp_err_t api_format_handler(httpd_req_t *req)
+{
+    if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+
+    /* Stop recording if active */
+    bool was_recording = (recorder_get_state() == RECORDER_RECORDING ||
+                          recorder_get_state() == RECORDER_PAUSED);
+    if (was_recording) {
+        recorder_stop();
+        ESP_LOGI(TAG, "Stopped recording for SD format");
+    }
+
+    ESP_LOGW(TAG, "SD card format requested via web API");
+    esp_err_t ret = storage_format();
+
+    cJSON *data = cJSON_CreateObject();
+    if (ret == ESP_OK) {
+        cJSON_AddBoolToObject(data, "ok", true);
+        cJSON_AddStringToObject(data, "message", "SD card formatted");
+    } else {
+        cJSON_AddBoolToObject(data, "ok", false);
+        cJSON_AddStringToObject(data, "error", esp_err_to_name(ret));
+    }
+
+    esp_err_t resp = json_ok(req, data);
+
+    /* Resume recording if it was active before format */
+    if (was_recording && ret == ESP_OK) {
+        recorder_start();
+        ESP_LOGI(TAG, "Resumed recording after SD format");
+    }
+
+    return resp;
+}
+
+/* ------------------------------------------------------------------ */
 /*  OPTIONS * — CORS preflight                                         */
 /* ------------------------------------------------------------------ */
 
@@ -579,6 +624,9 @@ static const uri_entry_t s_uris[] = {
     { "/api/time",     HTTP_POST,   api_time_handler          },
     { "/api/record",   HTTP_POST,   api_record_handler        },
     { "/api/reset",    HTTP_POST,   api_reset_handler         },
+    { "/api/format",   HTTP_POST,   api_format_handler        },
+    /* MJPEG stream — before wildcard to avoid conflict */
+    { "/stream",       HTTP_GET,    mjpeg_stream_handler      },
     /* CORS preflight — wildcard */
     { "/*",            HTTP_OPTIONS, options_handler           },
     /* Static files — catch-all (lowest priority) */
@@ -601,6 +649,7 @@ esp_err_t web_server_start(uint16_t port)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 20;
+    config.stack_size = 8192;
     config.stack_size = 8192;
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.recv_wait_timeout = 30;

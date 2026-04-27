@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 ParrotCam Authors
+ * Copyright (C) 2024 MiBeeHomeCam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -58,7 +58,7 @@ esp_err_t webdav_exists(const webdav_config_t *cfg, const char *remote_path);
 
 /**
  * @brief 递归创建远程路径中的所有目录层级
- * 如 "/ParrotCam/2026-04/24" 会依次创建 /ParrotCam、/ParrotCam/2026-04、/ParrotCam/2026-04/24
+ * 如 "/MiBeeHomeCam/2026-04/24" 会依次创建 /MiBeeHomeCam、/MiBeeHomeCam/2026-04、/MiBeeHomeCam/2026-04/24
  * @param cfg WebDAV连接配置
  * @param path 远程目录路径
  * @return ESP_OK 全部成功，或最后一个失败目录的错误码

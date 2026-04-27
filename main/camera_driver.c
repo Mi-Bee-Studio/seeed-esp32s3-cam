@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 ParrotCam Authors
+ * Copyright (C) 2024 MiBeeHomeCam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -82,7 +82,7 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
         return ESP_OK;
     }
 
-    /* Release GPIO10 from SDMMC (SD card CMD) so camera can use it as XCLK */
+    /* Release GPIO10 so camera can use it as XCLK (no longer shared with SD card) */
     gpio_reset_pin(CAM_PIN_XCLK);
 
     camera_config_t config = {
@@ -125,10 +125,10 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
     sensor_t *sensor = esp_camera_sensor_get();
     if (sensor) {
         switch (sensor->id.PID) {
-            case 0x2642:
+            case OV2640_PID:
                 s_sensor = CAMERA_SENSOR_OV2640;
                 break;
-            case 0x3660:
+            case OV3660_PID:
                 s_sensor = CAMERA_SENSOR_OV3660;
                 break;
             default:

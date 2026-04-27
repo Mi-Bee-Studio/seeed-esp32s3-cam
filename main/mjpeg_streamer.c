@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 ParrotCam Authors
+ * Copyright (C) 2024 MiBeeHomeCam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,7 +46,7 @@ static SemaphoreHandle_t s_mutex = NULL;
  * @param req HTTP 请求对象
  * @return ESP_OK 流结束，ESP_FAIL 连接错误
  */
-static esp_err_t mjpeg_stream_handler(httpd_req_t *req)
+esp_err_t mjpeg_stream_handler(httpd_req_t *req)
 {
     /* --- Client limit check --- */
     xSemaphoreTake(s_mutex, portMAX_DELAY);

@@ -1,7 +1,7 @@
 /*
- * ParrotCam v0.1 — Main application entry point
+ * MiBeeHomeCam v0.1 — Main application entry point
  *
- * Copyright (C) 2024 ParrotCam Authors
+ * Copyright (C) 2024 MiBeeHomeCam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -87,6 +87,7 @@ static void on_segment_complete(const char *filepath, size_t size)
 {
     ESP_LOGI(TAG, "Segment complete: %s (%zu bytes)", filepath, size);
 
+    storage_register_file(filepath, size);
     nas_uploader_enqueue(filepath);
     storage_cleanup();
 }
@@ -289,7 +290,7 @@ static void health_monitor_task(void *arg)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "ParrotCam v0.1 starting...");
+    ESP_LOGI(TAG, "MiBeeHomeCam v0.1 starting...");
     ESP_LOGI(TAG, "Free heap: %lu  Free PSRAM: %lu",
              (unsigned long)esp_get_free_heap_size(),
              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
@@ -317,21 +318,23 @@ void app_main(void)
     /* 第4步：挂载SPIFFS文件系统，用于存放Web管理界面页面 */
     init_spiffs();
 
-    /* ---- 5. Camera (before SD card to claim GPIO10 for XCLK) ------- */
-    /* 第5步：初始化摄像头（必须在SD卡之前，避免GPIO10被SDMMC占用导致NO-SOI） */
+    /* ---- 5. Camera (GPIO10 as XCLK) --------------------------------- */
+    /* 第5步：初始化摄像头（必须在SD卡之前，避免GDMA通道冲突） */
     {
         camera_res_t res = CAMERA_RES_VGA; /* Force VGA for initial bring-up */
+        uint8_t quality = cfg->jpeg_quality;
+        if (quality < 10) quality = 10; // Floor to prevent oversized frames
         switch (cfg->resolution) {
             case 0:  res = CAMERA_RES_VGA;  break;
             case 1:  res = CAMERA_RES_SVGA; break;
             case 2:  res = CAMERA_RES_XGA;  break;
             default: res = CAMERA_RES_VGA; break;
         }
-        camera_init(res, cfg->fps, cfg->jpeg_quality);
+        camera_init(res, cfg->fps, quality);
     }
 
-    /* ---- 6. SD card storage ------------------------------------------ */
-    /* 第6步：初始化SD卡存储管理器 */
+    /* ---- 6. SD card storage (SPI mode: CS=21, SCK=7, MOSI=9, MISO=8) --- */
+    /* 第6步：初始化SD卡存储管理器（在摄像头之后，避免GDMA通道冲突） */
     storage_init();
 
     /* ---- 6a. Boot-time cleanup of incomplete AVI files --------------- */
@@ -348,6 +351,8 @@ void app_main(void)
     /* ---- 8. WiFi ----------------------------------------------------- */
     /* 第8步：初始化WiFi，根据配置启动AP热点或STA客户端模式 */
     wifi_init();
+
+    /* ---- 9. Time sync (only if STA connected) ----------------------- */
 
     /* ---- 9. Time sync (only if STA connected) ----------------------- */
     /* 第9步：仅在STA已连接时初始化SNTP时间同步 */
@@ -371,7 +376,6 @@ void app_main(void)
     /* ---- 13. Web server + MJPEG registration ------------------------- */
     /* 第13步：启动Web服务器(端口80)并注册MJPEG流端点 */
     web_server_start(80);
-    mjpeg_streamer_register(web_server_get_handle());
 
     /* ---- 14. LED reflects WiFi state --------------------------------- */
     /* 第14步：根据当前WiFi状态更新LED显示模式 */
@@ -416,15 +420,15 @@ void app_main(void)
 
     /* ---- 18. SD monitor task (Core 1) -------------------------------- */
     /* 第18步：创建SD卡热插拔监控任务，绑定到Core 1，优先级2 */
-    xTaskCreatePinnedToCore(sd_monitor_task, "sd_monitor", 3072, NULL, 2, NULL, 1);
+    xTaskCreatePinnedToCore(sd_monitor_task, "sd_monitor", 4096, NULL, 2, NULL, 1);
 
     /* ---- 19. Health monitor task (Core 1) ----------------------------- */
     /* 第19步：创建健康状态监控任务，绑定到Core 1，优先级1 */
-    xTaskCreatePinnedToCore(health_monitor_task, "health_mon", 3072, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(health_monitor_task, "health_mon", 4096, NULL, 1, NULL, 1);
 
     /* ---- Done -------------------------------------------------------- */
     /* 初始化完成，打印摄像头型号、分辨率和WiFi连接信息 */
-    ESP_LOGI(TAG, "ParrotCam v0.1 initialized successfully");
+    ESP_LOGI(TAG, "MiBeeHomeCam v0.1 initialized successfully");
     ESP_LOGI(TAG, "Camera: %s @ %s",
         camera_get_sensor() == CAMERA_SENSOR_OV2640 ? "OV2640" :
         camera_get_sensor() == CAMERA_SENSOR_OV3660 ? "OV3660" : "unknown",

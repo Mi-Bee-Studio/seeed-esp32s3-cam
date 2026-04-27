@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ParrotCam 实时预览</title>
+<title>MiBeeHomeCam 实时预览</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#f0f2f1;color:#333;font-size:14px}
@@ -41,7 +41,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <div class="header">
 <div class="header-left">
 <span>&#128247;</span>
-<h1>ParrotCam <span class="ver">实时预览</span></h1>
+<h1>MiBeeHomeCam <span class="ver">实时预览</span></h1>
 </div>
 <button class="fs-btn" onclick="toggleFullscreen()">&#9974; 全屏</button>
 </div>
@@ -143,6 +143,27 @@ function toggleFullscreen(){
   else if(c.webkitRequestFullscreen)c.webkitRequestFullscreen();
  }
 }
+
+/* Abort MJPEG stream — release socket before navigating away */
+function stopStream(){
+ if(retryTimer)clearTimeout(retryTimer);
+ img.onload=null;
+ img.onerror=null;
+ img.src='';
+}
+
+/* Nav links: stop stream then navigate */
+document.querySelectorAll('.bottom-nav a').forEach(function(a){
+ a.addEventListener('click',function(e){
+  e.preventDefault();
+  stopStream();
+  setTimeout(function(){location.href=a.href},80);
+ });
+});
+
+/* Also stop on back/forward/close */
+window.addEventListener('beforeunload',stopStream);
+window.addEventListener('pagehide',stopStream);
 </script>
 </body>
 </html>

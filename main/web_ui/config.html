@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ParrotCam 配置</title>
+<title>MiBeeHomeCam 配置</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#f0f2f1;color:#333;font-size:14px}
@@ -61,7 +61,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <body>
 <div class="header">
 <span>&#9881;</span>
-<h1>ParrotCam <span class="ver">配置</span></h1>
+<h1>MiBeeHomeCam <span class="ver">配置</span></h1>
 </div>
 <div class="main">
 
@@ -115,7 +115,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </div>
 <div class="field">
 <label>远程路径</label>
-<input type="text" id="ftp_path" placeholder="/ParrotCam">
+<input type="text" id="ftp_path" placeholder="/MiBeeHomeCam">
 </div>
 </div>
 <div class="sub-section">
@@ -180,7 +180,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </div>
 <div class="field">
 <label>设备名称</label>
-<input type="text" id="device_name" placeholder="ParrotCam">
+<input type="text" id="device_name" placeholder="MiBeeHomeCam">
 </div>
 </div>
 
@@ -248,7 +248,7 @@ function loadConfig(){
   $('ftp_port').value=v.ftp_port||21;
   $('ftp_user').value=v.ftp_user||'';
   $('ftp_pass').value=v.ftp_pass||'';
-  $('ftp_path').value=v.ftp_path||'/ParrotCam';
+  $('ftp_path').value=v.ftp_path||'/MiBeeHomeCam';
   $('ftp_enabled').checked=!!v.ftp_enabled;
   $('webdav_url').value=v.webdav_url||'';
   $('webdav_user').value=v.webdav_user||'';

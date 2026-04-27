@@ -72,6 +72,55 @@ I (60000) main: HEALTH: heap=45230 PSRAM=3145728 rec_hwm=1234 nas_hwm=2345
 
 ---
 
+### WiFi 认证反复失败（auth expired / assoc expired）
+
+**现象**：串口日志持续输出 `state: auth -> init (0x200)` 或 `state: assoc -> init (0x400)`，设备能扫描到 AP 但无法连接。
+
+**根因**：XIAO ESP32-S3 开发板 WiFi 发射功率默认偏低（Seeed 官方已知问题，2025年8月前批次），导致认证帧无法正常到达路由器。
+
+**日志特征**：
+```
+I (xxx) wifi:state: init -> auth (0xb0)
+I (xxx) wifi:state: auth -> init (0x200)        ← 认证超时
+I (xxx) wifi:state: init -> auth (0xb0)
+I (xxx) wifi:state: auth -> assoc (0x0)
+I (xxx) wifi:state: assoc -> init (0x400)       ← 关联超时
+```
+
+**修复**：在 `wifi_start_sta()` 中 `esp_wifi_start()` 之后调用：
+```c
+int8_t power_param = (int8_t)(15 / 0.25);  // 15 dBm
+esp_wifi_set_max_tx_power(power_param);
+```
+将发射功率从默认值提升到 15 dBm（Seeed 官方推荐值）。参考：https://wiki.seeedstudio.com/cn/xiao_esp32s3_wifi_usage/
+
+---
+
+### 设备无限重启循环（crash loop）
+
+**现象**：设备上电后立即重启，无限循环。串口日志每次启动都在同一位置 crash。
+
+**日志特征**：
+```
+ESP_ERROR_CHECK failed: esp_err_t 0x103 (ESP_ERR_INVALID_STATE)
+file: "./main/wifi_manager.c" line 199
+expression: esp_event_loop_create_default()
+abort() was called at PC 0x4037df0f on core 0
+Rebooting...
+```
+
+**根因**：`wifi_init()` 中 `esp_event_loop_create_default()` 被调用时，默认事件循环已被之前的 WiFi 扫描创建过，返回 `ESP_ERR_INVALID_STATE`，`ESP_ERROR_CHECK` 将其视为致命错误触发 abort。
+
+**修复**：不使用 `ESP_ERROR_CHECK`，改为容错处理：
+```c
+esp_err_t ev_err = esp_event_loop_create_default();
+if (ev_err != ESP_OK && ev_err != ESP_ERR_INVALID_STATE) {
+    ESP_LOGE(TAG, "Failed to create event loop: %s", esp_err_to_name(ev_err));
+    return ev_err;
+}
+```
+---
+
 ### TF 卡无法识别
 
 **现象**：串口日志显示 `Failed to mount SD card`，录像不启动。

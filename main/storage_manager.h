@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 ParrotCam Authors
+ * Copyright (C) 2024 MiBeeHomeCam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -50,5 +50,10 @@ bool storage_is_available(void);
 esp_err_t storage_check(void);           // Check SD still mounted
 /** @brief 卸载并重新挂载SD卡（用于热插拔恢复） */
 esp_err_t storage_remount(void);         // Unmount + remount SD card
-/** @brief 标记SD卡为不可用状态 */
+/** @brief 格式化SD卡（擦除所有数据后重新创建FAT32文件系统） */
+esp_err_t storage_format(void);
 void storage_set_unavailable(void);      // Mark SD as removed
+/** @brief 注册完成的录像文件到内存缓存（零 SD 卡 I/O） */
+void storage_register_file(const char *filepath, size_t size);
+/** @brief 从内存缓存移除已删除的文件 */
+void storage_unregister_file(const char *name);

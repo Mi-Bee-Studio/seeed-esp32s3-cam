@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 ParrotCam Authors
+ * Copyright (C) 2024 MiBeeHomeCam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,6 +35,7 @@ static const char *TAG = "status_led";
 static led_status_t s_status = LED_STARTING;
 static TimerHandle_t s_led_timer = NULL;
 static uint8_t s_blink_step = 0;   // state machine counter for double blink
+static bool s_disabled = false;    // disabled when GPIO21 is used for SD CS
 
 /** 点亮 LED（设置 GPIO 为低电平，因为低电平有效） */
 static void led_on(void)
@@ -141,6 +142,8 @@ void led_set_status(led_status_t status)
     s_status = status;
     s_blink_step = 0;
 
+    if (s_disabled || !s_led_timer) return;
+
     // Stop timer first
     xTimerStop(s_led_timer, 0);
 
@@ -174,5 +177,15 @@ void led_set_status(led_status_t status)
         break;
     }
 
-    ESP_LOGI(TAG, "LED status: %d", status);
+    ESP_LOGI(TAG, "LED status: %d%s", status, s_disabled ? " (disabled, SD CS active)" : "");
+}
+
+/** @brief 禁用LED控制，停止定时器，释放GPIO21给SD卡SPI CS */
+void led_disable(void)
+{
+    s_disabled = true;
+    if (s_led_timer) {
+        xTimerStop(s_led_timer, portMAX_DELAY);
+    }
+    ESP_LOGI(TAG, "LED disabled (GPIO21 repurposed for SD card SPI CS)");
 }

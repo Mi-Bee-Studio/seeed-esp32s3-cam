@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 ParrotCam Authors
+ * Copyright (C) 2024 MiBeeHomeCam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,25 +20,29 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/stat.h>
-#include <sys/statvfs.h>
 #include <dirent.h>
 #include <stdio.h>
 #include <errno.h>
 #include <time.h>
+#include "status_led.h"
 
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
-#include "driver/sdmmc_host.h"
+#include "ff.h"  /* FatFs: f_getfree for free space query */
+#include "driver/sdspi_host.h"
+#include "driver/gpio.h"
+#include "driver/spi_master.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
 static const char *TAG = "storage";
 
-// SD card pin config for XIAO ESP32-S3 Sense
+// SD card pin config for XIAO ESP32-S3 Sense (SPI mode, per Seeed Studio wiki)
+#define SD_PIN_CS    21
 #define SD_PIN_CLK   7
-#define SD_PIN_CMD   10
-#define SD_PIN_D0    8
+#define SD_PIN_MOSI  9
+#define SD_PIN_MISO  8
 
 #define RECORDINGS_PATH  "/sdcard/recordings"
 #define RECORDINGS_SUFFIX ".avi"
@@ -48,6 +52,12 @@ static const char *TAG = "storage";
 static bool s_sd_available = false;
 static SemaphoreHandle_t s_sd_mutex = NULL;
 static sdmmc_card_t *s_card = NULL;
+
+/* ---- In-memory file cache (ring buffer) ---- */
+#define FILE_CACHE_SIZE  64  /* max cached file entries */
+static file_info_t s_file_cache[FILE_CACHE_SIZE];
+static int s_file_cache_count = 0;
+static int s_file_cache_head = 0;  /* oldest entry index (for ring eviction) */
 /* ---- internal helpers ---- */
 
 /**
@@ -62,7 +72,11 @@ static int compare_file_info(const void *a, const void *b)
 /* ---- public API ---- */
 
 /**
- * @brief 初始化SD卡，配置1线SDMMC模式、挂载FAT文件系统、创建录像目录
+ * @brief 初始化SD卡，配置SPI模式、挂载FAT文件系统、创建录像目录
+ *
+ * XIAO ESP32-S3 Sense 的 microSD 卡槽使用 SPI 模式连接:
+ *   CS=GPIO21  SCK=GPIO7  MOSI=GPIO9  MISO=GPIO8
+ * 参考: https://wiki.seeedstudio.com/cn/xiao_esp32s3_sense_filesystem/
  */
 esp_err_t storage_init(void)
 {
@@ -75,27 +89,70 @@ esp_err_t storage_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    // SDMMC host defaults: 1-line mode
-    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-    host.flags = SDMMC_HOST_FLAG_1BIT;   // 1-line mode to share GPIO10 with camera
+    ESP_LOGI(TAG, "Initializing SD card (SPI mode): CS=%d SCK=%d MOSI=%d MISO=%d",
+             SD_PIN_CS, SD_PIN_CLK, SD_PIN_MOSI, SD_PIN_MISO);
+
+    /* Disable LED on GPIO21 — now repurposed as SD card SPI CS */
+    led_disable();
+
+    /* Reset SD card GPIO pins to default state */
+    gpio_reset_pin(SD_PIN_CS);
+    gpio_reset_pin(SD_PIN_CLK);
+    gpio_reset_pin(SD_PIN_MOSI);
+    gpio_reset_pin(SD_PIN_MISO);
+
+    /* Allow SD card power to stabilize */
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    /* ---- Initialize SPI bus (IDF v6.0: must call before sdspi_mount) ---- */
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    host.slot = SPI3_HOST;  /* Use SPI3 to avoid SPI2 conflict with flash/camera */
     host.max_freq_khz = SDMMC_FREQ_DEFAULT;
 
-    sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
-    slot_config.clk = SD_PIN_CLK;
-    slot_config.cmd = SD_PIN_CMD;
-    slot_config.width = 1;   // 1-line mode
+    spi_bus_config_t bus_cfg = {
+        .mosi_io_num = SD_PIN_MOSI,
+        .miso_io_num = SD_PIN_MISO,
+        .sclk_io_num = SD_PIN_CLK,
+        .quadwp_io_num = GPIO_NUM_NC,
+        .quadhd_io_num = GPIO_NUM_NC,
+        .max_transfer_sz = 4096,
+    };
+    ret = spi_bus_initialize(SPI3_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "SPI bus init failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
 
-    // Enable internal pullups (external pullups recommended for production)
-    slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+    /* SPI device (slot) configuration — IDF v6.0: only CS pin here */
+    sdspi_device_config_t device_config = SDSPI_DEVICE_CONFIG_DEFAULT();
+    device_config.gpio_cs = SD_PIN_CS;
+    device_config.host_id = SPI3_HOST;
 
-    // VFS fat mount config
+    /* VFS fat mount config */
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,
         .max_files = 8,
         .allocation_unit_size = 64 * 1024,
     };
 
-    ret = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &mount_config, &s_card);
+    /*
+     * Retry SD card init up to 5 times with increasing delay.
+     * Some TF cards need extra time to stabilize after power-on.
+     */
+    const int max_attempts = 5;
+    const int delays_ms[] = {300, 500, 1000, 1000, 1000};
+    for (int attempt = 1; attempt <= max_attempts; attempt++) {
+        ESP_LOGI(TAG, "SD card init attempt %d/%d...", attempt, max_attempts);
+        ret = esp_vfs_fat_sdspi_mount("/sdcard", &host, &device_config, &mount_config, &s_card);
+        if (ret == ESP_OK) {
+            break;
+        }
+        ESP_LOGW(TAG, "SD card init attempt %d/%d failed: %s (0x%x)",
+                 attempt, max_attempts, esp_err_to_name(ret), ret);
+        if (attempt < max_attempts) {
+            vTaskDelay(pdMS_TO_TICKS(delays_ms[attempt - 1]));
+        }
+    }
 
     if (ret != ESP_OK) {
         if (ret == ESP_FAIL) {
@@ -103,6 +160,7 @@ esp_err_t storage_init(void)
         } else {
             ESP_LOGE(TAG, "SD card init failed: %s", esp_err_to_name(ret));
         }
+        spi_bus_free(SPI3_HOST);
         s_sd_available = false;
         return ret;
     }
@@ -110,7 +168,7 @@ esp_err_t storage_init(void)
     s_sd_available = true;
 
     // Print card info
-    ESP_LOGI(TAG, "SD card mounted OK");
+    ESP_LOGI(TAG, "SD card mounted OK (SPI mode)");
     ESP_LOGI(TAG, "  Type: %s", s_card->is_mmc ? "MMC" : "SD");
     ESP_LOGI(TAG, "  Name: %s", s_card->cid.name);
     ESP_LOGI(TAG, "  Size: %lluMB", ((uint64_t)s_card->csd.capacity) * s_card->csd.sector_size / (1024 * 1024));
@@ -130,14 +188,23 @@ esp_err_t storage_init(void)
  */
 float storage_get_free_percent(void)
 {
-    struct statvfs vfs;
-    if (statvfs("/sdcard", &vfs) != 0) {
-        ESP_LOGE(TAG, "statvfs failed: %s", strerror(errno));
-        s_sd_available = false;
+    if (!s_sd_available || !s_card) {
         return 0.0f;
     }
-    uint64_t total = (uint64_t)vfs.f_blocks * vfs.f_frsize;
-    uint64_t free_space = (uint64_t)vfs.f_bfree * vfs.f_frsize;
+    /* Use FatFs f_getfree since IDF v6.0 FAT VFS does not support statvfs */
+    DWORD free_clusters = 0;
+    FATFS *fs = NULL;
+    FRESULT res = f_getfree("0:", &free_clusters, &fs);
+    if (res != FR_OK || !fs) {
+        ESP_LOGE(TAG, "f_getfree failed: %d", res);
+        return 0.0f;
+    }
+    uint32_t total_clusters = (fs->n_fatent - 2);  /* FAT has 2 reserved entries */
+    uint64_t sector_size = fs->ssize;
+    uint64_t sectors_per_cluster = fs->csize;
+    uint64_t cluster_size = sector_size * sectors_per_cluster;
+    uint64_t total = (uint64_t)total_clusters * cluster_size;
+    uint64_t free_space = (uint64_t)free_clusters * cluster_size;
     if (total == 0) return 0.0f;
     return (float)free_space / (float)total * 100.0f;
 }
@@ -154,22 +221,27 @@ static void list_files_recursive(const char *dirpath, file_info_t *files, int ma
     while ((entry = readdir(dir)) != NULL && *count < max_count) {
         if (entry->d_name[0] == '.') continue;
 
+        /* Use d_type to skip stat() for directories — huge speedup on SPI SD */
+        if (entry->d_type == DT_DIR) {
+            char fullpath[300];
+            snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name);
+            list_files_recursive(fullpath, files, max_count, count);
+            continue;
+        }
+
+        /* Skip non-.avi files early — no stat() needed */
+        size_t nlen = strlen(entry->d_name);
+        if (nlen < 5 || strcmp(entry->d_name + nlen - 4, RECORDINGS_SUFFIX) != 0) continue;
+
+        /* Only stat() .avi files (for size and mtime) */
         char fullpath[300];
         snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name);
 
         struct stat st;
         if (stat(fullpath, &st) != 0) continue;
 
-        if (S_ISDIR(st.st_mode)) {
-            list_files_recursive(fullpath, files, max_count, count);
-            continue;
-        }
-
-        size_t nlen = strlen(entry->d_name);
-        if (nlen < 5 || strcmp(entry->d_name + nlen - 4, RECORDINGS_SUFFIX) != 0) continue;
-
-        /* Store relative path from RECORDINGS_PATH (e.g. 2026-04/24/REC_xxx.avi) */
-        const char *relpath = fullpath + strlen(RECORDINGS_PATH) + 1; /* skip "/sdcard/recordings/" */
+        /* Store relative path from RECORDINGS_PATH */
+        const char *relpath = fullpath + strlen(RECORDINGS_PATH) + 1;
         strncpy(files[*count].name, relpath, sizeof(files[*count].name) - 1);
         files[*count].name[sizeof(files[*count].name) - 1] = '\0';
         files[*count].size = (uint32_t)st.st_size;
@@ -184,7 +256,71 @@ static void list_files_recursive(const char *dirpath, file_info_t *files, int ma
 }
 
 /**
- * @brief 获取录像文件列表，线程安全，结果按文件名排序
+ * @brief 注册完成的录像文件到内存缓存
+ *
+ * 由 video_recorder 的分段完成回调调用，避免后续文件列表需要扫描 SD 卡。
+ * 环形缓冲区满时覆盖最旧条目。
+ */
+void storage_register_file(const char *filepath, size_t size)
+{
+    xSemaphoreTake(s_sd_mutex, portMAX_DELAY);
+
+    int idx;
+    if (s_file_cache_count < FILE_CACHE_SIZE) {
+        idx = s_file_cache_count;
+        s_file_cache_count++;
+    } else {
+        /* Ring buffer full — evict oldest, shift remaining */
+        idx = s_file_cache_count - 1;
+        for (int i = 0; i < s_file_cache_count - 1; i++) {
+            s_file_cache[i] = s_file_cache[i + 1];
+        }
+    }
+
+    /* Store relative path from /sdcard/recordings/ */
+    const char *relpath = filepath;
+    const char *prefix = RECORDINGS_PATH "/";
+    if (strncmp(filepath, prefix, strlen(prefix)) == 0) {
+        relpath = filepath + strlen(prefix);
+    }
+    strncpy(s_file_cache[idx].name, relpath, sizeof(s_file_cache[idx].name) - 1);
+    s_file_cache[idx].name[sizeof(s_file_cache[idx].name) - 1] = '\0';
+    s_file_cache[idx].size = (uint32_t)size;
+
+    /* Extract timestamp from filename REC_YYYYMMDD_HHMMSS.avi */
+    int y = 0, m = 0, d = 0, H = 0, M = 0, S = 0;
+    if (sscanf(relpath, "%*[^R]REC_%4d%2d%2d_%2d%2d%2d", &y, &m, &d, &H, &M, &S) == 6) {
+        snprintf(s_file_cache[idx].time_str, sizeof(s_file_cache[idx].time_str),
+                 "%04d-%02d-%02d %02d:%02d:%02d", y, m, d, H, M, S);
+    } else {
+        s_file_cache[idx].time_str[0] = '\0';
+    }
+
+    xSemaphoreGive(s_sd_mutex);
+}
+
+/**
+ * @brief 从内存缓存移除已删除的文件
+ */
+void storage_unregister_file(const char *name)
+{
+    xSemaphoreTake(s_sd_mutex, portMAX_DELAY);
+    for (int i = 0; i < s_file_cache_count; i++) {
+        if (strcmp(s_file_cache[i].name, name) == 0) {
+            for (int j = i; j < s_file_cache_count - 1; j++) {
+                s_file_cache[j] = s_file_cache[j + 1];
+            }
+            s_file_cache_count--;
+            break;
+        }
+    }
+    xSemaphoreGive(s_sd_mutex);
+}
+
+/**
+ * @brief 获取录像文件列表
+ *
+ * 优先从内存缓存读取（毫秒级），仅缓存为空时回退到 SD 卡目录扫描。
  */
 int storage_list_files(file_info_t *files, int max_count)
 {
@@ -192,16 +328,20 @@ int storage_list_files(file_info_t *files, int max_count)
 
     xSemaphoreTake(s_sd_mutex, portMAX_DELAY);
 
-    int count = 0;
-    list_files_recursive(RECORDINGS_PATH, files, max_count, &count);
-
+    if (s_file_cache_count > 0) {
+        /* Serve from in-memory cache — zero SD card I/O */
+        int count = s_file_cache_count < max_count ? s_file_cache_count : max_count;
+        /* Return newest first (copy in reverse order) */
+        for (int i = 0; i < count; i++) {
+            files[i] = s_file_cache[s_file_cache_count - 1 - i];
+        }
+        xSemaphoreGive(s_sd_mutex);
+        return count;
+    }
     xSemaphoreGive(s_sd_mutex);
 
-    if (count > 1) {
-        qsort(files, count, sizeof(file_info_t), compare_file_info);
-    }
-
-    return count;
+    /* Cold start: cache empty. Return empty list — cache fills as segments complete. */
+    return 0;
 }
 
 /**
@@ -273,6 +413,16 @@ esp_err_t storage_delete_oldest(void)
     esp_err_t result;
     if (remove(oldest_fullpath) == 0) {
         ESP_LOGI(TAG, "Deleted oldest: %s (%lu bytes)", oldest_name, (unsigned long)oldest_size);
+        /* Evict from in-memory cache */
+        for (int i = 0; i < s_file_cache_count; i++) {
+            if (strcmp(s_file_cache[i].name, oldest_name) == 0) {
+                for (int j = i; j < s_file_cache_count - 1; j++) {
+                    s_file_cache[j] = s_file_cache[j + 1];
+                }
+                s_file_cache_count--;
+                break;
+            }
+        }
         result = ESP_OK;
     } else {
         ESP_LOGE(TAG, "Failed to delete %s: %s", oldest_name, strerror(errno));
@@ -347,6 +497,100 @@ void storage_set_unavailable(void)
 }
 
 /**
+ * @brief 格式化SD卡，擦除所有数据并重新创建FAT32文件系统
+ *
+ * 实现步骤：
+ * 1. 向SD卡前两个扇区写入零，破坏FAT文件系统引导扇区
+ * 2. 卸载当前挂载的文件系统
+ * 3. 以 format_if_mount_failed=true 重新挂载，触发自动格式化
+ * 4. 重新创建录像目录
+ */
+/* Helper: initialize SPI bus and mount SD card */
+static esp_err_t sdspi_mount(bool format_if_failed)
+{
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    host.slot = SPI3_HOST;
+    host.max_freq_khz = SDMMC_FREQ_DEFAULT;
+
+    spi_bus_config_t bus_cfg = {
+        .mosi_io_num = SD_PIN_MOSI,
+        .miso_io_num = SD_PIN_MISO,
+        .sclk_io_num = SD_PIN_CLK,
+        .quadwp_io_num = GPIO_NUM_NC,
+        .quadhd_io_num = GPIO_NUM_NC,
+        .max_transfer_sz = 4096,
+    };
+    esp_err_t ret = spi_bus_initialize(SPI3_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "SPI bus init failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    sdspi_device_config_t device_config = SDSPI_DEVICE_CONFIG_DEFAULT();
+    device_config.gpio_cs = SD_PIN_CS;
+    device_config.host_id = SPI3_HOST;
+
+    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+        .format_if_mount_failed = format_if_failed,
+        .max_files = 8,
+        .allocation_unit_size = 64 * 1024,
+    };
+
+    ret = esp_vfs_fat_sdspi_mount("/sdcard", &host, &device_config, &mount_config, &s_card);
+    if (ret != ESP_OK) {
+        spi_bus_free(SPI3_HOST);
+    }
+    return ret;
+}
+
+/* Helper: unmount SD card and free SPI bus */
+static void sdspi_unmount(void)
+{
+    esp_vfs_fat_sdcard_unmount("/sdcard", s_card);
+    spi_bus_free(SPI3_HOST);
+    s_sd_available = false;
+}
+
+/**
+ * @brief 格式化SD卡，擦除所有数据并重新创建FAT32文件系统
+ */
+esp_err_t storage_format(void)
+{
+    if (!s_sd_available || !s_card) {
+        ESP_LOGE(TAG, "SD card not available for formatting");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ESP_LOGI(TAG, "Formatting SD card...");
+
+    /* Wipe first 2 sectors to destroy FAT superblock */
+    uint8_t zeros[512 * 2];
+    memset(zeros, 0, sizeof(zeros));
+    esp_err_t ret = sdmmc_write_sectors(s_card, zeros, 0, 2);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to wipe SD card sectors: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    /* Unmount and free SPI bus */
+    sdspi_unmount();
+
+    /* Re-mount with format flag (SPI bus re-initialized by helper) */
+    ret = sdspi_mount(true);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "SD format remount failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    s_sd_available = true;
+
+    /* Recreate recordings directory */
+    mkdir(RECORDINGS_PATH, 0775);
+    ESP_LOGI(TAG, "SD card formatted and remounted OK");
+    return ESP_OK;
+}
+
+/**
  * @brief 卸载并重新挂载SD卡，用于热插拔恢复
  */
 esp_err_t storage_remount(void)
@@ -354,27 +598,17 @@ esp_err_t storage_remount(void)
     ESP_LOGI(TAG, "Attempting SD card remount...");
 
     /* Unmount old (may fail if already gone, that's OK) */
-    esp_vfs_fat_sdcard_unmount("/sdcard", s_card);
-    s_sd_available = false;
+    sdspi_unmount();
 
-    /* Re-mount with same config */
-    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-    host.flags = SDMMC_HOST_FLAG_1BIT;
-    host.max_freq_khz = SDMMC_FREQ_DEFAULT;
+    /* Reset GPIO pins */
+    gpio_reset_pin(SD_PIN_CS);
+    gpio_reset_pin(SD_PIN_CLK);
+    gpio_reset_pin(SD_PIN_MOSI);
+    gpio_reset_pin(SD_PIN_MISO);
+    vTaskDelay(pdMS_TO_TICKS(200));
 
-    sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
-    slot_config.clk = SD_PIN_CLK;
-    slot_config.cmd = SD_PIN_CMD;
-    slot_config.width = 1;
-    slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
-
-    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-        .format_if_mount_failed = false,
-        .max_files = 8,
-        .allocation_unit_size = 64 * 1024,
-    };
-
-    esp_err_t ret = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &mount_config, &s_card);
+    /* Re-mount (SPI bus re-initialized by helper) */
+    esp_err_t ret = sdspi_mount(false);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "SD remount failed: %s", esp_err_to_name(ret));
         return ret;

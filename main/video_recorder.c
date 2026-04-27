@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 ParrotCam Authors
+ * Copyright (C) 2024 MiBeeHomeCam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -534,6 +534,13 @@ static void recording_task(void *arg)
 
         total_bytes += frame.len;
 
+        /* Flush to SD every ~1 second (10 frames) so stat() sees current size */
+        static int flush_counter = 0;
+        if (++flush_counter >= 10) {
+            fflush(s_seg.fp);
+            flush_counter = 0;
+        }
+
         /* Track stack high-water mark */
         s_stack_hwm = uxTaskGetStackHighWaterMark(NULL);
 
@@ -565,9 +572,16 @@ static void recording_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(1000 / fps));
     }
 
-    /* Cleanup: close any open segment */
+    /* Cleanup: close any open segment and notify */
     if (segment_open) {
+        char completed_file[128];
+        strncpy(completed_file, s_current_file, sizeof(completed_file) - 1);
+        completed_file[sizeof(completed_file) - 1] = '\0';
+        uint32_t completed_size = total_bytes;
         close_segment();
+        if (s_segment_cb && completed_size > 0) {
+            s_segment_cb(completed_file, completed_size);
+        }
     }
 
     /* Unregister from task watchdog */
@@ -617,11 +631,12 @@ esp_err_t recorder_start(void)
         ESP_LOGI(TAG, "Recording resumed");
         return ESP_OK;
     }
+    s_state = RECORDER_RECORDING;  /* Set state BEFORE creating task to avoid race */
 
     BaseType_t ret = xTaskCreatePinnedToCore(
         recording_task,
         "recorder",
-        4096,
+        8192,
         NULL,
         configMAX_PRIORITIES - 2,   /* priority 5 on ESP-IDF default */
         &s_task_handle,
@@ -630,11 +645,11 @@ esp_err_t recorder_start(void)
 
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create recording task");
+        s_state = RECORDER_IDLE;
         xSemaphoreGive(s_mutex);
         return ESP_FAIL;
     }
 
-    s_state = RECORDER_RECORDING;
     xSemaphoreGive(s_mutex);
     ESP_LOGI(TAG, "Recording started");
     return ESP_OK;

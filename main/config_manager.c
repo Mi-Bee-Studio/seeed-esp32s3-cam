@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 ParrotCam Authors
+ * Copyright (C) 2024 MiBeeHomeCam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,7 +34,7 @@ static const cam_config_t s_defaults = {
     .ftp_port       = 21,
     .ftp_user       = "",
     .ftp_pass       = "",
-    .ftp_path       = "/ParrotCam",
+    .ftp_path       = "/MiBeeHomeCam",
     .ftp_enabled    = false,
     .webdav_url     = "",
     .webdav_user    = "",
@@ -45,7 +45,7 @@ static const cam_config_t s_defaults = {
     .segment_sec    = 300,
     .jpeg_quality   = 12,
     .web_password   = "admin",
-    .device_name    = "ParrotCam",
+    .device_name    = "MiBeeHomeCam",
 };
 
 /* ---- internal helpers ---- */
@@ -53,12 +53,20 @@ static const cam_config_t s_defaults = {
 /** @brief 从 NVS 读取字符串值，不存在则保留默认值 */
 static esp_err_t read_str(nvs_handle_t h, const char *key, char *out, size_t max_len)
 {
-    size_t len = max_len;
-    esp_err_t err = nvs_get_str(h, key, out, &len);
+    // First query the required length without touching the output buffer
+    size_t required_len = 0;
+    esp_err_t err = nvs_get_str(h, key, NULL, &required_len);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        return ESP_OK;   // keep default
+        return ESP_OK;   // key not found, keep default value in out
     }
-    return err;
+    if (err != ESP_OK) {
+        return err;      // other error
+    }
+    // Key exists — read it (nvs_get_str needs len >= required_len)
+    if (required_len > max_len) {
+        required_len = max_len;
+    }
+    return nvs_get_str(h, key, out, &required_len);
 }
 
 /** @brief 向 NVS 写入字符串值 */
@@ -181,6 +189,8 @@ esp_err_t config_init(void)
 
     // Apply defaults first
     s_config = s_defaults;
+    s_config = s_defaults;
+    s_config = s_defaults;
 
     // Open NVS and read stored values
     nvs_handle_t h;
@@ -268,5 +278,6 @@ esp_err_t config_load_from_sd(void)
 
     // If we parsed anything, persist back to NVS
     // (Always save so NVS stays in sync with SD overrides)
-    return config_save();
+    esp_err_t ret = config_save();
+    return ret;
 }

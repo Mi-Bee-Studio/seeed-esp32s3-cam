@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 ParrotCam Authors
+ * Copyright (C) 2024 MiBeeHomeCam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,3 +45,5 @@ esp_err_t led_init(void);
  * @param status 目标 LED 状态
  */
 void led_set_status(led_status_t status);
+/** @brief 禁用LED控制，释放GPIO21给SD卡SPI CS使用 */
+void led_disable(void);

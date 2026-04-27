@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 ParrotCam Authors
+ * Copyright (C) 2024 MiBeeHomeCam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,3 +49,12 @@ esp_err_t mjpeg_streamer_register(httpd_handle_t server);
  * Return the number of currently connected streaming clients.
  */
 int mjpeg_streamer_client_count(void);
+
+/** @brief MJPEG 流处理器（GET /stream）
+ *
+ * 处理 HTTP multipart/x-mixed-replace MJPEG 实时视频流请求。
+ * 此函数通过 web_server.c 的 s_uris[] 表注册到 /stream 端点。
+ * @param req HTTP 请求对象
+ * @return ESP_OK 流结束，ESP_FAIL 连接错误
+ */
+esp_err_t mjpeg_stream_handler(httpd_req_t *req);
