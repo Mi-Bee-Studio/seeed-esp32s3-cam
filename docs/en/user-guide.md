@@ -33,6 +33,30 @@ Default management password: `admin`. API requests involving write operations ne
 | preview | Real-time video preview (MJPEG stream in browser) |
 | files | Recording file management (browse, download, delete) |
 
+### Dashboard Page
+
+![Dashboard](images/index-dashboard.png)
+
+The dashboard shows real-time device status: recording state, current file, WiFi connection, SD card usage, camera model, chip temperature, and uptime.
+
+### Configuration Page
+
+![Configuration](images/config-page.png)
+
+All device parameters can be modified here: WiFi credentials, video resolution/FPS/quality, recording segment duration, FTP/WebDAV upload settings, and system password.
+
+### File Manager Page
+
+![File Manager](images/files-page.png)
+
+Browse recordings organized by date. Features collapsible date groups, batch selection, folder-level download/delete, and persistent authentication.
+
+### Preview Page
+
+![Video Preview](images/preview-page.png)
+
+Real-time MJPEG video stream viewable directly in the browser. Supports up to 2 simultaneous viewers.
+
 ## Configuration Management
 
 ### Via Web Interface

@@ -21,6 +21,21 @@ ESP32-S3 based monitoring camera firmware with MJPEG real-time streaming, AVI se
 - 🎨 Mi&Bee purple theme across all web pages
 - 🚀 GitHub Actions CI/CD for automated firmware releases
 
+## Web Interface
+
+![Dashboard](docs/images/index-dashboard.png)
+*Dashboard — real-time status overview*
+
+The built-in web interface provides full device management:
+
+- **📊 Dashboard** — Recording status, WiFi info, storage usage, chip temperature
+- **⚙ Config** — WiFi, video parameters, NAS upload settings
+- **📁 Files** — Browse, download, batch delete recordings with collapsible date groups
+- **📹 Preview** — Real-time MJPEG video stream in browser
+
+![File Manager](docs/images/files-page.png)
+![Configuration](docs/images/config-page.png)
+
 ## Quick Start
 
 ```bash

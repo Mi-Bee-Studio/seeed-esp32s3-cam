@@ -19,6 +19,21 @@
 - 📁 批量文件操作：多选、下载、删除
 - 🎨 Mi&Bee 紫色主题，全站统一视觉风格
 - 🚀 GitHub Actions CI/CD，自动构建发布固件
+
+## Web 管理界面
+
+![仪表盘](docs/images/index-dashboard.png)
+*仪表盘 — 实时状态总览*
+
+内置 Web 管理界面，提供完整的设备管理功能：
+
+- **📊 仪表盘** — 录像状态、WiFi 信息、存储用量、芯片温度
+- **⚙ 配置** — WiFi、视频参数、NAS 上传设置
+- **📁 文件** — 浏览、下载、批量删除录像文件，支持按日期折叠
+- **📹 预览** — 浏览器内实时 MJPEG 视频流
+
+![文件管理](docs/images/files-page.png)
+![配置页面](docs/images/config-page.png)
 ## 快速开始
 
 ```bash
