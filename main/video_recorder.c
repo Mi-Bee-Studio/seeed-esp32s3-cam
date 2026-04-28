@@ -432,20 +432,15 @@ static void close_segment(void)
         fseek(s_seg.fp, AVI_RIFF_HDR_SIZE + AVI_HDRL_TOTAL + 4, SEEK_SET);
         fwrite(movi_size, 1, 4, s_seg.fp);
 
-        /* Patch hdrl: total frames */
-        fseek(s_seg.fp, AVI_RIFF_HDR_SIZE + 4 + 4 + 4 + 16, SEEK_SET); /* avih→dwTotalFrames */
+        /* Patch avih: dwTotalFrames — offset = RIFF(12) + LIST_hdrl(12) + avih_hdr(8) + 16 */
+        fseek(s_seg.fp, AVI_RIFF_HDR_SIZE + 12 + 8 + 16, SEEK_SET);
         uint8_t tf[4];
         put_u32(tf, s_seg.frame_count);
         fwrite(tf, 1, 4, s_seg.fp);
 
-        /* Patch strh dwLength */
-        long strh_pos = AVI_RIFF_HDR_SIZE + 4 + 4 + AVI_AVIH_SIZE + 4 + 4 + 4 + 4 + 4; /* LIST hdrl + avih + LIST strl + strh tag+size + fccType + fccHandler + dwFlags + wPriority+wLanguage + dwInitialFrames + dwScale + dwRate + dwStart */
-        strh_pos = AVI_RIFF_HDR_SIZE + 12 + AVI_AVIH_SIZE + 12 + 8 + 4 + 4 + 4 + 4 + 2 + 2 + 4 + 4 + 4 + 4;
-        /* Let me just calculate: after strh chunk data starts, dwLength is at offset 28 (4+4+4+4+2+2+4+4+4+4) from "strh" tag */
-        /* strh tag is at: RIFF(12) + LIST hdrl header(12) + avih(64) + LIST strl header(12) = 100 */
-        /* strh chunk: "strh"(4) + size(4) + data... dwLength is at data offset 28 */
+        /* Patch strh: dwLength — offset = strh_data_start + 32 */
         long strh_data_pos = AVI_RIFF_HDR_SIZE + 12 + AVI_AVIH_SIZE + 12 + 4 + 4;
-        fseek(s_seg.fp, strh_data_pos + 28, SEEK_SET);
+        fseek(s_seg.fp, strh_data_pos + 32, SEEK_SET);
         put_u32(tf, s_seg.frame_count);
         fwrite(tf, 1, 4, s_seg.fp);
     }
@@ -557,7 +552,7 @@ static void recording_task(void *arg)
             segment_open = false;
 
             /* Notify via callback */
-            if (s_segment_cb) {
+            if (s_segment_cb && completed_size > 0) {
                 s_segment_cb(completed_file, completed_size);
             }
 

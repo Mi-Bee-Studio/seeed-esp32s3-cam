@@ -319,3 +319,70 @@ idf.py -p COM3 flash monitor
 ```
 
 > **注意**：恢复出厂设置将清除所有配置（WiFi、NAS、密码等），恢复为默认值 `admin`，设备重启后进入 AP 模式。TF 卡上的录像文件不受影响。
+
+
+### 下载的 AVI 文件无法播放
+
+
+
+**症状**：从文件管理器下载的 AVI 文件无法在视频播放器（Windows Media Player、VLC 等）中打开，或显示"0 帧"/"文件损坏"错误。
+
+
+
+**根因**：在此修复之前的固件版本中，`close_segment()` 函数的 AVI 头部回填偏移量错误：
+
+- `dwTotalFrames` 被写入偏移量 40 而非 48（覆盖了 `dwFlags` 字段）
+
+- `strh dwLength` 被写入偏移量 136 而非 140（覆盖了 `dwRate` 字段）
+
+- 导致 `dwTotalFrames=0` 和 `dwLength=0`，播放器认为文件中没有视频数据
+
+
+
+**修复**：修正了 `video_recorder.c:close_segment()` 中的 fseek 偏移量：
+
+```c
+
+// avih dwTotalFrames: RIFF(12) + LIST_hdrl(12) + avih_hdr(8) + 16 = 48
+
+fseek(s_seg.fp, AVI_RIFF_HDR_SIZE + 12 + 8 + 16, SEEK_SET);
+
+// strh dwLength: strh_data_start + 32
+
+fseek(s_seg.fp, strh_data_pos + 32, SEEK_SET);
+
+```
+
+
+
+**注意**：修复前录制的文件无法修复——更新固件后需重新录制。
+
+
+
+### 出现 0 字节录像文件
+
+
+
+**症状**：文件管理器中显示大小为 0 字节的录像文件。
+
+
+
+**根因**：分段完成回调函数未检查是否实际写入了帧数据。当分段文件被打开后立即关闭（例如 SD 卡异常），文件缓存中会注册 0 字节的条目。
+
+
+
+**修复**：在调用分段回调前添加了 `completed_size > 0` 检查：
+
+```c
+
+if (s_segment_cb && completed_size > 0) {
+
+    s_segment_cb(completed_file, completed_size);
+
+}
+
+```
+
+
+
+**解决方法**：可以从文件管理器中安全删除 0 字节文件。固件更新后不会再产生新的 0 字节文件。

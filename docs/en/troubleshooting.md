@@ -321,3 +321,70 @@ idf.py -p COM3 flash monitor
 ```
 
 > **Note**: Factory reset will clear all configuration (WiFi, NAS, password, etc.), restore to default value `admin`, device enters AP mode after restart. Recording files on TF card are not affected.
+
+
+### Downloaded AVI Files Won't Play
+
+
+
+**Symptom**: AVI files downloaded from the file manager won't open in video players (Windows Media Player, VLC, etc.), or show "0 frames" / "corrupt file" errors.
+
+
+
+**Root Cause**: In firmware versions before this fix, the AVI header patch offsets in `close_segment()` were incorrect:
+
+- `dwTotalFrames` was written to offset 40 instead of 48 (overwriting `dwFlags`)
+
+- `strh dwLength` was written to offset 136 instead of 140 (overwriting `dwRate`)
+
+- This resulted in `dwTotalFrames=0` and `dwLength=0`, causing players to see no video data
+
+
+
+**Fix**: Corrected the fseek offsets in `video_recorder.c:close_segment()`:
+
+```c
+
+// avih dwTotalFrames: RIFF(12) + LIST_hdrl(12) + avih_hdr(8) + 16 = 48
+
+fseek(s_seg.fp, AVI_RIFF_HDR_SIZE + 12 + 8 + 16, SEEK_SET);
+
+// strh dwLength: strh_data_start + 32
+
+fseek(s_seg.fp, strh_data_pos + 32, SEEK_SET);
+
+```
+
+
+
+**Note**: Files recorded before this fix cannot be repaired — re-record them after updating firmware.
+
+
+
+### Zero-Byte Recording Files
+
+
+
+**Symptom**: The file manager shows recording files with 0 bytes size.
+
+
+
+**Root Cause**: The segment completion callback was called without checking if any frames were actually written. When a segment was opened but immediately closed (e.g., due to SD card issues), a 0-byte entry was registered in the file cache.
+
+
+
+**Fix**: Added `completed_size > 0` check before calling the segment callback:
+
+```c
+
+if (s_segment_cb && completed_size > 0) {
+
+    s_segment_cb(completed_file, completed_size);
+
+}
+
+```
+
+
+
+**Resolution**: 0-byte files can be safely deleted from the file manager. After firmware update, no new 0-byte files will be created.
