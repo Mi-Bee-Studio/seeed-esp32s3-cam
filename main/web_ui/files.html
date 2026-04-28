@@ -44,7 +44,10 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .grp-btn.del{background:rgba(231,76,60,.1);color:#e74c3c}
 .grp-btn.del:hover{background:#e74c3c;color:#fff}
 .empty{text-align:center;padding:30px;color:#999;font-size:14px}
-.summary{font-size:13px;color:#666;margin-bottom:4px}
+.card-title-row{display:flex;align-items:center;justify-content:space-between}
+.fmt-btn{padding:3px 10px;border:1px solid #e74c3c;background:transparent;color:#e74c3c;border-radius:4px;font-size:11px;cursor:pointer;font-family:inherit}
+.fmt-btn:hover{background:#e74c3c;color:#fff}
+.fmt-btn:disabled{opacity:.5;cursor:not-allowed}
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #ddd;display:flex;z-index:10}
 .bottom-nav a{flex:1;text-align:center;padding:10px 0;font-size:12px;color:#888;text-decoration:none}
 .bottom-nav a.active{color:#7C3AED;font-weight:600}
@@ -64,7 +67,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <div class="main">
 
 <div class="card" id="sdCard">
-<div class="card-title">SD卡存储</div>
+<div class="card-title-row"><span class="card-title" style="margin-bottom:0">SD卡存储</span><button class="fmt-btn" id="fmtBtn" onclick="formatSD()">格式化</button></div>
 <div class="bar-wrap"><div class="bar-fill ok" id="sdBar" style="width:0%"></div></div>
 <div class="bar-text" id="sdText">--</div>
 </div>
@@ -206,8 +209,15 @@ function updateSelection(){
  var bar=$('batch-bar');
  var count=$('sel-count');
  var checks=document.querySelectorAll('.file-item .file-check:checked');
-  if(checks.length>0){bar.style.display='flex';count.textContent=checks.length+' 已选择'}
- else{bar.style.display='none'}
+ if(checks.length>0){
+  bar.style.display='flex';count.textContent=checks.length+' 已选择';
+  /* Pause auto-refresh while files are selected to avoid losing state */
+  pauseAutoRefresh();
+  clearTimeout(window._selResumeTimer);
+  window._selResumeTimer=setTimeout(startAutoRefresh,30000);
+ }else{
+  bar.style.display='none';
+ }
  document.querySelectorAll('.file-item').forEach(function(item){
   var cb=item.querySelector('.file-check');
   item.classList.toggle('selected',cb&&cb.checked);
@@ -295,7 +305,37 @@ function batchDelete(names){
  });
 }
 
-window.onload=function(){refreshFiles();updateAuthUI()};
+/* ---- Format SD card ---- */
+function formatSD(){
+ requireAuth(function(){
+  if(!confirm('⚠️ 格式化将擦除SD卡上的所有数据！\n\n确定要继续吗？'))return;
+  if(!confirm('此操作不可恢复！最后确认：真的要格式化吗？'))return;
+  var btn=$('fmtBtn');
+  btn.disabled=true;btn.textContent='格式化中...';
+  authFetch('/api/format',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+   btn.disabled=false;btn.textContent='格式化';
+   if(d.ok){showToast('SD卡格式化完成');setTimeout(refreshFiles,1000)}
+   else showToast('格式化失败: '+(d.error||'未知错误'),true);
+  }).catch(function(e){
+   btn.disabled=false;btn.textContent='格式化';
+   showToast('格式化失败',true);console.error(e);
+  });
+ });
+}
+var fileRefreshTimer=null;
+var fileSelectedNames=[];
+
+function startAutoRefresh(){
+ if(fileRefreshTimer)clearInterval(fileRefreshTimer);
+ fileRefreshTimer=setInterval(refreshFiles,10000);
+}
+
+/* Pause auto-refresh while user is selecting/interacting */
+function pauseAutoRefresh(){
+ if(fileRefreshTimer){clearInterval(fileRefreshTimer);fileRefreshTimer=null}
+}
+
+window.onload=function(){refreshFiles();updateAuthUI();startAutoRefresh()};
 </script>
 </body>
 </html>

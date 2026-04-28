@@ -243,6 +243,7 @@ static void write_hdrl(uint8_t *buf, uint16_t w, uint16_t h, uint8_t fps)
 
     /* strf chunk — BITMAPINFOHEADER */
     memcpy(buf + pos, "strf", 4);                         pos += 4;
+    put_u32(buf + pos, 40);             /* chunk data size */ pos += 4;
     put_u32(buf + pos, 40);             /* biSize         */ pos += 4;
     put_u32(buf + pos, w);              /* biWidth        */ pos += 4;
     put_u32(buf + pos, h);              /* biHeight       */ pos += 4;
@@ -578,6 +579,7 @@ static void recording_task(void *arg)
             s_segment_cb(completed_file, completed_size);
         }
     }
+    s_current_file[0] = '\0';
 
     /* Unregister from task watchdog */
     esp_task_wdt_delete(NULL);

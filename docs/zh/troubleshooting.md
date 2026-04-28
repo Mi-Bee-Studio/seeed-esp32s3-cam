@@ -386,3 +386,86 @@ if (s_segment_cb && completed_size > 0) {
 
 
 **解决方法**：可以从文件管理器中安全删除 0 字节文件。固件更新后不会再产生新的 0 字节文件。
+
+### AVI 文件报"编解码器暂不支持"
+
+**症状**：下载的 AVI 文件在 VLC 中播放报错 "编解码器暂不支持: VLC 无法解码格式 `    ` (No description for this codec)"，文件属性显示视频尺寸异常（如 600x1572865）。
+
+**根因**：`write_hdrl()` 函数在生成 AVI 文件的 BITMAPINFOHEADER（strf chunk）时，漏写了 `biSize` 字段（固定值 40）。strf chunk 声明了 40 字节数据但只写了 36 字节，导致所有后续字段偏移 4 字节：
+
+| 偏移位置 | 应写入 | 实际写入 |
+|----------|--------|----------|
+| biSize (0) | 40 | 800 (=biWidth) |
+| biWidth (4) | 800 | 600 (=biHeight) |
+| biHeight (8) | 600 | 0x180001 (垃圾) |
+| biCompression (20) | "MJPG" | 0x00000018 (垃圾) |
+
+VLC 无法识别编解码器四字节码，因此报"Codec not supported"。
+
+**诊断方法**：
+
+1. 用 VLC 详细日志模式验证：`vlc -vvv --file-logging your_file.avi`
+2. 查看 VLC 输出中的 `biCompression` 和 `biWidth/biHeight` 是否正常
+3. 用十六进制编辑器检查文件偏移 172-211 位置的 strf 数据
+
+**修复**：在 `video_recorder.c:write_hdrl()` 的 strf chunk 中添加缺失的 `biSize` 字段：
+
+```c
+/* strf chunk — BITMAPINFOHEADER */
+memcpy(buf + pos, "strf", 4);                         pos += 4;
+put_u32(buf + pos, 40);             /* chunk data size */ pos += 4;
+put_u32(buf + pos, 40);             /* biSize         */ pos += 4;  // <-- 这行之前缺失
+put_u32(buf + pos, w);              /* biWidth        */ pos += 4;
+put_u32(buf + pos, h);              /* biHeight       */ pos += 4;
+// ... 后续字段不变
+```
+
+**经验教训**：
+
+- BITMAPINFOHEADER 的 `biSize` 字段不是可选的，所有播放器都依赖它确定头部大小
+- AVI 文件结构问题应从 strf chunk 的每个字段逐一验证，而非仅检查 RIFF/LIST 层级
+- VLC 详细日志 (`-vvv --file-logging`) 是诊断 AVI 文件结构问题的利器
+
+---
+
+### 停止录像后无法下载文件
+
+**症状**：停止录像后立即下载文件，API 返回 409 "File is currently being recorded"。
+
+**根因**：`video_recorder.c` 中 `s_current_file` 全局变量在录像任务退出后未被清空。下载接口通过 `recorder_get_current_file()` 检查当前文件名，始终返回上一次的文件路径，导致已关闭的文件被误判为正在录制。
+
+**修复**：在录像任务退出时的清理代码中添加：
+
+```c
+// video_recorder.c: recording_task() 函数末尾
+if (segment_open) {
+    close_segment();
+    // ... callback ...
+}
+s_current_file[0] = '\0';  // <-- 添加这一行
+```
+
+---
+
+### 文件夹删除按钮无反应
+
+**症状**：点击文件管理页面中文件夹级别的 🗑 删除按钮后无任何效果，控制台显示 `/api/files/batch` 返回 400 错误。
+
+**根因**：`api_files_batch_handler()` 使用栈上的 `char buf[2048]` 接收请求体。当文件夹包含大量文件（如 60 个）时，JSON body 超过 2048 字节被截断，`cJSON_Parse` 失败返回 400。
+
+**修复**：改为根据 `Content-Length` 动态分配堆内存：
+
+```c
+int content_len = req->content_len;
+if (content_len <= 0 || content_len > 8192) {
+    return json_error(req, "Invalid request body", HTTPD_400_BAD_REQUEST);
+}
+char *buf = malloc(content_len + 1);
+if (!buf) return json_error(req, "Out of memory", HTTPD_500_INTERNAL_SERVER_ERROR);
+int len = httpd_req_recv(req, buf, content_len);
+// ... 使用 buf ...
+free(buf);
+```
+
+**注意**：所有 return 路径（包括错误路径）都必须 `free(buf)` 避免内存泄漏。
+

@@ -44,6 +44,13 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .sync{font-size:13px}
 .sync.ok{color:#7C3AED}
 .sync.no{color:#999}
+.btn-rec{padding:6px 16px;border:none;border-radius:4px;font-size:13px;cursor:pointer;font-family:inherit;font-weight:500;transition:background .15s}
+.btn-rec.start{background:#7C3AED;color:#fff}
+.btn-rec.start:hover{background:#5B21B6}
+.btn-rec.stop{background:#e74c3c;color:#fff}
+.btn-rec.stop:hover{background:#c0392b}
+.btn-rec:disabled{opacity:.5;cursor:not-allowed}
+.rec-actions{display:flex;gap:8px;margin-top:8px}
 </style>
 </head>
 <body>
@@ -59,6 +66,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <span class="status-text idle" id="recText">空闲</span>
 </div>
 <div class="filename" id="recFile"></div>
+<div class="rec-actions" id="recActions"></div>
 </div>
 
 <div class="grid">
@@ -86,6 +94,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <div class="card-title">ℹ️ 系统信息</div>
 <div class="row"><span class="label">⏱ 运行时间</span><span class="val" id="sysUp">--</span></div>
 <div class="row"><span class="label">🕐 时间同步</span><span class="val" id="sysSync">--</span></div>
+<div class="row"><span class="label">🕐 当前时间</span><span class="val" id="currentTime">--</span></div>
 <div class="row"><span class="label">🌡 芯片温度</span><span class="val" id="chip_temp">--</span></div>
 </div>
 </div>
@@ -108,6 +117,43 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 
 <script>
 function $(s){return document.getElementById(s)}
+
+/* ---- Auth ---- */
+function getPw(){return localStorage.getItem('cam_password')||''}
+function setPw(p){localStorage.setItem('cam_password',p)}
+function authHeaders(){var p=getPw();return p?{'X-Password':p}:{}}
+function authFetch(url,opts){
+ opts=opts||{};opts.headers=Object.assign({},opts.headers||{},authHeaders());
+ return fetch(url,opts).then(function(r){
+  if(r.status===401){setPw('');promptLogin();throw new Error('Unauthorized')}
+  return r
+ })
+}
+function promptLogin(cb){
+ var p=prompt('请输入管理密码:');if(!p)return;
+ fetch('/api/status',{headers:{'X-Password':p}}).then(function(r){
+  if(r.ok){setPw(p);if(cb)cb()}else{alert('密码错误');promptLogin(cb)}
+ })
+}
+
+/* ---- Recording Control ---- */
+var _recBusy=false;
+function toggleRec(){
+ if(_recBusy)return;
+ var v=window._lastStatus;if(!v)return;
+ if(!getPw()){promptLogin(toggleRec);return}
+ var action=v.recording==='recording'?'stop':'start';
+ if(action==='stop'){
+  if(!confirm('确定停止录制？'))return;
+ }
+ _recBusy=true;
+ authFetch('/api/record?action='+action,{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+  _recBusy=false;
+  if(d.ok)refresh();
+  else alert('操作失败: '+(d.error||'未知错误'));
+ }).catch(function(e){_recBusy=false;console.error(e)})
+}
+
 function fmtTime(s){
  var h=Math.floor(s/3600),m=Math.floor(s%3600/60);
  if(h>0)return h+'h '+m+'m';
@@ -123,12 +169,15 @@ function refresh(){
  fetch('/api/status').then(function(r){return r.json()}).then(function(d){
   if(!d.ok)return;
   var v=d.data;
-  var rec=$('recDot'),rt=$('recText'),rf=$('recFile');
+  window._lastStatus=v;
+  var rec=$('recDot'),rt=$('recText'),rf=$('recFile'),ra=$('recActions');
   if(v.recording==='recording'){
    rec.className='dot rec';rt.className='status-text rec';rt.textContent='录制中';
    rf.textContent=v.current_file||'';
+   ra.innerHTML='<button class="btn-rec stop" onclick="toggleRec()">⏹ 停止录制</button>';
   }else{
    rec.className='dot idle';rt.className='status-text idle';rt.textContent='空闲';rf.textContent='';
+   ra.innerHTML='<button class="btn-rec start" onclick="toggleRec()">⏺ 开始录制</button>';
   }
   var bar=$('sdBar'),txt=$('sdText');
   if(v.sd_total_bytes!=null&&v.sd_free_bytes!=null){
@@ -153,6 +202,7 @@ function refresh(){
   var ss=$('sysSync');
   if(v.time_synced){ss.className='sync ok';ss.textContent='\u2714 已同步'}
   else{ss.className='sync no';ss.textContent='\u2718 未同步'}
+  $('currentTime').textContent=v.current_time||'--';
   var ns=$('nasStatus');
   if(v.upload_queue>=0){ns.className='val';ns.innerHTML='<span class="badge ok">正常</span>'}
   else{ns.className='val';ns.innerHTML='<span class="badge err">异常</span>'}

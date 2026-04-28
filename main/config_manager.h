@@ -59,6 +59,8 @@ typedef struct {
     // Web 管理界面登录密码
     char device_name[32];
     // 设备名称
+    char timezone[48];
+    // 时区设置，POSIX格式（如 CST-8、UTC0、EST5EDT）
 } cam_config_t;
 
 /** @brief 初始化配置模块，从 NVS 加载配置，无存储则使用默认值 */

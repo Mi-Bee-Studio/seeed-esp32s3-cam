@@ -184,6 +184,9 @@ static esp_err_t api_status_handler(httpd_req_t *req)
 
     /* Time */
     cJSON_AddBoolToObject(data, "time_synced", time_is_synced());
+    char current_time[32] = "";
+    time_get_str(current_time, sizeof(current_time));
+    cJSON_AddStringToObject(data, "current_time", current_time);
 
     /* Uptime (seconds since boot) */
     int64_t uptime = esp_timer_get_time() / 1000000;
@@ -233,6 +236,7 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
 
     /* Mask web password */
     cJSON_AddStringToObject(data, "web_password", cfg->web_password[0] ? "****" : "");
+    cJSON_AddStringToObject(data, "timezone", cfg->timezone);
 
     return json_ok(req, data);
 }
@@ -295,6 +299,13 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         cfg->jpeg_quality = (uint8_t)item->valueint;
     if ((item = cJSON_GetObjectItem(json, "web_password")) && strcmp(item->valuestring, "****") != 0)
         strncpy(cfg->web_password, item->valuestring, sizeof(cfg->web_password) - 1);
+    if ((item = cJSON_GetObjectItem(json, "timezone")) && strlen(item->valuestring) > 0) {
+        strncpy(cfg->timezone, item->valuestring, sizeof(cfg->timezone) - 1);
+        cfg->timezone[sizeof(cfg->timezone) - 1] = '\0';
+        /* Apply timezone change immediately */
+        setenv("TZ", cfg->timezone, 1);
+        tzset();
+    }
 
     cJSON_Delete(json);
     config_save();
@@ -376,21 +387,29 @@ static esp_err_t api_files_batch_handler(httpd_req_t *req)
 {
     if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
 
-    char buf[2048];
-    int len = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    int content_len = req->content_len;
+    if (content_len <= 0 || content_len > 8192) {
+        return json_error(req, "Invalid request body", HTTPD_400_BAD_REQUEST);
+    }
+    char *buf = malloc(content_len + 1);
+    if (!buf) return json_error(req, "Out of memory", HTTPD_500_INTERNAL_SERVER_ERROR);
+    int len = httpd_req_recv(req, buf, content_len);
     if (len <= 0) {
+        free(buf);
         return json_error(req, "Empty request body", HTTPD_400_BAD_REQUEST);
     }
     buf[len] = '\0';
 
     cJSON *root = cJSON_Parse(buf);
     if (!root) {
+        free(buf);
         return json_error(req, "Invalid JSON", HTTPD_400_BAD_REQUEST);
     }
 
     cJSON *names_arr = cJSON_GetObjectItem(root, "names");
     if (!cJSON_IsArray(names_arr)) {
         cJSON_Delete(root);
+        free(buf);
         return json_error(req, "Missing 'names' array", HTTPD_400_BAD_REQUEST);
     }
 
@@ -424,6 +443,7 @@ static esp_err_t api_files_batch_handler(httpd_req_t *req)
     cJSON *data = cJSON_CreateObject();
     cJSON_AddNumberToObject(data, "deleted", deleted);
     cJSON_AddNumberToObject(data, "failed", failed);
+    free(buf);
     return json_ok(req, data);
 }
 

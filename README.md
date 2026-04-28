@@ -3,6 +3,8 @@
 > Smart monitoring camera firmware based on XIAO ESP32-S3 Sense
 > MiBeeHomeCam: ESP32-S3 based monitoring camera firmware
 
+[中文文档](README.zh.md) | English
+
 ESP32-S3 based monitoring camera firmware with MJPEG real-time streaming, AVI segmented recording, and automatic NAS upload. Developed with ESP-IDF, optimized for 8MB Octal PSRAM, running stable real-time video capture and transmission in resource-constrained embedded environments.
 
 ## Key Features

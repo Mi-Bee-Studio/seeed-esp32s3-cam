@@ -202,6 +202,26 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <span class="eye" onclick="togPw(this)">&#128065;</span>
 </div>
 </div>
+<div class="field">
+<label>时区设置</label>
+<select id="timezone">
+<option value="CST-8">中国标准时间 (UTC+8)</option>
+<option value="JST-9">日本标准时间 (UTC+9)</option>
+<option value="KST-9">韩国标准时间 (UTC+9)</option>
+<option value="IST-5:30">印度标准时间 (UTC+5:30)</option>
+<option value="WET0">西欧时间 (UTC+0)</option>
+<option value="CET-1">中欧时间 (UTC+1)</option>
+<option value="EET-2">东欧时间 (UTC+2)</option>
+<option value="UTC0">UTC (UTC+0)</option>
+<option value="EST5">美国东部时间 (UTC-5)</option>
+<option value="EST5EDT">美国东部夏令时 (UTC-5/4)</option>
+<option value="CST6CDT">美国中部时间 (UTC-6/5)</option>
+<option value="MST7">美国山地时间 (UTC-7)</option>
+<option value="MST7MDT">美国山地夏令时 (UTC-7/6)</option>
+<option value="PST8PDT">美国太平洋时间 (UTC-8/7)</option>
+<option value="AEST-10">澳大利亚东部时间 (UTC+10)</option>
+</select>
+</div>
 <div class="btn-row">
 <button class="btn btn-save" onclick="saveConfig()">保存配置</button>
 <button class="btn btn-reboot" onclick="rebootDevice()">重启设备</button>
@@ -271,6 +291,20 @@ function loadConfig(){
   $('segment_sec').value=v.segment_sec||300;
   $('jpeg_quality').value=v.jpeg_quality||12;$('jpegVal').textContent=$('jpeg_quality').value;
   $('web_password').value=v.web_password||'';
+  /* Timezone: try exact match first, fallback to manual if not in list */
+  var tzSel=$('timezone');
+  var tzVal=v.timezone||'CST-8';
+  var found=false;
+  for(var i=0;i<tzSel.options.length;i++){
+    if(tzSel.options[i].value===tzVal){found=true;break}
+  }
+  if(found){tzSel.value=tzVal}
+  else{
+    /* Add custom option for unrecognized timezone */
+    var opt=document.createElement('option');
+    opt.value=tzVal;opt.textContent=tzVal+' (自定义)';
+    tzSel.appendChild(opt);tzSel.value=tzVal;
+  }
  }).catch(function(e){console.error('Load config failed:',e)});
 }
 
@@ -322,7 +356,8 @@ function gatherFormData(){
   resolution:parseInt($('resolution').value),
   fps:parseInt($('fps').value),
   segment_sec:parseInt($('segment_sec').value),
-  jpeg_quality:parseInt($('jpeg_quality').value)
+  jpeg_quality:parseInt($('jpeg_quality').value),
+  timezone:$('timezone').value
  };
  /* Only send password if user changed it (not masked "****") */
  var wp=$('web_password').value;

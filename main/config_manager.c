@@ -46,8 +46,9 @@ static const cam_config_t s_defaults = {
     .jpeg_quality   = 12,
     .web_password   = "admin",
     .device_name    = "MiBeeHomeCam",
-};
+    .timezone       = "CST-8",       // 中国标准时间 UTC+8
 
+};
 /* ---- internal helpers ---- */
 
 /** @brief 从 NVS 读取字符串值，不存在则保留默认值 */
@@ -142,6 +143,7 @@ static void parse_wifi_txt(void)
         if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
         parse_line(line, "SSID", s_config.wifi_ssid, sizeof(s_config.wifi_ssid));
         parse_line(line, "PASS", s_config.wifi_pass, sizeof(s_config.wifi_pass));
+        parse_line(line, "TIMEZONE", s_config.timezone, sizeof(s_config.timezone));
     }
     fclose(f);
 }
@@ -218,6 +220,7 @@ esp_err_t config_init(void)
     nvs_get_u8(h, "jpeg_quality", &s_config.jpeg_quality);
     read_str(h, "web_password", s_config.web_password, sizeof(s_config.web_password));
     read_str(h, "device_name", s_config.device_name, sizeof(s_config.device_name));
+    read_str(h, "timezone", s_config.timezone, sizeof(s_config.timezone));
 
     nvs_close(h);
     ESP_LOGI(TAG, "Config loaded from NVS");
@@ -255,6 +258,7 @@ esp_err_t config_save(void)
     nvs_set_u8(h, "jpeg_quality", s_config.jpeg_quality);
     write_str(h, "web_password", s_config.web_password);
     write_str(h, "device_name", s_config.device_name);
+    write_str(h, "timezone", s_config.timezone);
 
     err = nvs_commit(h);
     nvs_close(h);

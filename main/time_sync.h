@@ -35,5 +35,7 @@ bool time_is_synced(void);
 /** @brief 获取当前时间字符串，格式为 "YYYY-MM-DD HH:MM:SS" */
 void time_get_str(char *buf, size_t len);
 
+/** @brief 应用配置中的时区设置（通过 setenv TZ + tzset） */
+void time_sync_apply_timezone(const char *tz);
 /** @brief 手动设置系统时间（在无 NTP 服务时使用） */
 esp_err_t time_set_manual(int year, int month, int day, int hour, int min, int sec);

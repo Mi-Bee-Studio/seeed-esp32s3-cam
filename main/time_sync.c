@@ -16,6 +16,7 @@
  */
 
 #include "time_sync.h"
+#include "config_manager.h"
 #include "esp_sntp.h"
 #include "esp_log.h"
 #include <string.h>
@@ -36,6 +37,14 @@ esp_err_t time_sync_init(void)
     if (s_synced) {
         ESP_LOGI(TAG, "Time already synced");
         return ESP_OK;
+    }
+
+    /* Apply configured timezone before SNTP sync */
+    cam_config_t *cfg = config_get();
+    if (cfg && cfg->timezone[0]) {
+        setenv("TZ", cfg->timezone, 1);
+        tzset();
+        ESP_LOGI(TAG, "Timezone applied: %s", cfg->timezone);
     }
 
     esp_sntp_stop();  /* idempotent */
@@ -143,4 +152,20 @@ esp_err_t time_set_manual(int year, int month, int day, int hour, int min, int s
     ESP_LOGI(TAG, "Time set manually: %s", buf);
 
     return ESP_OK;
+}
+
+/**
+ * @brief 应用时区设置
+ * 通过 setenv("TZ", tz) + tzset() 设置系统时区
+ * 使用 POSIX 时区格式，如 "CST-8" (中国 UTC+8)、"UTC0"、"EST5EDT" 等
+ * @param tz 时区字符串（POSIX格式）
+ */
+void time_sync_apply_timezone(const char *tz)
+{
+    if (!tz || tz[0] == '\0') {
+        tz = "CST-8";  /* 默认中国标准时间 */
+    }
+    setenv("TZ", tz, 1);
+    tzset();
+    ESP_LOGI(TAG, "Timezone set to: %s", tz);
 }

@@ -67,3 +67,4 @@ build_log.txt
 # Test screenshots (root only)
 /*-test.png
 /*-check.png
+tmp/
