@@ -38,10 +38,11 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .file-item.selected{background:rgba(124,58,237,.06)}
 .file-check{margin-right:8px;cursor:pointer;flex-shrink:0}
 #batch-bar{display:none;padding:8px 12px;background:#f3f0f6;border-bottom:1px solid #e5e1eb;align-items:center;gap:8px;flex-wrap:wrap}
-.grp-btn{background:none;border:1px solid #7C3AED;color:#7C3AED;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:0.8em;font-family:inherit}
-.grp-btn:hover{background:rgba(124,58,237,.08)}
-.grp-btn.del{border-color:#e74c3c;color:#e74c3c}
-.grp-btn.del:hover{background:rgba(231,76,60,.08)}
+.grp-btn{width:24px;height:24px;border-radius:50%;border:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:12px;transition:all .15s ease;padding:0}
+.grp-btn.dl{background:rgba(124,58,237,.1);color:#7C3AED}
+.grp-btn.dl:hover{background:#7C3AED;color:#fff}
+.grp-btn.del{background:rgba(231,76,60,.1);color:#e74c3c}
+.grp-btn.del:hover{background:#e74c3c;color:#fff}
 .empty{text-align:center;padding:30px;color:#999;font-size:14px}
 .summary{font-size:13px;color:#666;margin-bottom:4px}
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #ddd;display:flex;z-index:10}
@@ -70,7 +71,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 
 <div class="card">
 <div class="card-title" id="fileSummary">加载中...</div>
-<div id="batch-bar"><span id="sel-count">0 selected</span><button class="btn-sm" onclick="batchDownloadSelected()" style="background:#7C3AED;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-family:inherit">⬇ Download</button><button class="btn-sm" onclick="batchDeleteSelected()" style="background:#e74c3c;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-family:inherit">🗑 Delete</button></div>
+<div id="batch-bar"><span id="sel-count">0 已选择</span><button class="btn-sm" onclick="batchDownloadSelected()" style="background:#7C3AED;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-family:inherit">⬇ 下载</button><button class="btn-sm" onclick="batchDeleteSelected()" style="background:#e74c3c;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-family:inherit">🗑 删除</button></div>
 <div id="fileList"></div>
 </div>
 
@@ -156,8 +157,8 @@ function refreshFiles(){
    html+='<input type="checkbox" class="file-check" onclick="event.stopPropagation();toggleGroupSelect(this)">';
    html+='&#128193; '+dk+' ('+gf.length+')';
    html+='<span style="margin-left:auto;display:flex;gap:4px">';
-   html+='<button class="grp-btn" onclick="event.stopPropagation();downloadGroup(this)">⬇ All</button>';
-   html+='<button class="grp-btn del" onclick="event.stopPropagation();deleteGroup(this)">🗑 All</button>';
+   html+='<button class="grp-btn dl" title="下载全部" onclick="event.stopPropagation();downloadGroup(this)">⬇</button>';
+   html+='<button class="grp-btn del" title="删除全部" onclick="event.stopPropagation();deleteGroup(this)">🗑</button>';
    html+='</span></div>';
    for(var j=0;j<gf.length;j++){
     var fi=gf[j];
@@ -205,7 +206,7 @@ function updateSelection(){
  var bar=$('batch-bar');
  var count=$('sel-count');
  var checks=document.querySelectorAll('.file-item .file-check:checked');
- if(checks.length>0){bar.style.display='flex';count.textContent=checks.length+' selected'}
+  if(checks.length>0){bar.style.display='flex';count.textContent=checks.length+' 已选择'}
  else{bar.style.display='none'}
  document.querySelectorAll('.file-item').forEach(function(item){
   var cb=item.querySelector('.file-check');
@@ -243,11 +244,13 @@ function downloadGroup(btn){
 }
 
 function deleteGroup(btn){
- var header=btn.closest('.date-header');
- var names=getGroupNames(header);
- if(!names.length)return;
- if(!confirm('Delete '+names.length+' files in this folder?'))return;
- batchDelete(names);
+ requireAuth(function(){
+  var header=btn.closest('.date-header');
+  var names=getGroupNames(header);
+  if(!names.length)return;
+  if(!confirm('确定删除此文件夹中的 '+names.length+' 个文件？'))return;
+  batchDelete(names);
+ });
 }
 
 function batchDownloadSelected(){
@@ -259,14 +262,14 @@ function batchDownloadSelected(){
 function batchDeleteSelected(){
  var names=getSelectedNames();
  if(!names.length)return;
- if(!confirm('Delete '+names.length+' selected files?'))return;
+ if(!confirm('确定删除选中的 '+names.length+' 个文件？'))return;
  batchDelete(names);
 }
 
 function batchDownload(names){
  var i=0;
  function next(){
-  if(i>=names.length){showToast('Download complete');return}
+  if(i>=names.length){showToast('下载完成');return}
   var a=document.createElement('a');
   a.href='/api/download?name='+encodeURIComponent(names[i]).replace(/%2F/g,'/');
   a.download=names[i].split('/').pop();
@@ -286,9 +289,9 @@ function batchDelete(names){
    headers:{'Content-Type':'application/json'},
    body:JSON.stringify({names:names})
   }).then(function(r){return r.json()}).then(function(d){
-   if(d.ok){showToast('Deleted '+d.data.deleted+' files');setTimeout(refreshFiles,500)}
-   else showToast(d.error||'Delete failed',true);
-  }).catch(function(){showToast('Network error',true)});
+   if(d.ok){showToast('已删除 '+d.data.deleted+' 个文件');setTimeout(refreshFiles,500)}
+   else showToast('删除失败: '+(d.error||'未知错误'),true);
+  }).catch(function(){showToast('网络错误',true)});
  });
 }
 
