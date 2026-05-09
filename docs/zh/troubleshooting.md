@@ -246,7 +246,7 @@ sdspi_device_config_t dev_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
 
 1. 确认 NAS 服务器地址、端口、路径配置正确
 2. 确认用户名和密码正确
-3. 确认 FTP/WebDAV 服务已启动
+3. 确认 WebDAV/HTTP(S) 服务已启动
 4. 确认设备与 NAS 在同一网络
 5. 查看串口日志中 `uploader` 标签的错误信息
 6. 检查连续失败计数是否达到上限（10 次后暂停 5 分钟）

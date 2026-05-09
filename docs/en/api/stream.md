@@ -75,3 +75,20 @@ img.onerror = () => {
   setTimeout(startStream, 3000);
 };
 ```
+
+---
+
+## RTSP Real-time Stream
+
+In addition to the HTTP MJPEG stream, the device also provides an RTSP real-time stream service (MJPEG over RTP).
+
+**Protocol**: RTSP (TCP-interleaved mode, port 554)
+
+**Connection URL**: `rtsp://<deviceIP>:554/stream`
+
+**Max Concurrent Clients**: 2
+
+**VLC Playback**: Open VLC → Media → Open Network Stream → Enter `rtsp://<deviceIP>:554/stream`
+
+> ⚠️ RTSP stream shares the camera frame buffer pool (double buffer, 2 frames) with the HTTP MJPEG stream. Both can run simultaneously but frame contention may occur.
+> ⚠️ RTSP v1 does not support authentication.

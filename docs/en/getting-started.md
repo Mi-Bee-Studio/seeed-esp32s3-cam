@@ -56,8 +56,9 @@ esp32s3-camera/
 │   ├── storage_manager.c # SD card + circular cleanup
 │   ├── status_led.c      # LED state machine
 │   ├── time_sync.c       # SNTP time synchronization
-│   ├── ftp_client.c      # FTP client
 │   ├── webdav_client.c   # WebDAV client
+│   ├── rtsp_server.c    # RTSP server
+│   ├── http_upload_client.c # HTTP/HTTPS upload client
 │   ├── cJSON.c/h         # JSON parsing library
 │   └── web_ui/           # Web management interface (4 HTML pages)
 ├── docs/                 # Project documentation
@@ -190,13 +191,11 @@ WIFI_PASS=YourWiFiPassword
 
 **`/sdcard/config/nas.txt`**:
 ```
-FTP_HOST=192.168.1.100
-FTP_PORT=21
-FTP_USER=username
-FTP_PASS=password
-FTP_PATH=/recordings
-FTP_ENABLED=true
-```
+UPLOAD_METHOD=webdav
+WEBDAV_URL=https://dav.example.com/path
+WEBDAV_USER=user
+WEBDAV_PASS=pass
+WEBDAV_ENABLED=true
 
 Insert TF card into device and restart, system will automatically read and override NVS configuration.
 

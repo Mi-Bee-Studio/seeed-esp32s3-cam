@@ -91,7 +91,18 @@ void camera_return_fb(camera_frame_t *frame);
  * @return ESP_OK 成功，ESP_FAIL 失败
  */
 /** Change resolution on the fly. */
+/** @brief 动态切换摄像头分辨率
+ * @param res 目标分辨率
+ * @return ESP_OK 成功，ESP_FAIL 失败
+ */
 esp_err_t camera_set_resolution(camera_res_t res);
+
+/** @brief 设置摄像头垂直翻转和水平镜像
+ * @param vflip 垂直翻转（true=翻转）
+ * @param hmirror 水平镜像（true=镜像）
+ * @return ESP_OK 成功
+ */
+esp_err_t camera_set_flip(bool vflip, bool hmirror);
 
 /** @brief 获取当前分辨率设置
  * @return 当前分辨率枚举值

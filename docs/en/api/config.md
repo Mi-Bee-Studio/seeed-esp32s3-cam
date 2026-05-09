@@ -17,22 +17,26 @@ Get all current configuration items of the device. Password fields are masked.
 {
   "ok": true,
   "data": {
-    "wifi_ssid": "MyWiFi",
+    "wifi_ssid": "MyHomeWiFi",
     "wifi_pass": "****",
     "device_name": "MiBeeHomeCam",
-    "ftp_host": "192.168.1.200",
-    "ftp_port": 21,
-    "ftp_user": "ftpuser",
-    "ftp_path": "/MiBeeHomeCam",
-    "ftp_enabled": true,
-    "webdav_url": "",
-    "webdav_user": "",
-    "webdav_enabled": false,
+    "upload_method": 1,
+    "upload_base_path": "/MiBeeHomeCam",
+    "webdav_url": "http://192.0.2.31:9090/dav",
+    "webdav_user": "admin",
+    "webdav_enabled": true,
+    "http_upload_url": "",
+    "http_upload_user": "",
+    "http_upload_pass": "",
+    "http_upload_skip_cert_verify": false,
     "resolution": 1,
     "fps": 10,
     "segment_sec": 300,
     "jpeg_quality": 12,
-    "web_password": "****"
+    "vflip": false,
+    "hmirror": false,
+    "web_password": "****",
+    "timezone": "CST-8"
   }
 }
 ```
@@ -44,22 +48,25 @@ Get all current configuration items of the device. Password fields are masked.
 | `wifi_ssid` | string | WiFi network name, empty string indicates AP mode |
 | `wifi_pass` | string | WiFi password, shows `"****"` if set, `""` if not set |
 | `device_name` | string | Device name (default `"MiBeeHomeCam"`) |
-| `ftp_host` | string | FTP server address |
-| `ftp_port` | number | FTP port (default `21`) |
-| `ftp_user` | string | FTP username |
-| `ftp_path` | string | FTP upload path (default `"/MiBeeHomeCam"`) |
-| `ftp_enabled` | bool | Enable FTP upload |
+| `upload_method` | uint8 | Upload method: `0`=Disabled, `1`=WebDAV, `2`=HTTP(S) |
+| `upload_base_path` | string | Upload base path (default `"/MiBeeHomeCam"`) |
 | `webdav_url` | string | WebDAV server address |
 | `webdav_user` | string | WebDAV username |
-| `webdav_enabled` | bool | Enable WebDAV upload |
+| `webdav_enabled` | bool | Enable WebDAV upload (only effective when `upload_method=1`) |
+| `http_upload_url` | string | HTTP(S) upload full URL |
+| `http_upload_user` | string | HTTP(S) username |
+| `http_upload_pass` | string | HTTP(S) password, shows `"****"` if set, `""` if not set |
+| `http_upload_skip_cert_verify` | bool | Skip HTTPS certificate verification |
 | `resolution` | number | Resolution code: `0`=VGA(640×480), `1`=SVGA(800×600), `2`=XGA(1024×768) |
 | `fps` | number | Recording frame rate (default `10`) |
 | `segment_sec` | number | Video segment duration in seconds (default `300`, i.e., 5 minutes) |
 | `jpeg_quality` | number | JPEG image quality (default `12`, lower value means better quality) |
+| `vflip` | bool | Vertical flip |
+| `hmirror` | bool | Horizontal mirror |
 | `web_password` | string | Web management password, shows `"****"` if set, `""` if not set |
 
-> **Important**: `ftp_pass` and `webdav_pass` are **NOT** returned by this endpoint. This is a security design consideration.
-> Only `wifi_pass` and `web_password` are returned in masked form (`"****"`).
+> **Important**: `webdav_pass` is **NOT** returned by this endpoint (completely excluded from response). This is a security design consideration.
+> Only `wifi_pass`, `http_upload_pass` and `web_password` are returned in masked form (`"****"`).
 
 **cURL Example**:
 ```bash
@@ -89,20 +96,22 @@ Update device configuration. Request body is JSON format, only need to include f
   "wifi_ssid": "NewWiFi",
   "wifi_pass": "newpassword",
   "device_name": "MyCamera",
-  "ftp_host": "192.168.1.200",
-  "ftp_port": 21,
-  "ftp_user": "user",
-  "ftp_pass": "ftppassword",
-  "ftp_path": "/recordings",
-  "ftp_enabled": true,
+  "upload_method": 1,
+  "upload_base_path": "/MiBeeHomeCam",
   "webdav_url": "https://dav.example.com",
   "webdav_user": "davuser",
   "webdav_pass": "davpassword",
-  "webdav_enabled": false,
+  "webdav_enabled": true,
+  "http_upload_url": "https://upload.example.com/api/cam",
+  "http_upload_user": "httpuser",
+  "http_upload_pass": "httppassword",
+  "http_upload_skip_cert_verify": false,
   "resolution": 2,
   "fps": 15,
   "segment_sec": 600,
   "jpeg_quality": 8,
+  "vflip": true,
+  "hmirror": false,
   "web_password": "newpass"
 }
 ```
@@ -114,25 +123,27 @@ Update device configuration. Request body is JSON format, only need to include f
 | `wifi_ssid` | string | WiFi network name |
 | `wifi_pass` | string | WiFi password |
 | `device_name` | string | Device name |
-| `ftp_host` | string | FTP server address |
-| `ftp_port` | number | FTP port number |
-| `ftp_user` | string | FTP username |
-| `ftp_pass` | string | FTP password |
-| `ftp_path` | string | FTP upload path |
-| `ftp_enabled` | bool | Enable/disable FTP upload |
+| `upload_method` | uint8 | Upload method: `0`=Disabled, `1`=WebDAV, `2`=HTTP(S) |
+| `upload_base_path` | string | Upload base path |
 | `webdav_url` | string | WebDAV server address |
 | `webdav_user` | string | WebDAV username |
 | `webdav_pass` | string | WebDAV password |
 | `webdav_enabled` | bool | Enable/disable WebDAV upload |
+| `http_upload_url` | string | HTTP(S) upload full URL |
+| `http_upload_user` | string | HTTP(S) username |
+| `http_upload_pass` | string | HTTP(S) password |
+| `http_upload_skip_cert_verify` | bool | Skip HTTPS certificate verification |
 | `resolution` | number | Resolution: `0`=VGA, `1`=SVGA, `2`=XGA |
 | `fps` | number | Recording frame rate |
 | `segment_sec` | number | Segment duration (seconds) |
 | `jpeg_quality` | number | JPEG quality |
+| `vflip` | bool | Vertical flip |
+| `hmirror` | bool | Horizontal mirror |
 | `web_password` | string | Web management password |
 
 **Password Field Special Behavior**:
 
-The four password fields (`wifi_pass`, `ftp_pass`, `webdav_pass`, `web_password`) have special handling logic:
+The four password fields (`wifi_pass`, `webdav_pass`, `http_upload_pass`, `web_password`) have special handling logic:
 - If value is `"****"` (four asterisks), the field is **ignored** and current password is kept unchanged
 - If value is any other string, it is updated to the new password value
 - This design allows clients to echo back data retrieved from `GET /api/config` without leaking passwords
@@ -177,8 +188,8 @@ curl -X POST http://192.168.4.1/api/config \
 
 **JavaScript Example**:
 ```javascript
-// Update FTP configuration
-async function updateFtp() {
+// Switch upload method to HTTP(S)
+async function switchToHttp() {
   const resp = await fetch('/api/config', {
     method: 'POST',
     headers: {
@@ -186,16 +197,14 @@ async function updateFtp() {
       'X-Password': 'admin'
     },
     body: JSON.stringify({
-      ftp_host: '192.168.1.200',
-      ftp_user: 'user',
-      ftp_pass: 'secret',
-      ftp_path: '/cam',
-      ftp_enabled: true
+      upload_method: 2,
+      http_upload_url: 'https://upload.example.com/api/cam',
+      http_upload_user: 'httpuser',
+      http_upload_pass: 'secret'
     })
   });
   return await resp.json();
 }
-```
 
 ---
 
@@ -209,7 +218,7 @@ The device management involves four password fields, with different behavior in 
 |-------|-----------------|
 | `wifi_pass` | Returns `"****"` if set, `""` if not set |
 | `web_password` | Returns `"****"` if set, `""` if not set |
-| `ftp_pass` | **Not returned** (completely excluded from response) |
+| `http_upload_pass` | Returns `"****"` if set, `""` if not set |
 | `webdav_pass` | **Not returned** (completely excluded from response) |
 
 ### POST /api/config Password Handling Logic
@@ -220,7 +229,7 @@ Receive password field value → Is value "****"?
               Keep original      Update to new password
 ```
 
-All four password fields (`wifi_pass`, `ftp_pass`, `webdav_pass`, `web_password`) follow this logic.
+All four password fields (`wifi_pass`, `webdav_pass`, `http_upload_pass`, `web_password`) follow this logic.
 
 ### Typical Usage Scenarios
 
@@ -276,18 +285,20 @@ await fetch('/api/config', {
 | `wifi_ssid` | string | `""` | Empty means AP mode |
 | `wifi_pass` | string | `""` | WiFi password |
 | `device_name` | string | `"MiBeeHomeCam"` | Device name |
-| `ftp_host` | string | `""` | FTP server |
-| `ftp_port` | number | `21` | FTP port |
-| `ftp_user` | string | `""` | FTP username |
-| `ftp_pass` | string | `""` | FTP password |
-| `ftp_path` | string | `"/MiBeeHomeCam"` | FTP path |
-| `ftp_enabled` | bool | `false` | FTP upload switch |
+| `upload_method` | uint8 | `0` | Upload method: 0=Disabled, 1=WebDAV, 2=HTTP(S) |
+| `upload_base_path` | string | `"/MiBeeHomeCam"` | Upload base path |
 | `webdav_url` | string | `""` | WebDAV address |
 | `webdav_user` | string | `""` | WebDAV username |
 | `webdav_pass` | string | `""` | WebDAV password |
 | `webdav_enabled` | bool | `false` | WebDAV upload switch |
+| `http_upload_url` | string | `""` | HTTP(S) upload URL |
+| `http_upload_user` | string | `""` | HTTP(S) username |
+| `http_upload_pass` | string | `""` | HTTP(S) password |
+| `http_upload_skip_cert_verify` | bool | `false` | Skip HTTPS certificate verification |
 | `resolution` | number | `1` | SVGA (800×600) |
 | `fps` | number | `10` | 10 fps |
 | `segment_sec` | number | `300` | 5 minutes/segment |
 | `jpeg_quality` | number | `12` | JPEG quality |
+| `vflip` | bool | `false` | Vertical flip |
+| `hmirror` | bool | `false` | Horizontal mirror |
 | `web_password` | string | `"admin"` | Web management password |

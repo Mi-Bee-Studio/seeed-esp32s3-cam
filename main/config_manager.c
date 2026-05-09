@@ -30,21 +30,22 @@ static cam_config_t s_config;
 static const cam_config_t s_defaults = {
     .wifi_ssid      = "",
     .wifi_pass      = "",
-    .ftp_host       = "",
-    .ftp_port       = 21,
-    .ftp_user       = "",
-    .ftp_pass       = "",
-    .ftp_path       = "/MiBeeHomeCam",
-    .ftp_enabled    = false,
+    .upload_method = 0,         // 0=禁用, 1=WebDAV, 2=HTTP/HTTPS
+    .upload_base_path = "/MiBeeHomeCam",  // 上传基础路径
     .webdav_url     = "",
     .webdav_user    = "",
     .webdav_pass    = "",
     .webdav_enabled = false,
+    .http_upload_url = "",
+    .http_upload_user = "",
+    .http_upload_pass = "",
+    .http_upload_skip_cert = false,
     .resolution     = 1,     // SVGA
     .fps            = 10,
     .segment_sec    = 300,
     .jpeg_quality   = 12,
-    .web_password   = "admin",
+    .vflip          = false,
+    .hmirror         = false,
     .device_name    = "MiBeeHomeCam",
     .timezone       = "CST-8",       // 中国标准时间 UTC+8
 
@@ -158,16 +159,16 @@ static void parse_nas_txt(void)
     char line[256];
     while (fgets(line, sizeof(line), f)) {
         if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
-        parse_line(line, "FTP_HOST", s_config.ftp_host, sizeof(s_config.ftp_host));
-        parse_uint16(line, "FTP_PORT", &s_config.ftp_port);
-        parse_line(line, "FTP_USER", s_config.ftp_user, sizeof(s_config.ftp_user));
-        parse_line(line, "FTP_PASS", s_config.ftp_pass, sizeof(s_config.ftp_pass));
-        parse_line(line, "FTP_PATH", s_config.ftp_path, sizeof(s_config.ftp_path));
-        parse_bool(line, "FTP_ENABLED", &s_config.ftp_enabled);
+        // FTP fields removed - use upload_method and upload_base_path instead
+        parse_uint8(line, "UPLOAD_METHOD", &s_config.upload_method);
+        parse_line(line, "UPLOAD_BASE_PATH", s_config.upload_base_path, sizeof(s_config.upload_base_path));
         parse_line(line, "WEBDAV_URL", s_config.webdav_url, sizeof(s_config.webdav_url));
         parse_line(line, "WEBDAV_USER", s_config.webdav_user, sizeof(s_config.webdav_user));
         parse_line(line, "WEBDAV_PASS", s_config.webdav_pass, sizeof(s_config.webdav_pass));
-        parse_bool(line, "WEBDAV_ENABLED", &s_config.webdav_enabled);
+        parse_line(line, "HTTP_UPLOAD_URL", s_config.http_upload_url, sizeof(s_config.http_upload_url));
+        parse_line(line, "HTTP_UPLOAD_USER", s_config.http_upload_user, sizeof(s_config.http_upload_user));
+        parse_line(line, "HTTP_UPLOAD_PASS", s_config.http_upload_pass, sizeof(s_config.http_upload_pass));
+        parse_bool(line, "HTTP_UPLOAD_SKIP_CERT", &s_config.http_upload_skip_cert);
     }
     fclose(f);
 }
@@ -191,8 +192,6 @@ esp_err_t config_init(void)
 
     // Apply defaults first
     s_config = s_defaults;
-    s_config = s_defaults;
-    s_config = s_defaults;
 
     // Open NVS and read stored values
     nvs_handle_t h;
@@ -204,29 +203,58 @@ esp_err_t config_init(void)
 
     read_str(h, "wifi_ssid", s_config.wifi_ssid, sizeof(s_config.wifi_ssid));
     read_str(h, "wifi_pass", s_config.wifi_pass, sizeof(s_config.wifi_pass));
-    read_str(h, "ftp_host", s_config.ftp_host, sizeof(s_config.ftp_host));
-    nvs_get_u16(h, "ftp_port", &s_config.ftp_port);
-    read_str(h, "ftp_user", s_config.ftp_user, sizeof(s_config.ftp_user));
-    read_str(h, "ftp_pass", s_config.ftp_pass, sizeof(s_config.ftp_pass));
-    read_str(h, "ftp_path", s_config.ftp_path, sizeof(s_config.ftp_path));
-    nvs_get_u8(h, "ftp_enabled", (uint8_t *)&s_config.ftp_enabled);
+    read_str(h, "upload_base_path", s_config.upload_base_path, sizeof(s_config.upload_base_path));
+    nvs_get_u8(h, "upload_method", &s_config.upload_method);
     read_str(h, "webdav_url", s_config.webdav_url, sizeof(s_config.webdav_url));
     read_str(h, "webdav_user", s_config.webdav_user, sizeof(s_config.webdav_user));
     read_str(h, "webdav_pass", s_config.webdav_pass, sizeof(s_config.webdav_pass));
     nvs_get_u8(h, "webdav_enabled", (uint8_t *)&s_config.webdav_enabled);
+    read_str(h, "http_upload_url", s_config.http_upload_url, sizeof(s_config.http_upload_url));
+    read_str(h, "http_upload_user", s_config.http_upload_user, sizeof(s_config.http_upload_user));
+    read_str(h, "http_upload_pass", s_config.http_upload_pass, sizeof(s_config.http_upload_pass));
+    nvs_get_u8(h, "http_upload_skip_cert", (uint8_t *)&s_config.http_upload_skip_cert);
     nvs_get_u8(h, "resolution", &s_config.resolution);
     nvs_get_u8(h, "fps", &s_config.fps);
     nvs_get_u16(h, "segment_sec", &s_config.segment_sec);
     nvs_get_u8(h, "jpeg_quality", &s_config.jpeg_quality);
+    nvs_get_u8(h, "vflip", (uint8_t *)&s_config.vflip);
+    nvs_get_u8(h, "hmirror", (uint8_t *)&s_config.hmirror);
     read_str(h, "web_password", s_config.web_password, sizeof(s_config.web_password));
     read_str(h, "device_name", s_config.device_name, sizeof(s_config.device_name));
     read_str(h, "timezone", s_config.timezone, sizeof(s_config.timezone));
 
+    /* ---- Legacy FTP config migration check ---- */
+    uint8_t old_ftp_enabled = 0;
+    bool needs_migration = (nvs_get_u8(h, "ftp_enabled", &old_ftp_enabled) == ESP_OK);
+
     nvs_close(h);
+
+    if (needs_migration) {
+        ESP_LOGI(TAG, "Migrating legacy FTP config to upload_method");
+        // Set upload_method based on old config
+        if (old_ftp_enabled || s_config.webdav_enabled) {
+            s_config.upload_method = 1;  // WebDAV
+        }
+        // Erase legacy FTP keys (need readwrite handle)
+        nvs_handle_t h_m;
+        if (nvs_open("cam_config", NVS_READWRITE, &h_m) == ESP_OK) {
+            nvs_set_u8(h_m, "upload_method", s_config.upload_method);
+            nvs_erase_key(h_m, "ftp_enabled");
+            nvs_erase_key(h_m, "ftp_host");
+            nvs_erase_key(h_m, "ftp_port");
+            nvs_erase_key(h_m, "ftp_user");
+            nvs_erase_key(h_m, "ftp_pass");
+            nvs_erase_key(h_m, "ftp_path");
+            nvs_commit(h_m);
+            nvs_close(h_m);
+        }
+        ESP_LOGI(TAG, "Migration complete: upload_method=%d", s_config.upload_method);
+        return ESP_OK;
+    }
+
     ESP_LOGI(TAG, "Config loaded from NVS");
     return ESP_OK;
 }
-
 /** @brief 获取当前配置指针（指向全局静态配置结构体） */
 cam_config_t* config_get(void)
 {
@@ -242,20 +270,23 @@ esp_err_t config_save(void)
 
     write_str(h, "wifi_ssid", s_config.wifi_ssid);
     write_str(h, "wifi_pass", s_config.wifi_pass);
-    write_str(h, "ftp_host", s_config.ftp_host);
-    nvs_set_u16(h, "ftp_port", s_config.ftp_port);
-    write_str(h, "ftp_user", s_config.ftp_user);
-    write_str(h, "ftp_pass", s_config.ftp_pass);
-    write_str(h, "ftp_path", s_config.ftp_path);
-    nvs_set_u8(h, "ftp_enabled", s_config.ftp_enabled ? 1 : 0);
+    // FTP fields removed - config structure updated
+    write_str(h, "upload_base_path", s_config.upload_base_path);
+    nvs_set_u8(h, "upload_method", s_config.upload_method);
     write_str(h, "webdav_url", s_config.webdav_url);
     write_str(h, "webdav_user", s_config.webdav_user);
     write_str(h, "webdav_pass", s_config.webdav_pass);
     nvs_set_u8(h, "webdav_enabled", s_config.webdav_enabled ? 1 : 0);
+    write_str(h, "http_upload_url", s_config.http_upload_url);
+    write_str(h, "http_upload_user", s_config.http_upload_user);
+    write_str(h, "http_upload_pass", s_config.http_upload_pass);
+    nvs_set_u8(h, "http_upload_skip_cert", s_config.http_upload_skip_cert ? 1 : 0);
     nvs_set_u8(h, "resolution", s_config.resolution);
     nvs_set_u8(h, "fps", s_config.fps);
     nvs_set_u16(h, "segment_sec", s_config.segment_sec);
     nvs_set_u8(h, "jpeg_quality", s_config.jpeg_quality);
+    nvs_set_u8(h, "vflip", s_config.vflip ? 1 : 0);
+    nvs_set_u8(h, "hmirror", s_config.hmirror ? 1 : 0);
     write_str(h, "web_password", s_config.web_password);
     write_str(h, "device_name", s_config.device_name);
     write_str(h, "timezone", s_config.timezone);

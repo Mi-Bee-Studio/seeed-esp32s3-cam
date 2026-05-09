@@ -27,26 +27,19 @@ typedef struct {
     // WiFi 路由器 SSID 名称
     char wifi_pass[64];
     // WiFi 路由器密码
-    char ftp_host[64];
-    // FTP 服务器地址
-    uint16_t ftp_port;
-    // FTP 服务器端口
-    char ftp_user[32];
-    // FTP 登录用户名
-    char ftp_pass[32];
-    // FTP 登录密码
-    char ftp_path[128];
-    // FTP 上传目录路径
-    bool ftp_enabled;
-    // 是否启用 FTP 上传
-    char webdav_url[128];
-    // WebDAV 服务器 URL
+    uint8_t upload_method;      // 0=禁用, 1=WebDAV, 2=HTTP/HTTPS
+    char upload_base_path[128];  // 上传基础路径
+    char webdav_url[128];       // WebDAV 服务器 URL
     char webdav_user[32];
     // WebDAV 登录用户名
     char webdav_pass[32];
     // WebDAV 登录密码
     bool webdav_enabled;
     // 是否启用 WebDAV 上传
+    char http_upload_url[256];     // HTTP/HTTPS 上传 URL
+    char http_upload_user[64];     // HTTP/HTTPS 上传用户名
+    char http_upload_pass[64];     // HTTP/HTTPS 上传密码
+    bool http_upload_skip_cert;    // 跳过 HTTPS 证书验证
     uint8_t resolution;    // 0=VGA, 1=SVGA, 2=XGA
     // 摄像头分辨率：0=VGA, 1=SVGA, 2=XGA
     uint8_t fps;            // 1-30
@@ -55,6 +48,8 @@ typedef struct {
     // 录像分段时长（秒）
     uint8_t jpeg_quality;   // 1-63
     // JPEG 压缩质量，范围 1-63
+    bool vflip;             // 垂直翻转（上下翻转）
+    bool hmirror;            // 水平镜像（左右翻转）
     char web_password[32];
     // Web 管理界面登录密码
     char device_name[32];

@@ -30,6 +30,7 @@
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "nas_uploader.h"
+#include "rtsp_server.h"
 #include "mjpeg_streamer.h"
 
 #include <string.h>
@@ -219,20 +220,24 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddStringToObject(data, "wifi_pass", cfg->wifi_pass[0] ? "****" : "");
     cJSON_AddStringToObject(data, "device_name", cfg->device_name);
 
-    cJSON_AddStringToObject(data, "ftp_host", cfg->ftp_host);
-    cJSON_AddNumberToObject(data, "ftp_port", cfg->ftp_port);
-    cJSON_AddStringToObject(data, "ftp_user", cfg->ftp_user);
-    cJSON_AddStringToObject(data, "ftp_path", cfg->ftp_path);
-    cJSON_AddBoolToObject(data, "ftp_enabled", cfg->ftp_enabled);
+    cJSON_AddNumberToObject(data, "upload_method", cfg->upload_method);
+    cJSON_AddStringToObject(data, "upload_base_path", cfg->upload_base_path);
 
     cJSON_AddStringToObject(data, "webdav_url", cfg->webdav_url);
     cJSON_AddStringToObject(data, "webdav_user", cfg->webdav_user);
     cJSON_AddBoolToObject(data, "webdav_enabled", cfg->webdav_enabled);
 
+    cJSON_AddStringToObject(data, "http_upload_url", cfg->http_upload_url);
+    cJSON_AddStringToObject(data, "http_upload_user", cfg->http_upload_user);
+    cJSON_AddStringToObject(data, "http_upload_pass", cfg->http_upload_pass[0] ? "****" : "");
+    cJSON_AddBoolToObject(data, "http_upload_skip_cert", cfg->http_upload_skip_cert);
+
     cJSON_AddNumberToObject(data, "resolution", cfg->resolution);
     cJSON_AddNumberToObject(data, "fps", cfg->fps);
     cJSON_AddNumberToObject(data, "segment_sec", cfg->segment_sec);
     cJSON_AddNumberToObject(data, "jpeg_quality", cfg->jpeg_quality);
+    cJSON_AddBoolToObject(data, "vflip", cfg->vflip);
+    cJSON_AddBoolToObject(data, "hmirror", cfg->hmirror);
 
     /* Mask web password */
     cJSON_AddStringToObject(data, "web_password", cfg->web_password[0] ? "****" : "");
@@ -267,18 +272,11 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     if ((item = cJSON_GetObjectItem(json, "device_name")))
         strncpy(cfg->device_name, item->valuestring, sizeof(cfg->device_name) - 1);
 
-    if ((item = cJSON_GetObjectItem(json, "ftp_host")))
-        strncpy(cfg->ftp_host, item->valuestring, sizeof(cfg->ftp_host) - 1);
-    if ((item = cJSON_GetObjectItem(json, "ftp_port")))
-        cfg->ftp_port = (uint16_t)item->valueint;
-    if ((item = cJSON_GetObjectItem(json, "ftp_user")))
-        strncpy(cfg->ftp_user, item->valuestring, sizeof(cfg->ftp_user) - 1);
-    if ((item = cJSON_GetObjectItem(json, "ftp_pass")) && strcmp(item->valuestring, "****") != 0)
-        strncpy(cfg->ftp_pass, item->valuestring, sizeof(cfg->ftp_pass) - 1);
-    if ((item = cJSON_GetObjectItem(json, "ftp_path")))
-        strncpy(cfg->ftp_path, item->valuestring, sizeof(cfg->ftp_path) - 1);
-    if ((item = cJSON_GetObjectItem(json, "ftp_enabled")))
-        cfg->ftp_enabled = item->valueint;
+    // FTP fields removed - replaced with upload_method and upload_base_path
+    if ((item = cJSON_GetObjectItem(json, "upload_method")))
+        cfg->upload_method = (uint8_t)item->valueint;
+    if ((item = cJSON_GetObjectItem(json, "upload_base_path")))
+        strncpy(cfg->upload_base_path, item->valuestring, sizeof(cfg->upload_base_path) - 1);
 
     if ((item = cJSON_GetObjectItem(json, "webdav_url")))
         strncpy(cfg->webdav_url, item->valuestring, sizeof(cfg->webdav_url) - 1);
@@ -289,6 +287,15 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     if ((item = cJSON_GetObjectItem(json, "webdav_enabled")))
         cfg->webdav_enabled = item->valueint;
 
+    if ((item = cJSON_GetObjectItem(json, "http_upload_url")))
+        strncpy(cfg->http_upload_url, item->valuestring, sizeof(cfg->http_upload_url) - 1);
+    if ((item = cJSON_GetObjectItem(json, "http_upload_user")))
+        strncpy(cfg->http_upload_user, item->valuestring, sizeof(cfg->http_upload_user) - 1);
+    if ((item = cJSON_GetObjectItem(json, "http_upload_pass")) && strcmp(item->valuestring, "****") != 0)
+        strncpy(cfg->http_upload_pass, item->valuestring, sizeof(cfg->http_upload_pass) - 1);
+    if ((item = cJSON_GetObjectItem(json, "http_upload_skip_cert")))
+        cfg->http_upload_skip_cert = item->valueint;
+
     if ((item = cJSON_GetObjectItem(json, "resolution")))
         cfg->resolution = (uint8_t)item->valueint;
     if ((item = cJSON_GetObjectItem(json, "fps")))
@@ -297,6 +304,13 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         cfg->segment_sec = (uint16_t)item->valueint;
     if ((item = cJSON_GetObjectItem(json, "jpeg_quality")))
         cfg->jpeg_quality = (uint8_t)item->valueint;
+    if ((item = cJSON_GetObjectItem(json, "vflip")))
+        cfg->vflip = item->valueint;
+    if ((item = cJSON_GetObjectItem(json, "hmirror")))
+        cfg->hmirror = item->valueint;
+    
+    /* Apply camera flip/mirror immediately */
+    camera_set_flip(cfg->vflip, cfg->hmirror);
     if ((item = cJSON_GetObjectItem(json, "web_password")) && strcmp(item->valuestring, "****") != 0)
         strncpy(cfg->web_password, item->valuestring, sizeof(cfg->web_password) - 1);
     if ((item = cJSON_GetObjectItem(json, "timezone")) && strlen(item->valuestring) > 0) {
@@ -743,7 +757,7 @@ static esp_err_t metrics_handler(httpd_req_t *req)
     httpd_resp_set_type(req, "text/plain");
     set_cors_headers(req);
 
-    char buf[2048];
+    char buf[4096];
     int len = 0;
 
     /* 收集系统指标 */
@@ -758,6 +772,26 @@ static esp_err_t metrics_handler(httpd_req_t *req)
     bool upload_paused = false;
     char last_upload[32] = "";
     nas_uploader_get_status(last_upload, sizeof(last_upload), &upload_queue, &upload_paused);
+    
+    /* 新增指标：系统运行时间 */
+    int64_t uptime_us = esp_timer_get_time();
+    uint32_t min_free_heap = esp_get_minimum_free_heap_size();
+    
+    /* 新增指标：WiFi信号强度 */
+    int wifi_rssi = -1;  // 默认值（未连接或AP模式）
+    if (ws == WIFI_STATE_STA_CONNECTED) {
+        wifi_ap_record_t ap_info;
+        if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+            wifi_rssi = ap_info.rssi;
+        }
+    }
+    
+    /* 新增指标：上传统计 */
+    int upload_success = 0, upload_failure = 0;
+    nas_uploader_get_stats(&upload_success, &upload_failure);
+    
+    /* 新增指标：RTSP客户端数量 */
+    int rtsp_clients = rtsp_server_get_client_count();
 
     len = snprintf(buf, sizeof(buf),
         "# HELP esp_free_heap_bytes Free heap memory\n"
@@ -786,7 +820,25 @@ static esp_err_t metrics_handler(httpd_req_t *req)
         "wifi_state %d\n"
         "# HELP upload_queue_size Number of files queued for upload\n"
         "# TYPE upload_queue_size gauge\n"
-        "upload_queue_size %d\n",
+        "upload_queue_size %d\n"
+        "# HELP esp_uptime_seconds System uptime in seconds\n"
+        "# TYPE esp_uptime_seconds gauge\n"
+        "esp_uptime_seconds %lld\n"
+        "# HELP esp_min_free_heap_bytes Minimum free heap bytes (since boot)\n"
+        "# TYPE esp_min_free_heap_bytes gauge\n"
+        "esp_min_free_heap_bytes %lu\n"
+        "# HELP esp_wifi_rssi_dbm WiFi signal strength in dBm (-1 when disconnected/AP mode)\n"
+        "# TYPE esp_wifi_rssi_dbm gauge\n"
+        "esp_wifi_rssi_dbm %d\n"
+        "# HELP esp_upload_success_total Total successful uploads\n"
+        "# TYPE esp_upload_success_total counter\n"
+        "esp_upload_success_total %d\n"
+        "# HELP esp_upload_failure_total Total failed uploads\n"
+        "# TYPE esp_upload_failure_total counter\n"
+        "esp_upload_failure_total %d\n"
+        "# HELP esp_rtsp_clients Number of connected RTSP clients\n"
+        "# TYPE esp_rtsp_clients gauge\n"
+        "esp_rtsp_clients %d\n",
         (unsigned long)free_heap,
         (unsigned long)free_psram,
         temp,
@@ -795,7 +847,13 @@ static esp_err_t metrics_handler(httpd_req_t *req)
         (unsigned long long)sd.total_bytes,
         storage_get_free_percent(),
         ws == WIFI_STATE_STA_CONNECTED ? 1 : (ws == WIFI_STATE_AP ? 2 : 0),
-        upload_queue);
+        upload_queue,
+        uptime_us / 1000000,  // Convert microseconds to seconds
+        min_free_heap,
+        wifi_rssi,
+        upload_success,
+        upload_failure,
+        rtsp_clients);
 
     httpd_resp_send(req, buf, len);
     return ESP_OK;

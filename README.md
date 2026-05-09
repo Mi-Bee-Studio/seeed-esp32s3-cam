@@ -11,8 +11,10 @@ ESP32-S3 based monitoring camera firmware with MJPEG real-time streaming, AVI se
 
 - 📹 MJPEG real-time video streaming, view directly in browser
 - 🎬 AVI automatic segmented recording, circular storage without space concerns
-- ☁️ FTP / WebDAV automatic upload to NAS
+- ☁️ WebDAV / HTTP(S) auto-upload to NAS with dropdown selection
 - 📡 WiFi AP/STA dual mode, plug and play
+- 📡 RTSP streaming (MJPEG over RTP, VLC compatible)
+- 🔄 Camera flip/mirror controls via Web UI
 - 🌐 REST API + Web management interface
 - 💾 TF card hot-plug, automatic recording resume
 - 🔍 OV2640 / OV3660 auto-detection
@@ -77,28 +79,29 @@ Requires ESP-IDF v5.x or v6.0 development environment. 👉 [Detailed Installati
 | GET | `/api/files` | Recording file list |
 | GET | `/api/download?name=xxx` | Download recording file |
 | POST | `/api/files/batch` | Batch delete files (requires authentication) |
-| GET | `/metrics` | Prometheus metrics (text format) |
+| GET | `/metrics` | Prometheus metrics (15 items, text format) |
+| RTSP | `rtsp://<IP>:554/stream` | RTSP real-time video stream (VLC compatible) |
 Default management password: `admin`. 👉 [Complete API Documentation](docs/en/api/overview.md)
 
 ## Project Structure
 
 ```
 esp32s3-camera/
-├── main/                 # Firmware source code (14 C modules)
+├── main/                 # Firmware source code (16 C modules)
 │   ├── main.c            # Entry point, 19-step boot process
 │   ├── camera_driver.c   # Camera driver (OV2640/OV3660)
 │   ├── video_recorder.c  # AVI recording engine
 │   ├── mjpeg_streamer.c  # MJPEG real-time streaming
 │   ├── web_server.c      # HTTP server + REST API
-│   ├── nas_uploader.c    # NAS upload scheduler
+│   ├── nas_uploader.c    # NAS upload scheduler (WebDAV/HTTP(S) mutually exclusive)
 │   ├── wifi_manager.c    # WiFi AP/STA management
 │   ├── config_manager.c  # NVS configuration persistence
 │   ├── storage_manager.c # SD card + circular cleanup
 │   ├── status_led.c      # LED state machine (5 modes)
 │   ├── time_sync.c       # SNTP time synchronization
-│   ├── ftp_client.c      # FTP protocol client
 │   ├── webdav_client.c   # WebDAV protocol client
-│   └── web_ui/           # Web management interface (4 pages)
+│   ├── rtsp_server.c      # RTSP server (MJPEG over RTP)
+│   ├── http_upload_client.c # HTTP/HTTPS upload client
 ├── docs/                 # Project documentation
 │   ├── en/               # English documentation
 │   └── zh/               # Chinese documentation

@@ -212,7 +212,7 @@ setDeviceTime(new Date());
 | fps | `10` |
 | segment_sec | `300` |
 | jpeg_quality | `12` |
-| ftp_enabled | `false` |
+| upload_method | `0` (禁用) |
 | webdav_enabled | `false` |
 
 **错误响应**：

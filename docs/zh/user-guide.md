@@ -43,7 +43,7 @@
 
 ![配置页面](images/config-page.png)
 
-所有设备参数均可在此修改：WiFi 凭据、视频分辨率/帧率/画质、录像分段时长、FTP/WebDAV 上传设置和系统密码。
+所有设备参数均可在此修改：WiFi 凭据、视频分辨率/帧率/画质、录像分段时长、WebDAV/HTTP(S) 上传设置、摄像头翻转和系统密码。
 
 ### 文件管理页面
 
@@ -97,26 +97,27 @@ curl -X POST http://192.168.4.1/api/config \
 | `device_name` | string | `"MiBeeHomeCam"` | 设备名称 |
 | `web_password` | string | `"admin"` | Web 管理密码 |
 
-#### FTP 配置
+#### 上传方式配置
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `ftp_host` | string | `""` | FTP 服务器地址 |
-| `ftp_port` | uint16 | `21` | FTP 端口 |
-| `ftp_user` | string | `""` | FTP 用户名 |
-| `ftp_pass` | string | `""` | FTP 密码（GET 请求返回 `****`） |
-| `ftp_path` | string | `"/MiBeeHomeCam"` | FTP 上传路径 |
-| `ftp_enabled` | bool | `false` | 是否启用 FTP 上传 |
-
-#### WebDAV 配置
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
+| `upload_method` | uint8 | `0` | 上传方式：0=禁用, 1=WebDAV, 2=HTTP(S) |
+| `upload_base_path` | string | `"/MiBeeHomeCam"` | 上传基础路径 |
 | `webdav_url` | string | `""` | WebDAV 服务器 URL |
 | `webdav_user` | string | `""` | WebDAV 用户名 |
 | `webdav_pass` | string | `""` | WebDAV 密码（GET 请求返回 `****`） |
 | `webdav_enabled` | bool | `false` | 是否启用 WebDAV 上传 |
+| `http_upload_url` | string | `""` | HTTP(S) 上传完整 URL |
+| `http_upload_user` | string | `""` | HTTP(S) 用户名 |
+| `http_upload_pass` | string | `""` | HTTP(S) 密码（GET 请求返回 `****`） |
+| `http_upload_skip_cert_verify` | bool | `false` | 跳过 HTTPS 证书验证 |
 
+#### 摄像头配置
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `vflip` | bool | `false` | 垂直翻转 |
+| `hmirror` | bool | `false` | 水平镜像 |
 #### 视频配置
 
 | 参数 | 类型 | 默认值 | 说明 |
@@ -232,27 +233,35 @@ curl -X POST "http://192.168.4.1/api/record?action=stop" \
 
 ## NAS 上传
 
-### FTP 上传配置
+### 上传方式配置
 
-| 参数 | 说明 |
-|------|------|
-| `ftp_host` | FTP 服务器 IP 或域名 |
-| `ftp_port` | FTP 端口，默认 21 |
-| `ftp_user` | FTP 登录用户名 |
-| `ftp_pass` | FTP 登录密码 |
-| `ftp_path` | 上传目标路径，默认 `/MiBeeHomeCam` |
-| `ftp_enabled` | 设为 `true` 启用 |
+通过 `upload_method` 字段选择上传方式（互斥，只能选一种）：
 
-### WebDAV 上传配置
+| 值 | 方式 | 说明 |
+|----|------|------|
+| `0` | 禁用 | 不上传，仅本地 SD 卡存储 |
+| `1` | WebDAV | 使用 WebDAV 协议上传到 NAS |
+| `2` | HTTP(S) | 使用 HTTP PUT 上传，支持 HTTPS |
+#### WebDAV 上传配置
 
 | 参数 | 说明 |
 |------|------|
 | `webdav_url` | WebDAV 服务器完整 URL |
 | `webdav_user` | WebDAV 用户名 |
 | `webdav_pass` | WebDAV 密码 |
-| `webdav_enabled` | 设为 `true` 启用 |
+| `webdav_enabled` | 设为 `true` 启用（需配合 `upload_method=1`） |
 
-FTP 和 WebDAV 可同时启用，FTP 优先尝试。
+#### HTTP(S) 上传配置
+
+| 参数 | 说明 |
+|------|------|
+| `http_upload_url` | HTTP(S) 上传完整 URL |
+| `http_upload_user` | HTTP(S) 用户名 |
+| `http_upload_pass` | HTTP(S) 密码 |
+| `http_upload_skip_cert_verify` | 跳过 HTTPS 证书验证（自签名证书时设为 `true`） |
+| `upload_base_path` | 上传基础路径（默认 `/MiBeeHomeCam`） |
+
+**互斥说明**：上传方式只能选一种，不能同时启用。切换方式后，之前的上传配置仍然保留在 NVS 中，但不会被使用。
 
 ### 上传队列
 
@@ -286,17 +295,16 @@ PASS=你的WiFi密码
 
 路径：`/sdcard/config/nas.txt`
 
-```
-FTP_HOST=192.168.1.100
-FTP_PORT=21
-FTP_USER=admin
-FTP_PASS=your_password
-FTP_PATH=/MiBeeHomeCam
-FTP_ENABLED=true
+UPLOAD_METHOD=webdav
 WEBDAV_URL=https://dav.example.com/path
 WEBDAV_USER=user
 WEBDAV_PASS=pass
 WEBDAV_ENABLED=false
+HTTP_UPLOAD_URL=
+HTTP_UPLOAD_USER=
+HTTP_UPLOAD_PASS=
+HTTP_UPLOAD_SKIP_CERT=true
+UPLOAD_BASE_PATH=/MiBeeHomeCam
 ```
 
 以 `#` 开头的行会被忽略。
@@ -333,6 +341,34 @@ http://<设备IP>/stream
 | `fps` | 1-30 | 帧率，越高越流畅但占用更多带宽 |
 | `jpeg_quality` | 1-63 | 画质，数值越低画质越好（建议 10-20） |
 
+### RTSP 实时流
+
+除了 HTTP MJPEG 流外，设备还提供 RTSP 实时流服务：
+
+```
+rtsp://<设备IP>:554/stream
+```
+
+**VLC 播放**：打开 VLC → 媒体 → 打开网络串流 → 输入 `rtsp://<设备IP>:554/stream`
+
+**最大并发客户端**：2 个
+
+### 摄像头翻转设置
+
+通过 `POST /api/config` 修改摄像头翻转方向：
+
+```bash
+curl -X POST http://192.168.4.1/api/config \
+  -H 'Content-Type: application/json' -H 'X-Password: admin' \
+  -d '{"vflip":true,"hmirror":true}'
+```
+
+| 参数 | 说明 |
+|------|------|
+| `vflip` | 垂直翻转（上下颠倒） |
+| `hmirror` | 水平镜像（左右翻转） |
+
+> ⚠️ 翻转设置对**新采集的帧**立即生效。已录制的 AVI 文件不受影响。建议在停止录像后修改翻转设置。
 ## 时间管理
 
 ### 自动同步
@@ -371,3 +407,39 @@ curl -X POST http://192.168.4.1/api/reset \
 ### 恢复结果
 
 所有配置参数恢复为默认值（WiFi 清空、密码重置为 `admin`），设备重启后进入 AP 模式。TF 卡中的录像文件不会被删除。
+
+---
+
+## 功能互斥与资源限制
+
+### ⚠️ 上传方式互斥
+上传方式（upload_method）只能选择一种：禁用、WebDAV 或 HTTP(S)。切换方式后，之前的上传配置仍然保留在 NVS 中，但不会被使用。
+
+### ⚠️ 视频流并发限制
+系统共有 3 个视频流消费者共享摄像头帧缓冲：
+1. **录像任务** (recording_task) — Core 0，最高优先级
+2. **MJPEG HTTP 流** (/stream) — 最多 2 个客户端
+3. **RTSP 流** (rtsp://<IP>:554/stream) — 最多 2 个客户端
+
+摄像头帧缓冲池大小为 2（双缓冲），当 3 个消费者同时活跃时，可能出现帧竞争。建议：
+- 正常使用：录像 + 1 路 HTTP 流 或 录像 + 1 路 RTSP 流
+- 不建议同时开启 HTTP 流和 RTSP 流给多个客户端观看
+- 录像任务优先级最高，不会因流客户端增加而丢帧
+
+### ⚠️ RTSP 与 HTTP 流的关系
+- RTSP 和 HTTP MJPEG 流是**独立的**，可以同时运行
+- 两者共享摄像头帧缓冲，但不共享网络连接
+- RTSP 使用 TCP-interleaved 模式（端口 554），不使用 UDP
+- RTSP 不支持认证（v1 版本）
+
+### ⚠️ 翻转设置不影响已录制的视频
+vflip/hmirror 设置对**新采集的帧**立即生效，但：
+- 已录制的 AVI 文件不受影响
+- 录像过程中可以切换翻转，但同一段视频内可能出现方向不一致的帧
+- 建议在停止录像后修改翻转设置
+
+### ⚠️ 上传方式从旧版本升级
+如果从旧版本（支持 FTP）升级，设备会自动迁移 NVS 配置：
+- 旧 `ftp_enabled=true` → `upload_method=1`（WebDAV）
+- 旧 `webdav_enabled=true` → `upload_method=1`（WebDAV）
+- 旧 FTP 相关 NVS 键值会被自动删除

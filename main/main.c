@@ -62,6 +62,7 @@
 #include "web_server.h"
 #include "mjpeg_streamer.h"
 #include "nas_uploader.h"
+#include "rtsp_server.h"
 #include "driver/temperature_sensor.h"
 
 static const char *TAG = "main";
@@ -347,6 +348,9 @@ void app_main(void)
         camera_init(res, cfg->fps, quality);
     }
 
+    /* Apply camera flip/mirror from config */
+    camera_set_flip(cfg->vflip, cfg->hmirror);
+
     /* ---- 6. SD card storage (SPI mode: CS=21, SCK=7, MOSI=9, MISO=8) --- */
     /* 第6步：初始化SD卡存储管理器（在摄像头之后，避免GDMA通道冲突） */
     storage_init();
@@ -375,8 +379,12 @@ void app_main(void)
     }
 
     /* ---- 10. NAS uploader -------------------------------------------- */
-    /* 第10步：初始化NAS上传调度器，准备FTP/WebDAV上传队列 */
+    /* 第10步：初始化NAS上传调度器，准备WebDAV/HTTP上传队列 */
     nas_uploader_init();
+
+    /* ---- 10a. RTSP server -------------------------------------------- */
+    /* 第10a步：初始化RTSP流媒体服务器 */
+    rtsp_server_init();
 
     /* ---- 11. Video recorder ------------------------------------------ */
     /* 第11步：初始化视频录像引擎，注册分段完成回调 */

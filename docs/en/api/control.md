@@ -212,7 +212,7 @@ Restore device configuration to factory default values and reboot. Configuration
 | fps | `10` |
 | segment_sec | `300` |
 | jpeg_quality | `12` |
-| ftp_enabled | `false` |
+| upload_method | `0` (Disabled) |
 | webdav_enabled | `false` |
 
 **Error Responses**:

@@ -17,22 +17,26 @@
 {
   "ok": true,
   "data": {
-    "wifi_ssid": "MyWiFi",
+    "wifi_ssid": "MyHomeWiFi",
     "wifi_pass": "****",
     "device_name": "MiBeeHomeCam",
-    "ftp_host": "192.168.1.200",
-    "ftp_port": 21,
-    "ftp_user": "ftpuser",
-    "ftp_path": "/MiBeeHomeCam",
-    "ftp_enabled": true,
-    "webdav_url": "",
-    "webdav_user": "",
-    "webdav_enabled": false,
+    "upload_method": 1,
+    "upload_base_path": "/MiBeeHomeCam",
+    "webdav_url": "http://192.0.2.31:9090/dav",
+    "webdav_user": "admin",
+    "webdav_enabled": true,
+    "http_upload_url": "",
+    "http_upload_user": "",
+    "http_upload_pass": "",
+    "http_upload_skip_cert_verify": false,
     "resolution": 1,
     "fps": 10,
     "segment_sec": 300,
     "jpeg_quality": 12,
-    "web_password": "****"
+    "vflip": false,
+    "hmirror": false,
+    "web_password": "****",
+    "timezone": "CST-8"
   }
 }
 ```
@@ -44,22 +48,25 @@
 | `wifi_ssid` | string | WiFi 网络名称，空字符串表示 AP 模式 |
 | `wifi_pass` | string | WiFi 密码，已设置时显示 `"****"`，未设置时显示 `""` |
 | `device_name` | string | 设备名称（默认 `"MiBeeHomeCam"`） |
-| `ftp_host` | string | FTP 服务器地址 |
-| `ftp_port` | number | FTP 端口（默认 `21`） |
-| `ftp_user` | string | FTP 用户名 |
-| `ftp_path` | string | FTP 上传路径（默认 `"/MiBeeHomeCam"`） |
-| `ftp_enabled` | bool | 是否启用 FTP 上传 |
+| `upload_method` | uint8 | 上传方式：`0`=禁用、`1`=WebDAV、`2`=HTTP(S) |
+| `upload_base_path` | string | 上传基础路径（默认 `"/MiBeeHomeCam"`） |
 | `webdav_url` | string | WebDAV 服务器地址 |
 | `webdav_user` | string | WebDAV 用户名 |
-| `webdav_enabled` | bool | 是否启用 WebDAV 上传 |
+| `webdav_enabled` | bool | 是否启用 WebDAV 上传（仅 `upload_method=1` 时有效） |
+| `http_upload_url` | string | HTTP(S) 上传完整 URL |
+| `http_upload_user` | string | HTTP(S) 用户名 |
+| `http_upload_pass` | string | HTTP(S) 密码，已设置时显示 `"****"`，未设置时显示 `""` |
+| `http_upload_skip_cert_verify` | bool | 跳过 HTTPS 证书验证 |
 | `resolution` | number | 分辨率编号：`0`=VGA(640×480)、`1`=SVGA(800×600)、`2`=XGA(1024×768) |
 | `fps` | number | 录像帧率（默认 `10`） |
 | `segment_sec` | number | 视频分段时长，单位秒（默认 `300`，即 5 分钟） |
 | `jpeg_quality` | number | JPEG 图像质量（默认 `12`，数值越小质量越好） |
+| `vflip` | bool | 垂直翻转 |
+| `hmirror` | bool | 水平镜像 |
 | `web_password` | string | Web 管理密码，已设置时显示 `"****"`，未设置时显示 `""` |
 
-> **重要**：`ftp_pass` 和 `webdav_pass` **不会**在此接口中返回。这是设计上的安全考量。
-> 只有 `wifi_pass` 和 `web_password` 会以遮掩形式（`"****"`）返回。
+> **重要**：`webdav_pass` 和 `http_upload_pass` **不会**在此接口中返回（不包含在响应中）。这是设计上的安全考量。
+> 只有 `wifi_pass`、`http_upload_pass` 和 `web_password` 会以遮掩形式（`"****"`）返回。
 
 **cURL 示例**：
 ```bash
@@ -89,20 +96,22 @@ console.log(`设备名: ${data.device_name}, 分辨率: ${data.resolution}`);
   "wifi_ssid": "NewWiFi",
   "wifi_pass": "newpassword",
   "device_name": "MyCamera",
-  "ftp_host": "192.168.1.200",
-  "ftp_port": 21,
-  "ftp_user": "user",
-  "ftp_pass": "ftppassword",
-  "ftp_path": "/recordings",
-  "ftp_enabled": true,
+  "upload_method": 1,
+  "upload_base_path": "/MiBeeHomeCam",
   "webdav_url": "https://dav.example.com",
   "webdav_user": "davuser",
   "webdav_pass": "davpassword",
-  "webdav_enabled": false,
+  "webdav_enabled": true,
+  "http_upload_url": "https://upload.example.com/api/cam",
+  "http_upload_user": "httpuser",
+  "http_upload_pass": "httppassword",
+  "http_upload_skip_cert_verify": false,
   "resolution": 2,
   "fps": 15,
   "segment_sec": 600,
   "jpeg_quality": 8,
+  "vflip": true,
+  "hmirror": false,
   "web_password": "newpass"
 }
 ```
@@ -114,25 +123,27 @@ console.log(`设备名: ${data.device_name}, 分辨率: ${data.resolution}`);
 | `wifi_ssid` | string | WiFi 网络名称 |
 | `wifi_pass` | string | WiFi 密码 |
 | `device_name` | string | 设备名称 |
-| `ftp_host` | string | FTP 服务器地址 |
-| `ftp_port` | number | FTP 端口号 |
-| `ftp_user` | string | FTP 用户名 |
-| `ftp_pass` | string | FTP 密码 |
-| `ftp_path` | string | FTP 上传路径 |
-| `ftp_enabled` | bool | 启用/禁用 FTP 上传 |
+| `upload_method` | uint8 | 上传方式：`0`=禁用、`1`=WebDAV、`2`=HTTP(S) |
+| `upload_base_path` | string | 上传基础路径 |
 | `webdav_url` | string | WebDAV 服务器地址 |
 | `webdav_user` | string | WebDAV 用户名 |
 | `webdav_pass` | string | WebDAV 密码 |
 | `webdav_enabled` | bool | 启用/禁用 WebDAV 上传 |
+| `http_upload_url` | string | HTTP(S) 上传完整 URL |
+| `http_upload_user` | string | HTTP(S) 用户名 |
+| `http_upload_pass` | string | HTTP(S) 密码 |
+| `http_upload_skip_cert_verify` | bool | 跳过 HTTPS 证书验证 |
 | `resolution` | number | 分辨率：`0`=VGA、`1`=SVGA、`2`=XGA |
 | `fps` | number | 录像帧率 |
 | `segment_sec` | number | 分段时长（秒） |
 | `jpeg_quality` | number | JPEG 质量 |
+| `vflip` | bool | 垂直翻转 |
+| `hmirror` | bool | 水平镜像 |
 | `web_password` | string | Web 管理密码 |
 
 **密码字段特殊行为**：
 
-四个密码字段（`wifi_pass`、`ftp_pass`、`webdav_pass`、`web_password`）具有特殊处理逻辑：
+四个密码字段（`wifi_pass`、`webdav_pass`、`http_upload_pass`、`web_password`）具有特殊处理逻辑：
 - 如果值为 `"****"`（四个星号），则**忽略该字段**，保留当前密码不变
 - 如果值为其他字符串，则更新为新的密码值
 - 此设计允许客户端在 `GET /api/config` 获取配置后回传数据而不泄露密码
@@ -177,8 +188,8 @@ curl -X POST http://192.168.4.1/api/config \
 
 **JavaScript 示例**：
 ```javascript
-// 更新 FTP 配置
-async function updateFtp() {
+// 切换上传方式为 HTTP(S)
+async function switchToHttp() {
   const resp = await fetch('/api/config', {
     method: 'POST',
     headers: {
@@ -186,16 +197,14 @@ async function updateFtp() {
       'X-Password': 'admin'
     },
     body: JSON.stringify({
-      ftp_host: '192.168.1.200',
-      ftp_user: 'user',
-      ftp_pass: 'secret',
-      ftp_path: '/cam',
-      ftp_enabled: true
+      upload_method: 2,
+      http_upload_url: 'https://upload.example.com/api/cam',
+      http_upload_user: 'httpuser',
+      http_upload_pass: 'secret'
     })
   });
   return await resp.json();
 }
-```
 
 ---
 
@@ -209,7 +218,7 @@ async function updateFtp() {
 |------|----------|
 | `wifi_pass` | 已设置时返回 `"****"`，未设置时返回 `""` |
 | `web_password` | 已设置时返回 `"****"`，未设置时返回 `""` |
-| `ftp_pass` | **不返回**（完全不包含在响应中） |
+| `http_upload_pass` | 已设置时返回 `"****"`，未设置时返回 `""` |
 | `webdav_pass` | **不返回**（完全不包含在响应中） |
 
 ### POST /api/config 密码处理逻辑
@@ -220,7 +229,7 @@ async function updateFtp() {
               保持原值不变    更新为新密码
 ```
 
-所有四个密码字段（`wifi_pass`、`ftp_pass`、`webdav_pass`、`web_password`）均遵循此逻辑。
+所有四个密码字段（`wifi_pass`、`webdav_pass`、`http_upload_pass`、`web_password`）均遵循此逻辑。
 
 ### 典型使用场景
 
@@ -276,18 +285,20 @@ await fetch('/api/config', {
 | `wifi_ssid` | string | `""` | 空表示 AP 模式 |
 | `wifi_pass` | string | `""` | WiFi 密码 |
 | `device_name` | string | `"MiBeeHomeCam"` | 设备名称 |
-| `ftp_host` | string | `""` | FTP 服务器 |
-| `ftp_port` | number | `21` | FTP 端口 |
-| `ftp_user` | string | `""` | FTP 用户名 |
-| `ftp_pass` | string | `""` | FTP 密码 |
-| `ftp_path` | string | `"/MiBeeHomeCam"` | FTP 路径 |
-| `ftp_enabled` | bool | `false` | FTP 上传开关 |
+| `upload_method` | uint8 | `0` | 上传方式：0=禁用, 1=WebDAV, 2=HTTP(S) |
+| `upload_base_path` | string | `"/MiBeeHomeCam"` | 上传基础路径 |
 | `webdav_url` | string | `""` | WebDAV 地址 |
 | `webdav_user` | string | `""` | WebDAV 用户名 |
 | `webdav_pass` | string | `""` | WebDAV 密码 |
 | `webdav_enabled` | bool | `false` | WebDAV 上传开关 |
+| `http_upload_url` | string | `""` | HTTP(S) 上传 URL |
+| `http_upload_user` | string | `""` | HTTP(S) 用户名 |
+| `http_upload_pass` | string | `""` | HTTP(S) 密码 |
+| `http_upload_skip_cert_verify` | bool | `false` | 跳过 HTTPS 证书验证 |
 | `resolution` | number | `1` | SVGA (800×600) |
 | `fps` | number | `10` | 10 帧/秒 |
 | `segment_sec` | number | `300` | 5 分钟/段 |
 | `jpeg_quality` | number | `12` | JPEG 质量 |
+| `vflip` | bool | `false` | 垂直翻转 |
+| `hmirror` | bool | `false` | 水平镜像 |
 | `web_password` | string | `"admin"` | Web 管理密码 |

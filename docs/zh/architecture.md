@@ -2,12 +2,13 @@
 
 ## 1. 系统概览
 
-ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP32-S3 上运行 14 个松耦合的 C 模块。系统采用事件驱动与轮询混合架构，摄像头采集帧数据后分两路输出：实时流和录像存储。
+ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP32-S3 上运行 16 个松耦合的 C 模块。系统采用事件驱动与轮询混合架构，摄像头采集帧数据后分三路输出：实时流（HTTP MJPEG + RTSP）和录像存储。
 
 ```
   Camera ──→ MJPEG Streamer ──→ HTTP Server ──→ Browser/Client
+          └→ RTSP Server ──────→ RTSP Client (VLC 等)
           └→ Video Recorder ──→ SD Card (AVI 分段)
-                             └→ NAS Uploader ──→ FTP / WebDAV
+                             └→ NAS Uploader ──→ WebDAV / HTTP(S) (互斥)
   Config Manager ←→ NVS ←→ SD Card Override (wifi.txt / nas.txt)
   WiFi Manager (AP/STA) → Time Sync (SNTP)
   Status LED ← LED Controller (GPIO21, active-low)
@@ -57,7 +58,7 @@ ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP
 
 ## 3. 模块说明
 
-系统共 14 个模块，全部位于 `main/` 目录，每个模块一个 `.c`/`.h` 文件对。
+系统共 16 个模块，全部位于 `main/` 目录，每个模块一个 `.c`/`.h` 文件对。
 
 | 模块 | 文件 | 职责 | 关键函数 |
 |------|------|------|----------|
@@ -65,37 +66,39 @@ ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP
 | 摄像头驱动 | `camera_driver.c` | OV2640/OV3660 自动检测，帧采集 | `camera_init()`, `camera_capture()` |
 | 视频录像器 | `video_recorder.c` | AVI MJPEG 分段录像，状态机 | `recorder_start()`, `recorder_stop()` |
 | MJPEG 流服务 | `mjpeg_streamer.c` | MJPEG 实时视频流推送 | `mjpeg_streamer_init()`, `mjpeg_streamer_register()` |
+| RTSP 服务器 | `rtsp_server.c` | RTSP 服务器，MJPEG over RTP，TCP-interleaved | `rtsp_server_start()` |
 | Web 服务器 | `web_server.c` | HTTP 服务器 + REST API（10 端点） | `web_server_start()`, `web_server_get_handle()` |
 | WiFi 管理 | `wifi_manager.c` | AP/STA 双模式，自动选择 | `wifi_init()`, `wifi_scan()` |
 | 配置管理 | `config_manager.c` | NVS 持久化，SD 卡覆盖 | `config_init()`, `config_save()`, `config_reset()` |
 | 存储管理 | `storage_manager.c` | SD 卡挂载/卸载，循环清理 | `storage_init()`, `storage_cleanup()` |
-| NAS 上传 | `nas_uploader.c` | 队列化上传调度，自动重试 | `nas_uploader_init()`, `nas_uploader_enqueue()` |
-| FTP 客户端 | `ftp_client.c` | FTP 协议上传实现 | — |
+| NAS 上传 | `nas_uploader.c` | 互斥上传调度（WebDAV 或 HTTP/HTTPS） | `nas_uploader_init()`, `nas_uploader_enqueue()` |
+| HTTP 上传客户端 | `http_upload_client.c` | HTTP/HTTPS PUT 流式上传 | — |
 | WebDAV 客户端 | `webdav_client.c` | WebDAV 协议上传实现 | — |
 | 状态 LED | `status_led.c` | 5 种 LED 模式控制 | `led_init()`, `led_set_status()` |
 | 时间同步 | `time_sync.c` | SNTP 同步，手动设置时间 | `time_sync_init()`, `time_is_synced()` |
 | JSON 解析 | `cJSON.c` | 第三方 JSON 库（IDF v6.0 已移除） | — |
-
 ### 配置结构体
 
 ```c
 typedef struct {
     char wifi_ssid[33];       // WiFi 名称
     char wifi_pass[64];       // WiFi 密码
-    char ftp_host[64];        // FTP 服务器地址
-    uint16_t ftp_port;        // FTP 端口
-    char ftp_user[32];        // FTP 用户名
-    char ftp_pass[32];        // FTP 密码
-    char ftp_path[128];       // FTP 远程路径
-    bool ftp_enabled;         // FTP 上传开关
-    char webdav_url[128];     // WebDAV URL
-    char webdav_user[32];     // WebDAV 用户名
-    char webdav_pass[32];     // WebDAV 密码
-    bool webdav_enabled;      // WebDAV 上传开关
+    uint8_t upload_method;    // 0=禁用, 1=WebDAV, 2=HTTP/HTTPS
+    char upload_base_path[128]; // 上传基础路径
+    char webdav_url[128];      // WebDAV URL
+    char webdav_user[32];      // WebDAV 用户名
+    char webdav_pass[32];      // WebDAV 密码
+    bool webdav_enabled;       // WebDAV 上传开关
+    char http_upload_url[256]; // HTTP(S) 上传 URL
+    char http_upload_user[64]; // HTTP(S) 用户名
+    char http_upload_pass[64]; // HTTP(S) 密码
+    bool http_upload_skip_cert_verify; // 跳过 HTTPS 证书验证
     uint8_t resolution;       // 0=VGA, 1=SVGA, 2=XGA
     uint8_t fps;              // 1-30
     uint16_t segment_sec;     // 每段时长（秒）
     uint8_t jpeg_quality;     // 1-63
+    bool vflip;               // 垂直翻转
+    bool hmirror;             // 水平镜像
     char web_password[32];    // Web 管理密码
     char device_name[32];     // 设备名称
 } cam_config_t;
@@ -109,24 +112,24 @@ typedef struct {
 
 摄像头采集的 JPEG 帧经过录像器写入 AVI 文件，分段完成后触发回调链：
 
-```
 camera_capture()
     │
     ▼
-Video Recorder (recording_task, Core 0)
+    Video Recorder (recording_task, Core 0)
     │  ← 帧数据写入 AVI 文件
     │  ← 按 segment_sec 时长分段
     │  ← 写入 AVI idx1 索引
     │
     ▼  分段完成
-on_segment_complete(filepath, size)
+    on_segment_complete(filepath, size)
     │
     ├──→ nas_uploader_enqueue(filepath)
     │       │
     │       ▼
     │    Upload Task (Core 1)
-    │       ├── FTP 上传 (ftp_enabled)
-    │       └── WebDAV 上传 (webdav_enabled)
+    │       ├── upload_method=1 → WebDAV 上传
+    │       ├── upload_method=2 → HTTP(S) 上传
+    │       └── upload_method=0 → 跳过上传
     │       失败重试 3 次，连续失败 10 次暂停 5 分钟
     │
     └──→ storage_cleanup()
@@ -157,6 +160,24 @@ HTTP 分块传输 (multipart/x-mixed-replace)
 Browser 实时渲染
 ```
 
+### RTSP 数据流
+
+```
+RTSP 客户端 → TCP 连接 (port 554)
+    │
+    ├── DESCRIBE → SDP (JPEG/90000)
+    ├── SETUP → 会话创建 (TCP-interleaved)
+    ├── PLAY → 开始 RTP 传输
+    │       │
+    │       ▼  循环采集（受限 2 个并发客户端）
+    │   camera_capture() → JPEG 帧
+    │       │
+    │       ▼  RFC 2435 RTP/JPEG 打包
+    │   RTP 包 (MTU ≤ 1400) → TCP 发送
+    │
+    └── TEARDOWN → 关闭会话
+```
+
 ---
 
 ## 5. FreeRTOS 任务表
@@ -165,6 +186,8 @@ Browser 实时渲染
 |--------|------|--------|------|--------|-----------|------|
 | `recorder` | `recording_task` | 5 (configMAX-2) | Core 0 | 4096 B | 持续循环（帧采集） | video_recorder.c |
 | `upload` | `upload_task` | 3 | Core 1 | 6144 B | 队列阻塞等待 | nas_uploader.c |
+| `rtsp_listener` | `rtsp_server_listener` | 3 | Core 1 | 6144 B | 连接事件驱动 | rtsp_server.c |
+| `rtsp_client_N` | `rtsp_client_task` | 3 | Core 1 | 6144 B | 帧采集循环 | rtsp_server.c |
 | `sd_monitor` | `sd_monitor_task` | 2 | Core 1 | 3072 B | 10 秒轮询 | main.c |
 | `boot_btn` | `boot_button_monitor` | 1 | 任意 | 2048 B | 200ms 轮询 | main.c |
 | `health_mon` | `health_monitor_task` | 1 | Core 1 | 3072 B | 60 秒轮询 | main.c |
@@ -217,8 +240,7 @@ Browser 实时渲染
 | OPTIONS | `/*` | 否 | CORS 预检 |
 | GET | `/*` | 否 | 静态文件（Web UI） |
 
-| POST | `/api/files/batch` | 是 | 批量删除文件 |
-| GET | `/metrics` | 否 | Prometheus 监控指标 |
+| GET | `/metrics` | 否 | Prometheus 监控指标（15 项） |
 
 认证方式：通过 `X-Password` 请求头或 `?password=xxx` 查询参数传递管理密码。
 

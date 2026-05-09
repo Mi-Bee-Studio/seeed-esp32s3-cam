@@ -16,8 +16,8 @@
  */
 
 #include "nas_uploader.h"
-#include "ftp_client.h"
 #include "webdav_client.h"
+#include "http_upload_client.h"
 #include "config_manager.h"
 #include "time_sync.h"
 #include "esp_log.h"
@@ -44,10 +44,12 @@ static int64_t       s_paused_until_ms = 0;
 static char          s_last_upload_str[32] = "";
 static int           s_queue_count  = 0;
 static uint32_t      s_stack_hwm    = 0;
+static volatile int   s_upload_success = 0;
+static volatile int   s_upload_failure = 0;
 
 /**
  * @brief 上传任务主循环（FreeRTOS任务函数）
- * 从队列中取出文件路径，依次尝试FTP和WebDAV上传
+ * 从队列中取出文件路径，根据 upload_method 分发上传
  * 支持指数退避重试和连续失败自动暂停
  * @param arg 未使用
  */
@@ -91,10 +93,10 @@ static void upload_task(void *arg)
         const char *rec_part = strstr(filepath, "/recordings/");
         if (rec_part) {
             snprintf(remote_path, sizeof(remote_path), "%s%s",
-                     cfg->ftp_path, rec_part + strlen("/recordings"));
+                     cfg->upload_base_path, rec_part + strlen("/recordings"));
         } else {
             snprintf(remote_path, sizeof(remote_path), "%s/%s",
-                     cfg->ftp_path, filename);
+                     cfg->upload_base_path, filename);
         }
 
         /* Extract parent directory for mkdir */
@@ -104,55 +106,63 @@ static void upload_task(void *arg)
         char *last_slash = strrchr(remote_dir, '/');
         if (last_slash) *last_slash = '\0';
 
-        /* ---- FTP: try first ---- */
-        if (cfg->ftp_enabled && strlen(cfg->ftp_host) > 0) {
-            ftp_config_t ftp_cfg = {0};
-            strncpy(ftp_cfg.host, cfg->ftp_host, sizeof(ftp_cfg.host) - 1);
-            ftp_cfg.port = cfg->ftp_port;
-            strncpy(ftp_cfg.user, cfg->ftp_user, sizeof(ftp_cfg.user) - 1);
-            strncpy(ftp_cfg.pass, cfg->ftp_pass, sizeof(ftp_cfg.pass) - 1);
+        /* ---- Upload dispatch ---- */
+        esp_task_wdt_reset();
 
-            for (int retry = 0; retry < MAX_RETRIES; retry++) {
-                esp_task_wdt_reset();
-                if (retry > 0) {
-                    int delay_ms = 1000 * (1 << retry);  /* 2 s, 4 s */
-                    ESP_LOGI(TAG, "FTP retry %d/%d in %d ms", retry + 1, MAX_RETRIES, delay_ms);
-                    vTaskDelay(pdMS_TO_TICKS(delay_ms));
-                }
+        switch (cfg->upload_method) {
+        case 0: /* 禁用 */
+            ESP_LOGD(TAG, "Upload disabled, skipping: %s", filepath);
+            success = true;
+            break;
 
-                if (ftp_connect(&ftp_cfg) != ESP_OK) continue;
-                ftp_mkdir_recursive(remote_dir);
-                esp_err_t ret = ftp_upload(remote_path, filepath);
-                ftp_disconnect();
+        case 1: /* WebDAV */
+            if (strlen(cfg->webdav_url) > 0) {
+                webdav_config_t dav_cfg = {0};
+                strncpy(dav_cfg.url, cfg->webdav_url, sizeof(dav_cfg.url) - 1);
+                strncpy(dav_cfg.user, cfg->webdav_user, sizeof(dav_cfg.user) - 1);
+                strncpy(dav_cfg.pass, cfg->webdav_pass, sizeof(dav_cfg.pass) - 1);
 
-                if (ret == ESP_OK) {
+                webdav_mkdir_recursive(&dav_cfg, remote_dir);
+                if (webdav_upload(&dav_cfg, remote_path, filepath) == ESP_OK) {
                     success = true;
-                    break;
                 }
+            } else {
+                ESP_LOGW(TAG, "WebDAV selected but URL not configured");
             }
+            break;
+
+        case 2: /* HTTP/HTTPS */ {
+            if (strlen(cfg->http_upload_url) > 0) {
+                http_upload_config_t http_cfg = {0};
+                strncpy(http_cfg.url, cfg->http_upload_url, sizeof(http_cfg.url) - 1);
+                strncpy(http_cfg.user, cfg->http_upload_user, sizeof(http_cfg.user) - 1);
+                strncpy(http_cfg.pass, cfg->http_upload_pass, sizeof(http_cfg.pass) - 1);
+                http_cfg.skip_cert_verify = cfg->http_upload_skip_cert;
+
+                http_upload_mkdir(&http_cfg, remote_dir);
+                if (http_upload_file(&http_cfg, remote_path, filepath) == ESP_OK) {
+                    success = true;
+                }
+            } else {
+                ESP_LOGW(TAG, "HTTP upload selected but URL not configured");
+            }
+            break;
         }
 
-        /* ---- WebDAV: fallback ---- */
-        if (!success && cfg->webdav_enabled && strlen(cfg->webdav_url) > 0) {
-            esp_task_wdt_reset();
-            webdav_config_t dav_cfg = {0};
-            strncpy(dav_cfg.url, cfg->webdav_url, sizeof(dav_cfg.url) - 1);
-            strncpy(dav_cfg.user, cfg->webdav_user, sizeof(dav_cfg.user) - 1);
-            strncpy(dav_cfg.pass, cfg->webdav_pass, sizeof(dav_cfg.pass) - 1);
-
-            webdav_mkdir_recursive(&dav_cfg, remote_dir);
-            if (webdav_upload(&dav_cfg, remote_path, filepath) == ESP_OK) {
-                success = true;
-            }
+        default:
+            ESP_LOGW(TAG, "Unknown upload_method %d, skipping", cfg->upload_method);
+            break;
         }
 
         /* ---- Handle result ---- */
         if (success) {
             s_consec_fails = 0;
             time_get_str(s_last_upload_str, sizeof(s_last_upload_str));
+            s_upload_success++;
             ESP_LOGI(TAG, "Upload success: %s", filepath);
         } else {
             s_consec_fails++;
+            s_upload_failure++;
             ESP_LOGW(TAG, "Upload failed (%d consecutive): %s",
                      s_consec_fails, filepath);
 
@@ -248,4 +258,19 @@ void nas_uploader_get_status(char *last_upload, size_t len,
 uint32_t nas_uploader_get_stack_hwm(void)
 {
     return s_stack_hwm;
+}
+
+/**
+ * @brief 获取上传成功/失败累计计数
+ * @param success 输出成功次数
+ * @param failure 输出失败次数
+ */
+void nas_uploader_get_stats(int *success, int *failure)
+{
+    if (success) {
+        *success = s_upload_success;
+    }
+    if (failure) {
+        *failure = s_upload_failure;
+    }
 }

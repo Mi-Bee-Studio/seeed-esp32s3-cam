@@ -45,3 +45,10 @@ void nas_uploader_get_status(char *last_upload, size_t len, int *queue_count, bo
  * @return 剩余栈空间（字节）
  */
 uint32_t nas_uploader_get_stack_hwm(void);
+
+/**
+ * @brief 获取上传成功/失败累计计数
+ * @param success 输出成功次数
+ * @param failure 输出失败次数
+ */
+void nas_uploader_get_stats(int *success, int *failure);

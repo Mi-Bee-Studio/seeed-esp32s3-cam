@@ -10,8 +10,10 @@
 
 - 📹 MJPEG 实时视频流，浏览器直接查看
 - 🎬 AVI 自动分段录像，循环存储不担心空间
-- ☁️ FTP / WebDAV 自动上传至 NAS
+- ☁️ WebDAV / HTTP(S) 自动上传至 NAS，下拉互斥选择
 - 📡 WiFi AP/STA 双模式，即插即用
+- 📡 RTSP 实时流（MJPEG over RTP，VLC 兼容）
+- 🔄 摄像头翻转/镜像 Web 可配置
 - 🌐 REST API + Web 管理界面
 - 💾 TF 卡热插拔，自动恢复录像
 - 🔍 OV2640 / OV3660 自动检测
@@ -76,7 +78,8 @@ idf.py -p COM3 flash monitor
 | GET  | `/api/files`                     | 录像文件列表                   |
 | GET  | `/api/download?name=xxx`         | 下载录像文件                   |
 | POST | `/api/files/batch`               | 批量删除文件（需认证）              |
-| GET  | `/metrics`                       | Prometheus 监控指标（text 格式） |
+| GET  | `/metrics`                       | Prometheus 监控指标（15 项，text 格式） |
+| RTSP | `rtsp://<IP>:554/stream`       | RTSP 实时视频流（VLC 兼容） |
 
 默认管理密码：`admin`。👉 [完整 API 文档](docs/zh/api/overview.md)
 
@@ -84,21 +87,21 @@ idf.py -p COM3 flash monitor
 
 ```
 esp32s3-camera/
-├── main/                 # 固件源码（14 个 C 模块）
+├── main/                 # 固件源码（16 个 C 模块）
 │   ├── main.c            # 入口，19 步启动流程
 │   ├── camera_driver.c   # 摄像头驱动（OV2640/OV3660）
 │   ├── video_recorder.c  # AVI 录像引擎
 │   ├── mjpeg_streamer.c  # MJPEG 实时流
 │   ├── web_server.c      # HTTP 服务器 + REST API
-│   ├── nas_uploader.c    # NAS 上传调度
+│   ├── nas_uploader.c    # NAS 上传调度（WebDAV/HTTP(S) 互斥）
 │   ├── wifi_manager.c    # WiFi AP/STA 管理
 │   ├── config_manager.c  # NVS 配置持久化
 │   ├── storage_manager.c # SD 卡 + 循环清理
 │   ├── status_led.c      # LED 状态机（5 种模式）
 │   ├── time_sync.c       # SNTP 时间同步
-│   ├── ftp_client.c      # FTP 协议客户端
 │   ├── webdav_client.c   # WebDAV 协议客户端
-│   └── web_ui/           # Web 管理界面（4 页面）
+│   ├── rtsp_server.c      # RTSP 服务器（MJPEG over RTP）
+│   ├── http_upload_client.c # HTTP/HTTPS 上传客户端
 ├── docs/                 # 项目文档
 │   ├── en/               # 英文文档
 │   └── zh/               # 中文文档

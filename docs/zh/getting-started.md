@@ -56,8 +56,9 @@ esp32s3-camera/
 │   ├── storage_manager.c # SD 卡 + 循环清理
 │   ├── status_led.c      # LED 状态机
 │   ├── time_sync.c       # SNTP 时间同步
-│   ├── ftp_client.c      # FTP 客户端
 │   ├── webdav_client.c   # WebDAV 客户端
+│   ├── rtsp_server.c    # RTSP 服务器
+│   ├── http_upload_client.c # HTTP/HTTPS 上传客户端
 │   ├── cJSON.c/h         # JSON 解析库
 │   └── web_ui/           # Web 管理界面（4 个 HTML 页面）
 ├── docs/                 # 项目文档
@@ -190,13 +191,11 @@ WIFI_PASS=你的WiFi密码
 
 **`/sdcard/config/nas.txt`**：
 ```
-FTP_HOST=192.168.1.100
-FTP_PORT=21
-FTP_USER=username
-FTP_PASS=password
-FTP_PATH=/recordings
-FTP_ENABLED=true
-```
+UPLOAD_METHOD=webdav
+WEBDAV_URL=https://dav.example.com/path
+WEBDAV_USER=user
+WEBDAV_PASS=pass
+WEBDAV_ENABLED=true
 
 将 TF 卡插入设备后重启，系统自动读取并覆盖 NVS 配置。
 

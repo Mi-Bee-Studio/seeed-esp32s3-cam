@@ -87,44 +87,26 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <span class="eye" onclick="togPw(this)">&#128065;</span>
 </div>
 </div>
+</div>
 
-<!-- NAS -->
+<!-- Upload Method -->
 <div class="card">
-<div class="card-title">NAS 配置</div>
-<div class="sub-section">
-<div class="sub-title">FTP</div>
-<div class="checkbox-row">
-<input type="checkbox" id="ftp_enabled">
-<label for="ftp_enabled">启用FTP上传</label>
+<div class="card-title">☁️ 上传方式</div>
+<div class="field">
+<label>上传方式</label>
+<select id="uploadMethod" onchange="onUploadMethodChange()">
+<option value="0">禁用</option>
+<option value="1">WebDAV</option>
+<option value="2">HTTP(S)</option>
+</select>
 </div>
 <div class="field">
-<div class="inline">
-<div style="flex:1"><label>服务器</label><input type="text" id="ftp_host" placeholder="192.168.1.100"></div>
-<div><label>端口</label><input type="number" id="ftp_port" class="port-field" value="21" min="1" max="65535"></div>
+<label>上传基础路径</label>
+<input type="text" id="uploadBasePath" placeholder="/MiBeeHomeCam">
 </div>
-</div>
-<div class="field">
-<label>用户名</label>
-<input type="text" id="ftp_user" placeholder="ftp用户名">
-</div>
-<div class="field">
-<label>密码</label>
-<div class="pw-wrap">
-<input type="password" id="ftp_pass" placeholder="ftp密码">
-<span class="eye" onclick="togPw(this)">&#128065;</span>
-</div>
-</div>
-<div class="field">
-<label>远程路径</label>
-<input type="text" id="ftp_path" placeholder="/MiBeeHomeCam">
-</div>
-</div>
+<div id="webdavSection" style="display:none;">
 <div class="sub-section">
 <div class="sub-title">WebDAV</div>
-<div class="checkbox-row">
-<input type="checkbox" id="webdav_enabled">
-<label for="webdav_enabled">启用WebDAV上传</label>
-</div>
 <div class="field">
 <label>URL</label>
 <input type="text" id="webdav_url" placeholder="http://192.168.1.100:5005">
@@ -138,6 +120,33 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <div class="pw-wrap">
 <input type="password" id="webdav_pass" placeholder="webdav密码">
 <span class="eye" onclick="togPw(this)">&#128065;</span>
+</div>
+</div>
+</div>
+</div>
+<div id="httpSection" style="display:none;">
+<div class="sub-section">
+<div class="sub-title">HTTP(S)</div>
+<div class="field">
+<label>HTTP(S) 上传 URL</label>
+<input type="text" id="httpUploadUrl" placeholder="https://nas.local/api/upload">
+</div>
+<div class="field">
+<label>用户名</label>
+<input type="text" id="httpUploadUser">
+</div>
+<div class="field">
+<label>密码</label>
+<div class="pw-wrap">
+<input type="password" id="httpUploadPass" placeholder="留空则不需要认证">
+<span class="eye" onclick="togPw(this)">&#128065;</span>
+</div>
+</div>
+<div class="field">
+<label>
+<input type="checkbox" id="httpUploadSkipCert"> 跳过证书验证（自签名证书）
+</label>
+</div>
 </div>
 </div>
 </div>
@@ -178,6 +187,16 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <input type="range" id="jpeg_quality" min="1" max="63" value="12">
 <span class="range-val" id="jpegVal">12</span>
 </div>
+</div>
+<div class="field">
+<label>
+<input type="checkbox" id="vflip"> 垂直翻转（上下翻转）
+</label>
+</div>
+<div class="field">
+<label>
+<input type="checkbox" id="hmirror"> 水平镜像（左右翻转）
+</label>
 </div>
 <div class="field">
 <label>设备名称</label>
@@ -276,16 +295,18 @@ function loadConfig(){
   $('wifi_ssid').value=v.wifi_ssid||'';
   $('wifi_pass').value=v.wifi_pass||'';
   $('device_name').value=v.device_name||'';
-  $('ftp_host').value=v.ftp_host||'';
-  $('ftp_port').value=v.ftp_port||21;
-  $('ftp_user').value=v.ftp_user||'';
-  $('ftp_pass').value=v.ftp_pass||'';
-  $('ftp_path').value=v.ftp_path||'/MiBeeHomeCam';
-  $('ftp_enabled').checked=!!v.ftp_enabled;
+
+  $('uploadMethod').value=v.upload_method!=null?v.upload_method:0;
+  $('uploadBasePath').value=v.upload_base_path||'';
   $('webdav_url').value=v.webdav_url||'';
   $('webdav_user').value=v.webdav_user||'';
   $('webdav_pass').value=v.webdav_pass||'';
-  $('webdav_enabled').checked=!!v.webdav_enabled;
+  if(v.http_upload_url)$('httpUploadUrl').value=v.http_upload_url;
+  if(v.http_upload_user)$('httpUploadUser').value=v.http_upload_user;
+  $('httpUploadSkipCert').checked=!!v.http_upload_skip_cert;
+  $('vflip').checked=!!v.vflip;
+  $('hmirror').checked=!!v.hmirror;
+  onUploadMethodChange();
   $('resolution').value=v.resolution!=null?v.resolution:1;
   $('fps').value=v.fps||10;$('fpsVal').textContent=$('fps').value;
   $('segment_sec').value=v.segment_sec||300;
@@ -343,20 +364,22 @@ function gatherFormData(){
   wifi_ssid:$('wifi_ssid').value,
   wifi_pass:$('wifi_pass').value,
   device_name:$('device_name').value,
-  ftp_host:$('ftp_host').value,
-  ftp_port:parseInt($('ftp_port').value)||21,
-  ftp_user:$('ftp_user').value,
-  ftp_pass:$('ftp_pass').value,
-  ftp_path:$('ftp_path').value,
-  ftp_enabled:$('ftp_enabled').checked,
+
+  upload_method:parseInt($('uploadMethod').value)||0,
+  upload_base_path:$('uploadBasePath').value,
   webdav_url:$('webdav_url').value,
   webdav_user:$('webdav_user').value,
   webdav_pass:$('webdav_pass').value,
-  webdav_enabled:$('webdav_enabled').checked,
+  http_upload_url:$('httpUploadUrl').value,
+  http_upload_user:$('httpUploadUser').value,
+  http_upload_pass:$('httpUploadPass').value,
+  http_upload_skip_cert:$('httpUploadSkipCert').checked,
   resolution:parseInt($('resolution').value),
   fps:parseInt($('fps').value),
   segment_sec:parseInt($('segment_sec').value),
   jpeg_quality:parseInt($('jpeg_quality').value),
+  vflip:$('vflip').checked,
+  hmirror:$('hmirror').checked,
   timezone:$('timezone').value
  };
  /* Only send password if user changed it (not masked "****") */
@@ -410,6 +433,13 @@ function togPw(el){
  var inp=el.previousElementSibling;
  if(inp.type==='password'){inp.type='text';el.textContent='\uD83D\uDC41';}
  else{inp.type='password';el.textContent='\uD83D\uDC40';}
+}
+
+/* ---- Upload method visibility ---- */
+function onUploadMethodChange(){
+ var m=$('uploadMethod').value;
+ $('webdavSection').style.display=m==='1'?'block':'none';
+ $('httpSection').style.display=m==='2'?'block':'none';
 }
 window.onload=function(){loadConfig();updateAuthUI()};
 </script>

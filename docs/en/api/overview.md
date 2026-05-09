@@ -183,7 +183,33 @@ wifi_state 2
 # HELP upload_queue_size NAS upload queue size
 # TYPE upload_queue_size gauge
 upload_queue_size 0
+
+# HELP esp_uptime_seconds ESP32-S3 uptime in seconds
+# TYPE esp_uptime_seconds gauge
+esp_uptime_seconds 3600
+
+# HELP esp_min_free_heap_bytes Minimum free heap memory bytes since boot
+# TYPE esp_min_free_heap_bytes gauge
+esp_min_free_heap_bytes 150000
+
+# HELP esp_wifi_rssi_dbm WiFi RSSI in dBm
+# TYPE esp_wifi_rssi_dbm gauge
+esp_wifi_rssi_dbm -45
+
+# HELP esp_upload_success_total Total successful uploads
+# TYPE esp_upload_success_total counter
+esp_upload_success_total 42
+
+# HELP esp_upload_failure_total Total failed upload attempts
+# TYPE esp_upload_failure_total counter
+esp_upload_failure_total 3
+
+# HELP esp_rtsp_clients Current RTSP client count
+# TYPE esp_rtsp_clients gauge
+esp_rtsp_clients 0
 ```
+
+Total: 15 metrics (9 original + 6 new).
 
 **Prometheus Scrape Configuration**:
 
@@ -236,3 +262,22 @@ Web interface static files are stored in SPIFFS partition (~256KB), path prefix 
 | Receive Timeout | 30 seconds |
 | Send Timeout | 30 seconds |
 | URI Match Mode | Wildcard |
+
+### RTSP Real-time Stream
+
+RTSP server runs on port 554 (TCP-interleaved only), supporting standard RTSP protocol.
+
+| Method | Description |
+|--------|-------------|
+| OPTIONS | Returns list of supported methods |
+| DESCRIBE | Returns SDP session description |
+| SETUP | Creates session, sets transport parameters |
+| PLAY | Starts RTP data transmission |
+| TEARDOWN | Closes session |
+| GET_PARAMETER | Keep-alive heartbeat |
+
+**Connection URL**: `rtsp://<deviceIP>:554/stream`
+
+**Max Concurrent Clients**: 2
+
+**VLC Playback**: Open VLC → Media → Open Network Stream → Enter `rtsp://<deviceIP>:554/stream`

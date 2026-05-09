@@ -75,3 +75,20 @@ img.onerror = () => {
   setTimeout(startStream, 3000);
 };
 ```
+
+---
+
+## RTSP 实时流
+
+除了 HTTP MJPEG 流外，设备还提供 RTSP 实时流服务（MJPEG over RTP）。
+
+**协议**：RTSP（TCP-interleaved 模式，端口 554）
+
+**连接地址**：`rtsp://<设备IP>:554/stream`
+
+**最大并发客户端**：2
+
+**VLC 播放**：打开 VLC → 媒体 → 打开网络串流 → 输入 `rtsp://<设备IP>:554/stream`
+
+> ⚠️ RTSP 流与 HTTP MJPEG 流共享摄像头帧缓冲池（双缓冲，2 帧），两者可同时运行但可能出现帧竞争。
+> ⚠️ RTSP v1 不支持认证。

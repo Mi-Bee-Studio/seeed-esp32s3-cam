@@ -168,6 +168,10 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
     }
 
     s_initialized = true;
+
+    /* Apply initial flip/mirror settings */
+    camera_set_flip(false, false);
+    
     return ESP_OK;
 }
 
@@ -244,6 +248,35 @@ esp_err_t camera_set_resolution(camera_res_t res)
 
     s_current_res = res;
     ESP_LOGI(TAG, "Resolution set to %s", camera_res_to_str(res));
+    return ESP_OK;
+}
+
+/** @brief 设置摄像头垂直翻转和水平镜像
+ *
+ * 运行时修改传感器翻转设置，无需重新初始化摄像头。
+ * @param vflip 垂直翻转（true=翻转）
+ * @param hmirror 水平镜像（true=镜像）
+ * @return ESP_OK 成功，ESP_ERR_INVALID_STATE 未初始化，ESP_FAIL 设置失败
+ */
+esp_err_t camera_set_flip(bool vflip, bool hmirror)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    sensor_t *sensor = esp_camera_sensor_get();
+    if (!sensor) {
+        return ESP_FAIL;
+    }
+
+    if (sensor->set_vflip) {
+        sensor->set_vflip(sensor, vflip ? 1 : 0);
+    }
+    if (sensor->set_hmirror) {
+        sensor->set_hmirror(sensor, hmirror ? 1 : 0);
+    }
+
+    ESP_LOGI(TAG, "Flip/Mirror set: vflip=%d, hmirror=%d", vflip, hmirror);
     return ESP_OK;
 }
 

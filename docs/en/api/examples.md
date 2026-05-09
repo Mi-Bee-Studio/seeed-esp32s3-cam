@@ -209,28 +209,27 @@ curl -X POST http://192.168.4.1/api/time \
 ### NAS Upload Configuration
 
 ```bash
-# Configure FTP upload
+# Configure upload method as WebDAV
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
   -H "X-Password: admin" \
   -d '{
-    "ftp_host": "192.168.1.200",
-    "ftp_port": 21,
-    "ftp_user": "camuser",
-    "ftp_pass": "camsecret",
-    "ftp_path": "/MiBeeHomeCam",
-    "ftp_enabled": true
-  }'
-
-# Configure WebDAV upload
-curl -X POST http://192.168.4.1/api/config \
-  -H "Content-Type: application/json" \
-  -H "X-Password: admin" \
-  -d '{
+    "upload_method": 1,
     "webdav_url": "https://dav.example.com/MiBeeHomeCam",
     "webdav_user": "davuser",
     "webdav_pass": "davsecret",
     "webdav_enabled": true
+  }'
+
+# Configure upload method as HTTP(S)
+curl -X POST http://192.168.4.1/api/config \
+  -H "Content-Type: application/json" \
+  -H "X-Password: admin" \
+  -d '{
+    "upload_method": 2,
+    "http_upload_url": "https://upload.example.com/api/cam",
+    "http_upload_user": "httpuser",
+    "http_upload_pass": "httppassword"
   }'
 ```
 

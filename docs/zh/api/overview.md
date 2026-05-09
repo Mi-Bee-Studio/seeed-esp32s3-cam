@@ -110,7 +110,6 @@ SD 卡配置文件 > NVS 存储 > 编译时默认值
 ### SPIFFS 分区
 
 Web 界面静态文件存储在 SPIFFS 分区（约 256KB），路径前缀 `/spiffs/`。
-Web 界面静态文件存储在 SPIFFS 分区（约 256KB），路径前缀 `/spiffs/`。
 
 ### 服务器配置
 
@@ -224,8 +223,36 @@ wifi_state 2
 
 # HELP upload_queue_size NAS upload queue size
 # TYPE upload_queue_size gauge
+# HELP upload_queue_size NAS upload queue size
+# TYPE upload_queue_size gauge
 upload_queue_size 0
+
+# HELP esp_uptime_seconds ESP32-S3 uptime in seconds
+# TYPE esp_uptime_seconds gauge
+esp_uptime_seconds 3600
+
+# HELP esp_min_free_heap_bytes Minimum free heap memory bytes since boot
+# TYPE esp_min_free_heap_bytes gauge
+esp_min_free_heap_bytes 150000
+
+# HELP esp_wifi_rssi_dbm WiFi RSSI in dBm
+# TYPE esp_wifi_rssi_dbm gauge
+esp_wifi_rssi_dbm -45
+
+# HELP esp_upload_success_total Total successful uploads
+# TYPE esp_upload_success_total counter
+esp_upload_success_total 42
+
+# HELP esp_upload_failure_total Total failed upload attempts
+# TYPE esp_upload_failure_total counter
+esp_upload_failure_total 3
+
+# HELP esp_rtsp_clients Current RTSP client count
+# TYPE esp_rtsp_clients gauge
+esp_rtsp_clients 0
 ```
+
+共 15 项指标（9 项原有 + 6 项新增）。
 
 **Prometheus 抓取配置**：
 
@@ -237,14 +264,21 @@ scrape_configs:
       - targets: ['192.168.1.100:80']
 ```
 
-## 附录
-### 服务器配置
+### RTSP 实时流
 
-| 参数 | 值 |
-|------|-----|
-| 端口 | 80 |
-| 最大 URI 处理器 | 20 |
-| 任务栈大小 | 8192 字节 |
-| 接收超时 | 30 秒 |
-| 发送超时 | 30 秒 |
-| URI 匹配模式 | 通配符（wildcard） |
+RTSP 服务器运行在端口 554（TCP-interleaved only），支持标准 RTSP 协议。
+
+| 方法 | 说明 |
+|------|------|
+| OPTIONS | 返回支持的方法列表 |
+| DESCRIBE | 返回 SDP 会话描述 |
+| SETUP | 创建会话，设置传输参数 |
+| PLAY | 开始 RTP 数据传输 |
+| TEARDOWN | 关闭会话 |
+| GET_PARAMETER | 保活心跳 |
+
+**连接地址**：`rtsp://<设备IP>:554/stream`
+
+**最大并发客户端**：2
+
+**VLC 播放**：打开 VLC → 媒体 → 打开网络串流 → 输入 `rtsp://<设备IP>:554/stream`

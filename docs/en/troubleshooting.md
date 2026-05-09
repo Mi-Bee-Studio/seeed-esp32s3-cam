@@ -248,7 +248,7 @@ sdspi_device_config_t dev_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
 
 1. Confirm NAS server address, port, path configuration is correct
 2. Confirm username and password are correct
-3. Confirm FTP/WebDAV service is started
+3. Confirm WebDAV/HTTP(S) service is started
 4. Confirm device and NAS are on the same network
 5. Check serial log for error messages with `uploader` tag
 6. Check if consecutive failure count reached limit (pauses 5 minutes after 10 failures)

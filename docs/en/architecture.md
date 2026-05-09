@@ -2,12 +2,13 @@
 
 ## 1. System Overview
 
-The ESP32-S3 camera monitoring system is based on the FreeRTOS real-time operating system, running 14 loosely coupled C modules on the dual-core ESP32-S3. The system uses a hybrid event-driven and polling architecture, with camera frame data split into two outputs: real-time streaming and recording storage.
+The ESP32-S3 camera monitoring system is based on the FreeRTOS real-time operating system, running 16 loosely coupled C modules on the dual-core ESP32-S3. The system uses a hybrid event-driven and polling architecture, with camera frame data split into three outputs: real-time streaming (HTTP MJPEG + RTSP) and recording storage.
 
 ```
   Camera ──→ MJPEG Streamer ──→ HTTP Server ──→ Browser/Client
+          └→ RTSP Server ──────→ RTSP Client (VLC etc.)
           └→ Video Recorder ──→ SD Card (AVI segments)
-                             └→ NAS Uploader ──→ FTP / WebDAV
+                             └→ NAS Uploader ──→ WebDAV / HTTP(S) (mutually exclusive)
   Config Manager ←→ NVS ←→ SD Card Override (wifi.txt / nas.txt)
   WiFi Manager (AP/STA) → Time Sync (SNTP)
   Status LED ← LED Controller (GPIO21, active-low)
@@ -57,7 +58,7 @@ The ESP32-S3 camera monitoring system is based on the FreeRTOS real-time operati
 
 ## 3. Module Description
 
-The system has 14 modules, all located in the `main/` directory, each module with one `.c`/`.h` file pair.
+The system has 16 modules, all located in the `main/` directory, each module with one `.c`/`.h` file pair.
 
 | Module | File | Responsibility | Key Functions |
 |--------|------|----------------|---------------|
@@ -65,37 +66,39 @@ The system has 14 modules, all located in the `main/` directory, each module wit
 | Camera Driver | `camera_driver.c` | OV2640/OV3660 auto-detection, frame capture | `camera_init()`, `camera_capture()` |
 | Video Recorder | `video_recorder.c` | AVI MJPEG segmented recording, state machine | `recorder_start()`, `recorder_stop()` |
 | MJPEG Streamer | `mjpeg_streamer.c` | MJPEG real-time video stream push | `mjpeg_streamer_init()`, `mjpeg_streamer_register()` |
+| RTSP Server | `rtsp_server.c` | RTSP server, MJPEG over RTP, TCP-interleaved | `rtsp_server_start()` |
 | Web Server | `web_server.c` | HTTP server + REST API (10 endpoints) | `web_server_start()`, `web_server_get_handle()` |
 | WiFi Manager | `wifi_manager.c` | AP/STA dual mode, auto-selection | `wifi_init()`, `wifi_scan()` |
 | Config Manager | `config_manager.c` | NVS persistence, SD card override | `config_init()`, `config_save()`, `config_reset()` |
 | Storage Manager | `storage_manager.c` | SD card mount/unmount, circular cleanup | `storage_init()`, `storage_cleanup()` |
-| NAS Upload | `nas_uploader.c` | Queued upload scheduling, auto-retry | `nas_uploader_init()`, `nas_uploader_enqueue()` |
-| FTP Client | `ftp_client.c` | FTP protocol upload implementation | — |
+| NAS Upload | `nas_uploader.c` | Mutually exclusive upload scheduling (WebDAV or HTTP/HTTPS) | `nas_uploader_init()`, `nas_uploader_enqueue()` |
+| HTTP Upload Client | `http_upload_client.c` | HTTP/HTTPS PUT streaming upload | — |
 | WebDAV Client | `webdav_client.c` | WebDAV protocol upload implementation | — |
 | Status LED | `status_led.c` | 5 LED mode control | `led_init()`, `led_set_status()` |
 | Time Sync | `time_sync.c` | SNTP sync, manual time setting | `time_sync_init()`, `time_is_synced()` |
 | JSON Parser | `cJSON.c` | Third-party JSON library (removed in IDF v6.0) | — |
-
 ### Configuration Structure
 
 ```c
 typedef struct {
     char wifi_ssid[33];       // WiFi name
     char wifi_pass[64];       // WiFi password
-    char ftp_host[64];        // FTP server address
-    uint16_t ftp_port;        // FTP port
-    char ftp_user[32];        // FTP username
-    char ftp_pass[32];        // FTP password
-    char ftp_path[128];       // FTP remote path
-    bool ftp_enabled;         // FTP upload switch
-    char webdav_url[128];     // WebDAV URL
-    char webdav_user[32];     // WebDAV username
-    char webdav_pass[32];     // WebDAV password
-    bool webdav_enabled;      // WebDAV upload switch
+    uint8_t upload_method;    // 0=Disabled, 1=WebDAV, 2=HTTP/HTTPS
+    char upload_base_path[128]; // Upload base path
+    char webdav_url[128];      // WebDAV URL
+    char webdav_user[32];      // WebDAV username
+    char webdav_pass[32];      // WebDAV password
+    bool webdav_enabled;       // WebDAV upload switch
+    char http_upload_url[256]; // HTTP(S) upload URL
+    char http_upload_user[64]; // HTTP(S) username
+    char http_upload_pass[64]; // HTTP(S) password
+    bool http_upload_skip_cert_verify; // Skip HTTPS certificate verification
     uint8_t resolution;       // 0=VGA, 1=SVGA, 2=XGA
     uint8_t fps;              // 1-30
     uint16_t segment_sec;     // Segment duration (seconds)
     uint8_t jpeg_quality;     // 1-63
+    bool vflip;               // Vertical flip
+    bool hmirror;             // Horizontal mirror
     char web_password[32];    // Web management password
     char device_name[32];     // Device name
 } cam_config_t;
@@ -109,24 +112,24 @@ typedef struct {
 
 JPEG frames captured by the camera are written to AVI files by the recorder, triggering a callback chain after segment completion:
 
-```
 camera_capture()
     │
     ▼
-Video Recorder (recording_task, Core 0)
+    Video Recorder (recording_task, Core 0)
     │  ← Frame data written to AVI file
     │  ← Segmented by segment_sec duration
     │  ← Writes AVI idx1 index
     │
     ▼  Segment complete
-on_segment_complete(filepath, size)
+    on_segment_complete(filepath, size)
     │
     ├──→ nas_uploader_enqueue(filepath)
     │       │
     │       ▼
     │    Upload Task (Core 1)
-    │       ├── FTP upload (ftp_enabled)
-    │       └── WebDAV upload (webdav_enabled)
+    │       ├── upload_method=1 → WebDAV upload
+    │       ├── upload_method=2 → HTTP(S) upload
+    │       └── upload_method=0 → Skip upload
     │       Retry 3 times on failure, pause 5 minutes after 10 consecutive failures
     │
     └──→ storage_cleanup()
@@ -157,6 +160,24 @@ HTTP chunked transfer (multipart/x-mixed-replace)
 Browser real-time rendering
 ```
 
+### RTSP Data Flow
+
+```
+RTSP Client → TCP connection (port 554)
+    │
+    ├── DESCRIBE → SDP (JPEG/90000)
+    ├── SETUP → Session creation (TCP-interleaved)
+    ├── PLAY → Start RTP transmission
+    │       │
+    │       ▼  Loop capture (limited to 2 concurrent clients)
+    │   camera_capture() → JPEG frames
+    │       │
+    │       ▼  RFC 2435 RTP/JPEG packaging
+    │   RTP packets (MTU ≤ 1400) → TCP send
+    │
+    └── TEARDOWN → Close session
+```
+
 ---
 
 ## 5. FreeRTOS Task Table
@@ -165,6 +186,8 @@ Browser real-time rendering
 |-----------|----------|----------|------|------------|----------------|------|
 | `recorder` | `recording_task` | 5 (configMAX-2) | Core 0 | 4096 B | Continuous loop (frame capture) | video_recorder.c |
 | `upload` | `upload_task` | 3 | Core 1 | 6144 B | Queue blocking wait | nas_uploader.c |
+| `rtsp_listener` | `rtsp_server_listener` | 3 | Core 1 | 6144 B | Connection event-driven | rtsp_server.c |
+| `rtsp_client_N` | `rtsp_client_task` | 3 | Core 1 | 6144 B | Frame capture loop | rtsp_server.c |
 | `sd_monitor` | `sd_monitor_task` | 2 | Core 1 | 3072 B | 10-second polling | main.c |
 | `boot_btn` | `boot_button_monitor` | 1 | Any | 2048 B | 200ms polling | main.c |
 | `health_mon` | `health_monitor_task` | 1 | Core 1 | 3072 B | 60-second polling | main.c |
