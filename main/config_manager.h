@@ -66,5 +66,5 @@ cam_config_t* config_get(void);      // Returns pointer to current config in PSR
 esp_err_t config_save(void);         // Save current config to NVS
 /** @brief 恢复出厂默认配置并保存 */
 esp_err_t config_reset(void);        // Restore factory defaults
-/** @brief 从 SD 卡读取 wifi.txt 和 nas.txt 配置文件并覆盖当前配置 */
+/** @brief 从 SD 卡读取 wifi.txt、config.txt 和 nas.txt 配置文件并覆盖当前配置 */
 esp_err_t config_load_from_sd(void); // Read config/wifi.txt + config/nas.txt from SD

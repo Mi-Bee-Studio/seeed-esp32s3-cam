@@ -69,3 +69,6 @@ build_log.txt
 /*-check.png
 tmp/
 AGENTS.md
+docs/superpowers/
+.trae/
+.clangd

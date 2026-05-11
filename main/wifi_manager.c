@@ -45,93 +45,31 @@ static char s_ip_str[16] = "0.0.0.0";
 #define CONNECTED_BIT   BIT0
 #define SCAN_DONE_BIT   BIT1
 
-/* ---- reconnect timer (one-shot, 10 s) ---- */
+/* ---- reconnect timer with exponential backoff ---- */
+#define WIFI_RETRY_MIN_MS   3000
+#define WIFI_RETRY_MAX_MS   60000
 static TimerHandle_t s_reconnect_timer = NULL;
-static TaskHandle_t s_fallback_task = NULL;
-
-static void ap_fallback_task(void *arg);
+static uint32_t s_retry_interval_ms = WIFI_RETRY_MIN_MS;
 
 /* Forward declarations */
 static void get_ap_ssid(char *buf, size_t len);
 static void wifi_event_handler(void *arg, esp_event_base_t base,
                                int32_t id, void *event_data);
 
-/** @brief WiFi 重连定时器回调函数，10 秒后触发重连 */
+/** @brief WiFi 重连定时器回调函数，指数退避重试（3s→60s 上限） */
 static void reconnect_timer_cb(TimerHandle_t timer)
 {
     s_retry_count++;
-    ESP_LOGI(TAG, "Reconnect timer fired, retry %d", s_retry_count);
+    ESP_LOGI(TAG, "Reconnect timer fired, retry %d (interval %lu ms)", s_retry_count, (unsigned long)s_retry_interval_ms);
 
-    if (s_retry_count >= 20) {
-        ESP_LOGW(TAG, "STA failed %d times, falling back to AP mode", s_retry_count);
-        xTimerStop(s_reconnect_timer, 0);
-        /* Signal fallback task instead of doing heavy work in timer context */
-        if (s_fallback_task) {
-            xTaskNotifyGive(s_fallback_task);
-        }
-        return;
+    /* Exponential backoff: double interval each retry, cap at WIFI_RETRY_MAX_MS */
+    s_retry_interval_ms *= 2;
+    if (s_retry_interval_ms > WIFI_RETRY_MAX_MS) {
+        s_retry_interval_ms = WIFI_RETRY_MAX_MS;
     }
+    xTimerChangePeriod(s_reconnect_timer, pdMS_TO_TICKS(s_retry_interval_ms), portMAX_DELAY);
 
     esp_wifi_connect();
-}
-
-/** @brief AP 回退任务，等待定时器通知后执行 STA→AP 切换 */
-static void ap_fallback_task(void *arg)
-{
-    /* Wait for notification from timer callback */
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-
-    /* Tear down STA */
-    esp_wifi_stop();
-    esp_wifi_deinit();
-    if (s_netif_sta) {
-        esp_netif_destroy(s_netif_sta);
-        s_netif_sta = NULL;
-    }
-
-    /* Start AP mode */
-    s_netif_ap = esp_netif_create_default_wifi_ap();
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    cfg.espnow_max_encrypt_num = 0;  // Free all connection slots for AP clients
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
-                        IP_EVENT_ASSIGNED_IP_TO_CLIENT,
-                        wifi_event_handler, NULL, NULL));
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-
-    wifi_config_t ap_config = {0};
-    get_ap_ssid((char *)ap_config.ap.ssid, sizeof(ap_config.ap.ssid));
-    strlcpy((char *)ap_config.ap.password, "12345678", sizeof(ap_config.ap.password));
-    ap_config.ap.channel = 6;  // Avoid channel 1 on ESP32-S3 (known issue)
-    ap_config.ap.max_connection = 4;
-    ap_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
-
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW20);  // HT20 for better AP visibility
-
-    /* Set static IP for AP netif */
-    esp_netif_ip_info_t ip_info = {0};
-    IP4_ADDR(&ip_info.ip, 192, 168, 4, 1);
-    IP4_ADDR(&ip_info.gw, 192, 168, 4, 1);
-    IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
-    esp_netif_dhcps_stop(s_netif_ap);
-    esp_netif_set_ip_info(s_netif_ap, &ip_info);
-    esp_netif_dhcps_start(s_netif_ap);
-
-    snprintf(s_ip_str, sizeof(s_ip_str), "192.168.4.1");
-    s_state = WIFI_STATE_AP;
-    s_retry_count = 0;
-
-    led_set_status(LED_AP_MODE);
-    ESP_LOGI(TAG, "AP fallback started, SSID=%s, IP=192.168.4.1", ap_config.ap.ssid);
-
-    /* Task self-destructs after completing the fallback */
-    s_fallback_task = NULL;
-    vTaskDelete(NULL);
 }
 
 /* ---- MAC helper for AP SSID ---- */
@@ -174,6 +112,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
             snprintf(s_ip_str, sizeof(s_ip_str), IPSTR, IP2STR(&evt->ip_info.ip));
             s_state = WIFI_STATE_STA_CONNECTED;
             s_retry_count = 0;
+            s_retry_interval_ms = WIFI_RETRY_MIN_MS;
             xEventGroupSetBits(s_event_group, CONNECTED_BIT);
             ESP_LOGI(TAG, "WiFi connected, IP=%s", s_ip_str);
             break;
@@ -219,9 +158,6 @@ esp_err_t wifi_init(void)
         ESP_LOGE(TAG, "Failed to create reconnect timer");
         return ESP_ERR_NO_MEM;
     }
-
-    /* Create AP fallback task (suspended until needed) */
-    xTaskCreate(ap_fallback_task, "ap_fallback", 4096, NULL, 3, &s_fallback_task);
 
     /* Decide mode from config */
     cam_config_t *cfg = config_get();

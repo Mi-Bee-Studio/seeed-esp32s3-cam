@@ -173,6 +173,22 @@ static void parse_nas_txt(void)
     fclose(f);
 }
 
+/** @brief 从 SD 卡读取 config.txt 配置文件并覆盖 WiFi 配置 */
+static void parse_config_txt(void)
+{
+    FILE *f = fopen("/sdcard/config.txt", "r");
+    if (!f) return;
+
+    ESP_LOGI(TAG, "Found config.txt on SD card");
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
+        parse_line(line, "WIFI.SSID", s_config.wifi_ssid, sizeof(s_config.wifi_ssid));
+        parse_line(line, "WIFI.PASS", s_config.wifi_pass, sizeof(s_config.wifi_pass));
+    }
+    fclose(f);
+}
+
 /* ---- public API ---- */
 
 /** @brief 初始化配置模块，初始化 NVS 并加载存储的配置，无存储则使用默认值 */
@@ -309,6 +325,7 @@ esp_err_t config_reset(void)
 esp_err_t config_load_from_sd(void)
 {
     parse_wifi_txt();
+    parse_config_txt();
     parse_nas_txt();
 
     // If we parsed anything, persist back to NVS
