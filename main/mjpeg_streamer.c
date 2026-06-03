@@ -86,42 +86,37 @@ esp_err_t mjpeg_stream_handler(httpd_req_t *req)
             "Content-Type: image/jpeg\r\n"
             "Content-Length: %zu\r\n"
             "\r\n", frame.len);
-
         /* Send part header */
         if (httpd_resp_send_chunk(req, part_hdr, hdrlen) != ESP_OK) {
-            camera_return_fb(&frame);
-            break;
+            goto cleanup;
         }
 
         /* Send JPEG body in CHUNK_SIZE pieces */
         size_t remaining = frame.len;
         const uint8_t *ptr = frame.buf;
-        bool send_ok = true;
         while (remaining > 0) {
             size_t chunk = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : remaining;
             if (httpd_resp_send_chunk(req, (const char *)ptr, chunk) != ESP_OK) {
-                send_ok = false;
-                break;
+                goto cleanup;
             }
             ptr      += chunk;
             remaining -= chunk;
         }
 
         /* Trailing CRLF */
-        if (send_ok) {
-            if (httpd_resp_send_chunk(req, "\r\n", 2) != ESP_OK) {
-                send_ok = false;
-            }
+        if (httpd_resp_send_chunk(req, "\r\n", 2) != ESP_OK) {
+            goto cleanup;
         }
 
         camera_return_fb(&frame);
 
-        if (!send_ok) {
-            break;
-        }
-
         /* Frame-rate throttle */
         vTaskDelay(frame_delay);
+        continue;
+
+cleanup:
+        camera_return_fb(&frame);
+        break;
     }
 
     /* --- Cleanup --- */

@@ -387,26 +387,26 @@ esp_err_t webdav_upload(const webdav_config_t *cfg, const char *remote_path, con
     }
 
     /* Open local file */
-    FILE *f = fopen(local_path, "rb");
+    FILE *f = NULL;
+    esp_err_t result = ESP_FAIL;
+
+    f = fopen(local_path, "rb");
     if (!f) {
         ESP_LOGE(TAG, "Cannot open local file: %s", local_path);
-        free(url);
-        return ESP_ERR_NOT_FOUND;
+        result = ESP_ERR_NOT_FOUND;
+        goto cleanup;
     }
 
     /* Get file size */
     struct stat st;
     if (stat(local_path, &st) != 0) {
         ESP_LOGE(TAG, "Cannot stat local file: %s", local_path);
-        fclose(f);
-        free(url);
-        return ESP_FAIL;
+        goto cleanup;
     }
     long file_size = st.st_size;
 
     ESP_LOGI(TAG, "Uploading %s (%ld bytes) -> %s", local_path, file_size, remote_path);
 
-    esp_err_t result = ESP_FAIL;
 
     for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
         if (attempt > 0) {
@@ -496,7 +496,8 @@ esp_err_t webdav_upload(const webdav_config_t *cfg, const char *remote_path, con
         ESP_LOGW(TAG, "Upload failed with HTTP %d, attempt %d/%d", status, attempt + 1, MAX_RETRIES);
     }
 
-    fclose(f);
+    cleanup:
+    if (f) fclose(f);
     free(url);
     return result;
 }

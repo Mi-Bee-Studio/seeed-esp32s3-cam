@@ -219,18 +219,10 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     /* Mask password */
     cJSON_AddStringToObject(data, "wifi_pass", cfg->wifi_pass[0] ? "****" : "");
     cJSON_AddStringToObject(data, "device_name", cfg->device_name);
-
-    cJSON_AddNumberToObject(data, "upload_method", cfg->upload_method);
     cJSON_AddStringToObject(data, "upload_base_path", cfg->upload_base_path);
-
+    cJSON_AddBoolToObject(data, "webdav_enabled", cfg->webdav_enabled);
     cJSON_AddStringToObject(data, "webdav_url", cfg->webdav_url);
     cJSON_AddStringToObject(data, "webdav_user", cfg->webdav_user);
-    cJSON_AddBoolToObject(data, "webdav_enabled", cfg->webdav_enabled);
-
-    cJSON_AddStringToObject(data, "http_upload_url", cfg->http_upload_url);
-    cJSON_AddStringToObject(data, "http_upload_user", cfg->http_upload_user);
-    cJSON_AddStringToObject(data, "http_upload_pass", cfg->http_upload_pass[0] ? "****" : "");
-    cJSON_AddBoolToObject(data, "http_upload_skip_cert", cfg->http_upload_skip_cert);
 
     cJSON_AddNumberToObject(data, "resolution", cfg->resolution);
     cJSON_AddNumberToObject(data, "fps", cfg->fps);
@@ -265,6 +257,8 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     cam_config_t *cfg = config_get();
     cJSON *item;
 
+    config_lock();
+
     if ((item = cJSON_GetObjectItem(json, "wifi_ssid")))
         strncpy(cfg->wifi_ssid, item->valuestring, sizeof(cfg->wifi_ssid) - 1);
     if ((item = cJSON_GetObjectItem(json, "wifi_pass")) && strcmp(item->valuestring, "****") != 0)
@@ -272,29 +266,16 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     if ((item = cJSON_GetObjectItem(json, "device_name")))
         strncpy(cfg->device_name, item->valuestring, sizeof(cfg->device_name) - 1);
 
-    // FTP fields removed - replaced with upload_method and upload_base_path
-    if ((item = cJSON_GetObjectItem(json, "upload_method")))
-        cfg->upload_method = (uint8_t)item->valueint;
     if ((item = cJSON_GetObjectItem(json, "upload_base_path")))
         strncpy(cfg->upload_base_path, item->valuestring, sizeof(cfg->upload_base_path) - 1);
-
+    if ((item = cJSON_GetObjectItem(json, "webdav_enabled")))
+        cfg->webdav_enabled = item->valueint;
     if ((item = cJSON_GetObjectItem(json, "webdav_url")))
         strncpy(cfg->webdav_url, item->valuestring, sizeof(cfg->webdav_url) - 1);
     if ((item = cJSON_GetObjectItem(json, "webdav_user")))
         strncpy(cfg->webdav_user, item->valuestring, sizeof(cfg->webdav_user) - 1);
     if ((item = cJSON_GetObjectItem(json, "webdav_pass")) && strcmp(item->valuestring, "****") != 0)
         strncpy(cfg->webdav_pass, item->valuestring, sizeof(cfg->webdav_pass) - 1);
-    if ((item = cJSON_GetObjectItem(json, "webdav_enabled")))
-        cfg->webdav_enabled = item->valueint;
-
-    if ((item = cJSON_GetObjectItem(json, "http_upload_url")))
-        strncpy(cfg->http_upload_url, item->valuestring, sizeof(cfg->http_upload_url) - 1);
-    if ((item = cJSON_GetObjectItem(json, "http_upload_user")))
-        strncpy(cfg->http_upload_user, item->valuestring, sizeof(cfg->http_upload_user) - 1);
-    if ((item = cJSON_GetObjectItem(json, "http_upload_pass")) && strcmp(item->valuestring, "****") != 0)
-        strncpy(cfg->http_upload_pass, item->valuestring, sizeof(cfg->http_upload_pass) - 1);
-    if ((item = cJSON_GetObjectItem(json, "http_upload_skip_cert")))
-        cfg->http_upload_skip_cert = item->valueint;
 
     if ((item = cJSON_GetObjectItem(json, "resolution")))
         cfg->resolution = (uint8_t)item->valueint;
@@ -324,6 +305,7 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     cJSON_Delete(json);
     config_save();
 
+    config_unlock();
     return json_ok(req, NULL);
 }
 

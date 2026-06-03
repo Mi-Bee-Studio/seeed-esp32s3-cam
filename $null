@@ -1,0 +1,12 @@
+Activating ESP-IDF 6.0
+Setting IDF_PATH to 'C:\Users\micke\.espressif\v6.0.1\esp-idf'.
+* Checking python version ... 3.13.12
+* Checking python dependencies ... OK
+* Deactivating the current ESP-IDF environment (if any) ... OK
+* Establishing a new ESP-IDF environment ... OK
+* Identifying shell ... pwsh.exe
+* Detecting outdated tools in system ... Found tools that are not used by active ESP-IDF version.
+For removing old versions of ccache, cmake, components, esp-clang, esp-clang-libs, openocd-esp32, python, qemu-riscv32, qemu-xtensa, riscv32-esp-elf, xtensa-esp-elf use command 'python.exe C:\Users\micke\.espressif\v6.0.1\esp-idf\tools\idf_tools.py 
+uninstall'
+To free up even more space, remove installation packages of those tools.
+Use option python.exe C:\Users\micke\.espressif\v6.0.1\esp-idf\tools\idf_tools.py uninstall --remove-archives.

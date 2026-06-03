@@ -67,6 +67,9 @@
 /*  Private state                                                     */
 /* ------------------------------------------------------------------ */
 
+/* Maximum idx1 index entries to prevent unbounded realloc growth */
+#define MAX_IDX1_ENTRIES  100000
+
 static const char *TAG = "recorder";
 
 static recorder_state_t   s_state        = RECORDER_IDLE;
@@ -146,6 +149,10 @@ static esp_err_t idx1_append(idx1_t *idx, uint32_t offset, uint32_t size)
 {
     if (idx->count >= idx->capacity) {
         int new_cap = idx->capacity == 0 ? 512 : idx->capacity * 2;
+        if (new_cap > MAX_IDX1_ENTRIES) {
+            ESP_LOGE(TAG, "idx1 overflow: entries would exceed %d", MAX_IDX1_ENTRIES);
+            return ESP_ERR_NO_MEM;
+        }
         idx1_entry_t *new_buf = realloc(idx->entries, (size_t)new_cap * sizeof(idx1_entry_t));
         if (!new_buf) {
             ESP_LOGE(TAG, "idx1 realloc failed");
@@ -388,6 +395,12 @@ static esp_err_t write_avi_frame(const uint8_t *jpeg, size_t jpeg_len)
     /* Record in index */
     uint32_t chunk_offset = s_seg.movi_data_size;
     idx1_append(&s_seg.idx, chunk_offset, (uint32_t)jpeg_len);
+
+    /* Protect against SIZE_MAX overflow in alignment calculation */
+    if (jpeg_len == SIZE_MAX) {
+        ESP_LOGE(TAG, "jpeg_len overflow: SIZE_MAX");
+        return ESP_FAIL;
+    }
 
     size_t aligned_len = (jpeg_len + 1) & ~1u;
     s_seg.movi_data_size += AVI_FRAME_HDR_SIZE + (uint32_t)aligned_len;
