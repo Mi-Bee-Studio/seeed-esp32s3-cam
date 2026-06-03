@@ -261,7 +261,10 @@ static void list_files_recursive(const char *dirpath, file_info_t *files, int ma
         /* Use d_type to skip stat() for directories — huge speedup on SPI SD */
         if (entry->d_type == DT_DIR) {
             char fullpath[300];
-            snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name);
+            if (snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name) >= (int)sizeof(fullpath)) {
+                ESP_LOGW(TAG, "Path truncated: %s/%s", dirpath, entry->d_name);
+                continue;
+            }
             list_files_recursive(fullpath, files, max_count, count);
             continue;
         }
@@ -272,7 +275,10 @@ static void list_files_recursive(const char *dirpath, file_info_t *files, int ma
 
         /* Only stat() .avi files (for size and mtime) */
         char fullpath[300];
-        snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name);
+        if (snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name) >= (int)sizeof(fullpath)) {
+            ESP_LOGW(TAG, "Path truncated: %s/%s", dirpath, entry->d_name);
+            continue;
+        }
 
         struct stat st;
         if (stat(fullpath, &st) != 0) continue;
@@ -432,11 +438,16 @@ static bool find_oldest_recursive(const char *dirpath, char *oldest_name, size_t
 
     bool found = false;
     struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
+    int entries_checked = 0;
+    while ((entry = readdir(dir)) != NULL && entries_checked < 100) {
+        entries_checked++;
         if (entry->d_name[0] == '.') continue;
 
         char fullpath[300];
-        snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name);
+        if (snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name) >= (int)sizeof(fullpath)) {
+            ESP_LOGW(TAG, "Path truncated: %s/%s", dirpath, entry->d_name);
+            continue;
+        }
 
         struct stat st;
         if (stat(fullpath, &st) != 0) continue;

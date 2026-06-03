@@ -112,8 +112,11 @@ static void upload_task(void *arg)
         if (cfg->webdav_enabled && strlen(cfg->webdav_url) > 0) {
             webdav_config_t dav_cfg = {0};
             strncpy(dav_cfg.url, cfg->webdav_url, sizeof(dav_cfg.url) - 1);
+            dav_cfg.url[sizeof(dav_cfg.url) - 1] = '\0';
             strncpy(dav_cfg.user, cfg->webdav_user, sizeof(dav_cfg.user) - 1);
+            dav_cfg.user[sizeof(dav_cfg.user) - 1] = '\0';
             strncpy(dav_cfg.pass, cfg->webdav_pass, sizeof(dav_cfg.pass) - 1);
+            dav_cfg.pass[sizeof(dav_cfg.pass) - 1] = '\0';
 
             webdav_mkdir_recursive(&dav_cfg, remote_dir);
             if (webdav_upload(&dav_cfg, remote_path, filepath) == ESP_OK) {
