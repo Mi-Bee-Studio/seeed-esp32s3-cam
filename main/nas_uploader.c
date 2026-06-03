@@ -193,7 +193,7 @@ esp_err_t nas_uploader_enqueue(const char *filepath)
     strncpy(buf, filepath, sizeof(buf) - 1);
 
     if (xQueueSend(s_queue, buf, pdMS_TO_TICKS(100)) != pdTRUE) {
-        ESP_LOGW(TAG, "Upload queue full, dropping: %s", filepath);
+        ESP_LOGW(TAG, "Upload queue full, %d entries queued", s_queue_count);
         return ESP_ERR_NO_MEM;
     }
 

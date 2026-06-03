@@ -33,20 +33,27 @@ static SemaphoreHandle_t s_config_mutex = NULL;
 static const cam_config_t s_defaults = {
     .wifi_ssid      = "",
     .wifi_pass      = "",
-    .upload_base_path = "/MiBeeHomeCam",  // 上传基础路径
+    .wifi_ssid_2    = "",
+    .wifi_pass_2    = "",
+    .allow_ap_fallback = false,
+    .upload_base_path = "/MiBeeHomeCam",
     .webdav_url     = "",
     .webdav_user    = "",
     .webdav_pass    = "",
     .webdav_enabled = false,
-    .resolution     = 1,     // SVGA
+    .resolution     = 1,
     .fps            = 10,
     .segment_sec    = 300,
     .jpeg_quality   = 12,
     .vflip          = false,
     .hmirror         = false,
     .device_name    = "MiBeeHomeCam",
-    .timezone       = "CST-8",       // 中国标准时间 UTC+8
+    .timezone       = "CST-8",
+    .cleanup_low_pct  = 20,
+    .cleanup_high_pct = 30,
+    .frame_drop_enabled = true,
 };
+
 /* ---- internal helpers ---- */
 
 /** @brief 从 NVS 读取字符串值，不存在则保留默认值 */
@@ -82,7 +89,7 @@ static void parse_line(char *line, const char *key, char *dest, size_t dest_len)
     size_t klen = strlen(key);
     if (strncmp(line, key, klen) != 0) return;
     if (line[klen] != '=') return;
-
+    
     const char *val = line + klen + 1;
     // trim trailing \r\n
     size_t vlen = strlen(val);
@@ -142,6 +149,9 @@ static void parse_wifi_txt(void)
         if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
         parse_line(line, "SSID", s_config.wifi_ssid, sizeof(s_config.wifi_ssid));
         parse_line(line, "PASS", s_config.wifi_pass, sizeof(s_config.wifi_pass));
+        parse_line(line, "SSID2", s_config.wifi_ssid_2, sizeof(s_config.wifi_ssid_2));
+        parse_line(line, "PASS2", s_config.wifi_pass_2, sizeof(s_config.wifi_pass_2));
+        parse_bool(line, "ALLOW_AP_FALLBACK", &s_config.allow_ap_fallback);
         parse_line(line, "TIMEZONE", s_config.timezone, sizeof(s_config.timezone));
         parse_bool(line, "one_time", &one_time);
     }
@@ -188,6 +198,9 @@ static void parse_config_txt(void)
         if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
         parse_line(line, "WIFI.SSID", s_config.wifi_ssid, sizeof(s_config.wifi_ssid));
         parse_line(line, "WIFI.PASS", s_config.wifi_pass, sizeof(s_config.wifi_pass));
+        parse_line(line, "WIFI.SSID2", s_config.wifi_ssid_2, sizeof(s_config.wifi_ssid_2));
+        parse_line(line, "WIFI.PASS2", s_config.wifi_pass_2, sizeof(s_config.wifi_pass_2));
+        parse_bool(line, "ALLOW_AP_FALLBACK", &s_config.allow_ap_fallback);
         parse_bool(line, "one_time", &one_time);
     }
     fclose(f);
@@ -235,6 +248,9 @@ esp_err_t config_init(void)
 
     read_str(h, "wifi_ssid", s_config.wifi_ssid, sizeof(s_config.wifi_ssid));
     read_str(h, "wifi_pass", s_config.wifi_pass, sizeof(s_config.wifi_pass));
+    read_str(h, "wifi_ssid_2", s_config.wifi_ssid_2, sizeof(s_config.wifi_ssid_2));
+    read_str(h, "wifi_pass_2", s_config.wifi_pass_2, sizeof(s_config.wifi_pass_2));
+    nvs_get_u8(h, "allow_ap_fallback", (uint8_t *)&s_config.allow_ap_fallback);
     read_str(h, "upload_base_path", s_config.upload_base_path, sizeof(s_config.upload_base_path));
     nvs_get_u8(h, "webdav_enabled", (uint8_t *)&s_config.webdav_enabled);
     read_str(h, "webdav_url", s_config.webdav_url, sizeof(s_config.webdav_url));
@@ -249,6 +265,9 @@ esp_err_t config_init(void)
     read_str(h, "web_password", s_config.web_password, sizeof(s_config.web_password));
     read_str(h, "device_name", s_config.device_name, sizeof(s_config.device_name));
     read_str(h, "timezone", s_config.timezone, sizeof(s_config.timezone));
+    nvs_get_u8(h, "cleanup_low", &s_config.cleanup_low_pct);
+    nvs_get_u8(h, "frame_drop", (uint8_t *)&s_config.frame_drop_enabled);
+    nvs_get_u8(h, "cleanup_high", &s_config.cleanup_high_pct);
 
     /* ---- Legacy FTP config migration check ---- */
     uint8_t old_ftp_enabled = 0;
@@ -281,6 +300,7 @@ esp_err_t config_init(void)
     ESP_LOGI(TAG, "Config loaded from NVS");
     return ESP_OK;
 }
+
 /** @brief 获取当前配置指针（指向全局静态配置结构体） */
 cam_config_t* config_get(void)
 {
@@ -296,6 +316,9 @@ esp_err_t config_save(void)
 
     write_str(h, "wifi_ssid", s_config.wifi_ssid);
     write_str(h, "wifi_pass", s_config.wifi_pass);
+    write_str(h, "wifi_ssid_2", s_config.wifi_ssid_2);
+    write_str(h, "wifi_pass_2", s_config.wifi_pass_2);
+    nvs_set_u8(h, "allow_ap_fallback", s_config.allow_ap_fallback ? 1 : 0);
     write_str(h, "upload_base_path", s_config.upload_base_path);
     write_str(h, "webdav_url", s_config.webdav_url);
     write_str(h, "webdav_user", s_config.webdav_user);
@@ -310,6 +333,9 @@ esp_err_t config_save(void)
     write_str(h, "web_password", s_config.web_password);
     write_str(h, "device_name", s_config.device_name);
     write_str(h, "timezone", s_config.timezone);
+    nvs_set_u8(h, "cleanup_low", s_config.cleanup_low_pct);
+    nvs_set_u8(h, "cleanup_high", s_config.cleanup_high_pct);
+    nvs_set_u8(h, "frame_drop", s_config.frame_drop_enabled ? 1 : 0);
 
     err = nvs_commit(h);
     nvs_close(h);

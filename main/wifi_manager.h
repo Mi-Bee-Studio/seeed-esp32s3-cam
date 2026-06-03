@@ -58,3 +58,7 @@ int wifi_scan(wifi_ap_info_t *aps, int max_count);   // Returns number of APs fo
 bool wifi_is_sta(void);             // true if in STA mode (or trying)
 /** @brief 获取 STA 模式的 netif 句柄 */
 struct esp_netif_obj *wifi_get_sta_netif(void);
+/** @brief 获取 mDNS 主机名（mibee_homecam-XXXX 格式） */
+/** @brief 获取当前连接的 SSID（STA 模式），空字符串表示未连接或 AP 模式 */
+const char *wifi_get_current_ssid(void);
+const char *wifi_get_mdns_hostname(void);

@@ -34,6 +34,7 @@
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "freertos/FreeRTOS.h"
+#include "config_manager.h"
 #include "freertos/semphr.h"
 
 static const char *TAG = "storage";
@@ -46,8 +47,6 @@ static const char *TAG = "storage";
 
 #define RECORDINGS_PATH  "/sdcard/recordings"
 #define RECORDINGS_SUFFIX ".avi"
-#define CLEANUP_LOW_PCT  20.0f
-#define CLEANUP_HIGH_PCT 30.0f
 
 static bool s_sd_available = false;
 static SemaphoreHandle_t s_sd_mutex = NULL;
@@ -533,7 +532,7 @@ esp_err_t storage_cleanup(void)
     float free_pct = storage_get_free_percent();
     ESP_LOGI(TAG, "Storage free: %.1f%%", free_pct);
 
-    if (free_pct >= CLEANUP_LOW_PCT) {
+    if (free_pct >= (float)config_get()->cleanup_low_pct) {
         xSemaphoreGive(s_sd_mutex);
         return ESP_OK;   // plenty of space
     }
@@ -542,7 +541,7 @@ esp_err_t storage_cleanup(void)
     xSemaphoreGive(s_sd_mutex);
 
     int deleted = 0;
-    while (storage_get_free_percent() < CLEANUP_HIGH_PCT) {
+    while (storage_get_free_percent() < (float)config_get()->cleanup_high_pct) {
         esp_err_t err = storage_delete_oldest();
         if (err != ESP_OK) break;
         deleted++;
