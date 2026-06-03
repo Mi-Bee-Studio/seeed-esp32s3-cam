@@ -31,6 +31,7 @@
 #include "esp_netif.h"
 #include "lwip/ip_addr.h"
 #include "mdns.h"
+#include "logging.h"
 
 static const char *TAG = "wifi";
 
@@ -212,6 +213,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
             s_state = WIFI_STATE_STA_DISCONNECTED;
             xEventGroupClearBits(s_event_group, CONNECTED_BIT);
             ESP_LOGW(TAG, "WiFi disconnected, retrying in 5 s");
+            LOG_EVENT(LOG_EVENT_WIFI_DISCONNECTED, "retry_count=%d", s_retry_count);
             if (s_reconnect_timer) {
                 xTimerReset(s_reconnect_timer, portMAX_DELAY);
             }
@@ -240,20 +242,11 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
             if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
                 strlcpy(s_current_ssid, (char *)ap_info.ssid, sizeof(s_current_ssid));
                 ESP_LOGI(TAG, "WiFi connected to %s, IP=%s", s_current_ssid, s_ip_str);
+                LOG_EVENT(LOG_EVENT_WIFI_CONNECTED, "ssid=%s ip=%s", s_current_ssid, s_ip_str);
             } else {
                 ESP_LOGI(TAG, "WiFi connected, IP=%s", s_ip_str);
             }
             
-            start_mdns_service();
-            break;
-        }
-            ip_event_got_ip_t *evt = (ip_event_got_ip_t *)event_data;
-            snprintf(s_ip_str, sizeof(s_ip_str), IPSTR, IP2STR(&evt->ip_info.ip));
-            s_state = WIFI_STATE_STA_CONNECTED;
-            s_retry_count = 0;
-            s_retry_interval_ms = WIFI_RETRY_MIN_MS;
-            xEventGroupSetBits(s_event_group, CONNECTED_BIT);
-            ESP_LOGI(TAG, "WiFi connected, IP=%s", s_ip_str);
             start_mdns_service();
             break;
         }
@@ -381,6 +374,7 @@ esp_err_t wifi_start_ap(void)
     s_state = WIFI_STATE_AP;
 
     ESP_LOGI(TAG, "AP mode started, SSID=%s, IP=192.168.4.1", ap_config.ap.ssid);
+    LOG_EVENT(LOG_EVENT_WIFI_AP_STARTED, "ssid=%s", ap_config.ap.ssid);
     start_mdns_service();
     return ESP_OK;
 }

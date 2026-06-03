@@ -21,6 +21,7 @@
 #include "config_manager.h"
 #include "time_sync.h"
 #include "status_led.h"
+#include "logging.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -371,6 +372,7 @@ static esp_err_t open_segment(uint16_t w, uint16_t h, uint8_t fps)
     s_seg.start_ms       = s_seg_elapsed_ms();
 
     ESP_LOGI(TAG, "Started %s", s_current_file);
+    LOG_EVENT(LOG_EVENT_REC_STARTED, "file=%s", s_current_file);
     return ESP_OK;
 }
 
@@ -468,6 +470,8 @@ static void close_segment(void)
     float mb = (float)file_size / (1024.0f * 1024.0f);
     ESP_LOGI(TAG, "Segment complete: %s  size=%.1f MB  frames=%lu",
              s_current_file, mb, (unsigned long)s_seg.frame_count);
+    LOG_EVENT(LOG_EVENT_SEGMENT_COMPLETE, "file=%s size=%.1fMB frames=%lu",
+             s_current_file, mb, (unsigned long)s_seg.frame_count);
 
     idx1_free(&s_seg.idx);
 }
@@ -539,6 +543,9 @@ static void recording_task(void *arg)
             /* Throttle warning to max 1/sec */
             if (cycle_start_us - s_last_drop_log_us > 1000000) {
                 ESP_LOGW(TAG, "Frame dropped: cycle=%lldms total_dropped=%lu",
+                         (long long)(cycle_elapsed_us / 1000),
+                         (unsigned long)s_frames_dropped);
+                LOG_EVENT(LOG_EVENT_FRAME_DROP, "cycle=%lldms total=%lu",
                          (long long)(cycle_elapsed_us / 1000),
                          (unsigned long)s_frames_dropped);
                 s_last_drop_log_us = cycle_start_us;
@@ -682,6 +689,7 @@ esp_err_t recorder_start(void)
 
     xSemaphoreGive(s_mutex);
     ESP_LOGI(TAG, "Recording started");
+    LOG_EVENT(LOG_EVENT_REC_STARTED, "recording started");
     return ESP_OK;
 }
 
@@ -715,6 +723,7 @@ esp_err_t recorder_stop(void)
     }
 
     ESP_LOGI(TAG, "Recording stopped");
+    LOG_EVENT(LOG_EVENT_REC_STOPPED, "recording stopped");
     return ESP_OK;
 }
 
