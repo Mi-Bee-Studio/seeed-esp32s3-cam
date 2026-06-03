@@ -51,12 +51,21 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .btn-rec.stop:hover{background:#c0392b}
 .btn-rec:disabled{opacity:.5;cursor:not-allowed}
 .rec-actions{display:flex;gap:8px;margin-top:8px}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);padding:10px 24px;border-radius:8px;font-size:14px;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none;font-weight:500}
+.toast.show{opacity:1}
+.toast.success,.toast.ok{background:#7C3AED;color:#fff}
+.toast.error,.toast.err{background:#e74c3c;color:#fff}
+.toast.warning{background:#e67e22;color:#fff}
+.toast.info{background:#1565c0;color:#fff}
+.net-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:6px;background:#4CAF50;box-shadow:0 0 4px rgba(76,175,80,.5);transition:background .3s,box-shadow .3s}
+.net-dot.offline{background:#e74c3c;box-shadow:0 0 4px rgba(231,76,60,.5);animation:pulse 1s infinite}
 </style>
 </head>
 <body>
 <div class="header">
 <span>&#128247;</span>
 <h1>MiBeeHomeCam <span class="ver">v0.1</span></h1>
+<span class="net-dot" id="netDot"></span>
 </div>
 <div class="main">
 
@@ -107,6 +116,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </div>
 
 </div>
+<div class="toast" id="toast"></div>
 
 <nav class="bottom-nav">
 <a href="/" class="active">&#128202; 仪表盘</a>
@@ -132,9 +142,32 @@ function authFetch(url,opts){
 function promptLogin(cb){
  var p=prompt('请输入管理密码:');if(!p)return;
  fetch('/api/status',{headers:{'X-Password':p}}).then(function(r){
-  if(r.ok){setPw(p);if(cb)cb()}else{alert('密码错误');promptLogin(cb)}
+  if(r.ok){setPw(p);if(cb)cb()}else{showToast('密码错误','error');promptLogin(cb)}
  })
 }
+
+/* ---- Toast & Network Status ---- */
+var toastTimer=null;
+function showToast(msg,type,duration){
+ type=type||'success';duration=duration||3000;
+ var t=document.getElementById('toast');if(!t)return;
+ t.textContent=msg;t.className='toast show '+type;
+ clearTimeout(toastTimer);
+ toastTimer=setTimeout(function(){t.className='toast'},duration);
+}
+
+function updateNetDot(online){
+ var d=document.getElementById('netDot');if(!d)return;
+ d.className='net-dot '+(online?'online':'offline');
+ d.title=online?'网络已连接':'网络已断开';
+}
+window.addEventListener('offline',function(){
+ updateNetDot(false);showToast('网络已断开','error',5000);
+});
+window.addEventListener('online',function(){
+ updateNetDot(true);showToast('网络已恢复','success');
+});
+updateNetDot(navigator.onLine);
 
 /* ---- Recording Control ---- */
 var _recBusy=false;
@@ -150,8 +183,8 @@ function toggleRec(){
  authFetch('/api/record?action='+action,{method:'POST'}).then(function(r){return r.json()}).then(function(d){
   _recBusy=false;
   if(d.ok)refresh();
-  else alert('操作失败: '+(d.error||'未知错误'));
- }).catch(function(e){_recBusy=false;console.error(e)})
+  else showToast('操作失败: '+(d.error||'未知错误'),'error');
+ }).catch(function(e){_recBusy=false;showToast('操作失败: '+(e.message||'网络错误'),'error');console.error(e)})
 }
 
 function fmtTime(s){

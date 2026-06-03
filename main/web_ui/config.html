@@ -49,6 +49,11 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .toast.show{opacity:1}
 .toast.ok{background:#7C3AED;color:#fff}
 .toast.err{background:#e74c3c;color:#fff}
+.toast.success,.toast.ok{background:#7C3AED;color:#fff}
+.toast.warning{background:#e67e22;color:#fff}
+.toast.info{background:#1565c0;color:#fff}
+.net-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:6px;background:#4CAF50;box-shadow:0 0 4px rgba(76,175,80,.5);transition:background .3s,box-shadow .3s}
+.net-dot.offline{background:#e74c3c;box-shadow:0 0 4px rgba(231,76,60,.5);animation:pulse 1s infinite}
 .checkbox-row{display:flex;align-items:center;margin-bottom:10px}
 .checkbox-row label{margin-bottom:0;font-size:14px;color:#333;cursor:pointer}
 .sub-section{margin-top:12px}
@@ -62,6 +67,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <div class="header">
 <span>&#9881;</span>
 <h1>MiBeeHomeCam <span class="ver">配置</span></h1>
+<span class="net-dot" id="netDot"></span>
 <span style="margin-left:auto;cursor:pointer;font-size:12px;opacity:.8" id="authBtn" onclick="toggleAuth()">🔒 登录</span>
 </div>
 <div class="main">
@@ -288,7 +294,7 @@ function setStoredPassword(p){localStorage.setItem('cam_password',p)}
 function clearStoredPassword(){localStorage.removeItem('cam_password')}
 function authHeaders(){var p=getStoredPassword();return p?{'X-Password':p}:{}}
 function authFetch(url,opts){opts=opts||{};opts.headers=Object.assign({},opts.headers||{},authHeaders());return fetch(url,opts).then(function(r){if(r.status===401){clearStoredPassword();showLoginDialog();throw new Error('Unauthorized')}return r})}
-function showLoginDialog(cb){var p=prompt('请输入管理密码:');if(!p)return;fetch('/api/status',{headers:{'X-Password':p}}).then(function(r){if(r.ok){setStoredPassword(p);updateAuthUI();if(cb)cb()}else{alert('密码错误');showLoginDialog(cb)}})}
+function showLoginDialog(cb){var p=prompt('请输入管理密码:');if(!p)return;fetch('/api/status',{headers:{'X-Password':p}}).then(function(r){if(r.ok){setStoredPassword(p);updateAuthUI();if(cb)cb()}else{showToast('密码错误','error');showLoginDialog(cb)}})}
 function requireAuth(cb){if(getStoredPassword())cb();else showLoginDialog(cb)}
 function updateAuthUI(){var btn=document.getElementById('authBtn');if(btn)btn.textContent=getStoredPassword()?'🔓 登出':'🔒 登录'}
 function toggleAuth(){if(getStoredPassword()){clearStoredPassword();updateAuthUI()}else showLoginDialog()}
@@ -297,13 +303,33 @@ function $(s){return document.getElementById(s)}
 
 /* ---- Toast ---- */
 var toastTimer=null;
-function showToast(msg,isErr){
+function showToast(msg,type,duration){
+ type=type||'success';duration=duration||3000;
+ var t=$('toast');if(!t)return;
+ t.textContent=msg;t.className='toast show '+type;
+ clearTimeout(toastTimer);
+ toastTimer=setTimeout(function(){t.className='toast'},duration);
+}
  var t=$('toast');
  t.textContent=msg;
  t.className='toast show '+(isErr?'err':'ok');
  clearTimeout(toastTimer);
  toastTimer=setTimeout(function(){t.className='toast'},3000);
 }
+
+/* ---- Network Status ---- */
+function updateNetDot(online){
+ var d=document.getElementById('netDot');if(!d)return;
+ d.className='net-dot '+(online?'online':'offline');
+ d.title=online?'网络已连接':'网络已断开';
+}
+window.addEventListener('offline',function(){
+ updateNetDot(false);showToast('网络已断开','error',5000);
+});
+window.addEventListener('online',function(){
+ updateNetDot(true);showToast('网络已恢复','success');
+});
+updateNetDot(navigator.onLine);
 
 /* ---- Range sliders ---- */
 $('fps').oninput=function(){$('fpsVal').textContent=this.value};
@@ -373,7 +399,7 @@ function scanWiFi(){
  btn.disabled=true;btn.textContent='扫描中...';
  fetch('/api/scan').then(function(r){return r.json()}).then(function(d){
   btn.disabled=false;btn.textContent='扫描网络';
-  if(!d.ok){showToast('扫描失败',true);return}
+  if(!d.ok){showToast('扫描失败','error');return}
   var sel=$('scanResult');
   sel.innerHTML='<option value="">-- 选择网络 --</option>';
   var nets=d.data.networks||[];
@@ -392,7 +418,7 @@ function scanWiFi(){
   showToast('发现 '+nets.length+' 个网络');
  }).catch(function(e){
   btn.disabled=false;btn.textContent='扫描网络';
-  showToast('扫描失败',true);console.error(e);
+  showToast('扫描失败','error');console.error(e);
  });
 }
 
@@ -436,7 +462,10 @@ function gatherFormData(){
 function saveConfig(){
  var newPw=$('web_password').value;
  var confirmPw=$('web_password_confirm').value;
- if(newPw&&newPw!=='****'&&newPw!==confirmPw){showToast('两次输入的密码不一致',true);return}
+ if(newPw&&newPw!=='****'&&newPw!==confirmPw){showToast('两次输入的密码不一致','error');return}
+ var saveBtn=document.querySelector('.btn-save');
+ if(saveBtn.dataset.loading==='true')return;
+ saveBtn.dataset.loading='true';saveBtn.disabled=true;saveBtn.innerHTML='⏳ 保存中...';
  requireAuth(function(){
   var cfg=gatherFormData();
   authFetch('/api/config',{
@@ -445,8 +474,10 @@ function saveConfig(){
    body:JSON.stringify(cfg)
   }).then(function(r){return r.json()}).then(function(d){
    if(d.ok){showToast('配置已保存');$('web_password_confirm').value='';loadConfig()}
-   else showToast('保存失败: '+(d.error||'未知错误'),true);
-  }).catch(function(e){showToast('保存失败',true);console.error(e)});
+   else showToast('保存失败: '+(d.error||'未知错误'),'error');
+ }).catch(function(e){showToast('保存失败','error');console.error(e)}).then(function(){
+   saveBtn.dataset.loading='false';saveBtn.disabled=false;saveBtn.textContent='保存配置';
+  });
  });
 }
 
@@ -464,7 +495,7 @@ function factoryReset(){
   authFetch('/api/reset',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
    if(d.ok) showToast('正在恢复出厂设置...');
    else showToast('操作失败: '+(d.error||'未知错误'),true);
-  }).catch(function(e){showToast('操作失败',true);console.error(e)});
+  }).catch(function(e){showToast('操作失败','error');console.error(e)});
  });
 }
 

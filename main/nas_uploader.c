@@ -28,6 +28,7 @@
 #include <string.h>
 #include <stdio.h>
 static const char *TAG = "uploader";
+#include "logging.h"
 
 #define UPLOAD_QUEUE_SIZE    16
 #define MAX_RETRIES          3
@@ -118,6 +119,7 @@ static void upload_task(void *arg)
             strncpy(dav_cfg.pass, cfg->webdav_pass, sizeof(dav_cfg.pass) - 1);
             dav_cfg.pass[sizeof(dav_cfg.pass) - 1] = '\0';
 
+            LOG_EVENT(LOG_EVENT_UPLOAD_STARTED, "file=%s method=webdav", filepath);
             webdav_mkdir_recursive(&dav_cfg, remote_dir);
             if (webdav_upload(&dav_cfg, remote_path, filepath) == ESP_OK) {
                 success = true;
@@ -132,11 +134,14 @@ static void upload_task(void *arg)
             time_get_str(s_last_upload_str, sizeof(s_last_upload_str));
             s_upload_success++;
             ESP_LOGI(TAG, "Upload success: %s", filepath);
+            LOG_EVENT(LOG_EVENT_UPLOAD_SUCCESS, "file=%s", filepath);
         } else {
             s_consec_fails++;
             s_upload_failure++;
             ESP_LOGW(TAG, "Upload failed (%d consecutive): %s",
                      s_consec_fails, filepath);
+            LOG_EVENT(LOG_EVENT_UPLOAD_FAILED, "file=%s consec_fails=%d",
+                     filepath, s_consec_fails);
 
             if (s_consec_fails >= MAX_CONSEC_FAILS) {
                 s_paused_until_ms = esp_timer_get_time() / 1000 + PAUSE_DURATION_MS;
@@ -194,6 +199,7 @@ esp_err_t nas_uploader_enqueue(const char *filepath)
 
     if (xQueueSend(s_queue, buf, pdMS_TO_TICKS(100)) != pdTRUE) {
         ESP_LOGW(TAG, "Upload queue full, %d entries queued", s_queue_count);
+        LOG_EVENT(LOG_EVENT_QUEUE_FULL, "queue_count=%d", s_queue_count);
         return ESP_ERR_NO_MEM;
     }
 

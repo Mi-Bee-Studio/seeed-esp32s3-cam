@@ -36,6 +36,7 @@
 #include "freertos/FreeRTOS.h"
 #include "config_manager.h"
 #include "freertos/semphr.h"
+#include "logging.h"
 
 static const char *TAG = "storage";
 
@@ -173,6 +174,7 @@ esp_err_t storage_init(void)
 
     // Print card info
     ESP_LOGI(TAG, "SD card mounted OK (SPI mode)");
+    LOG_EVENT(LOG_EVENT_SD_INSERTED, "card_init name=%s", s_card->cid.name);
     ESP_LOGI(TAG, "  Type: %s", s_card->is_mmc ? "MMC" : "SD");
     ESP_LOGI(TAG, "  Name: %s", s_card->cid.name);
     ESP_LOGI(TAG, "  Size: %lluMB", ((uint64_t)s_card->csd.capacity) * s_card->csd.sector_size / (1024 * 1024));
@@ -531,6 +533,7 @@ esp_err_t storage_cleanup(void)
 
     float free_pct = storage_get_free_percent();
     ESP_LOGI(TAG, "Storage free: %.1f%%", free_pct);
+    LOG_EVENT(LOG_EVENT_SD_CLEANUP_STARTED, "free=%.1f%% threshold=%d", free_pct, config_get()->cleanup_low_pct);
 
     if (free_pct >= (float)config_get()->cleanup_low_pct) {
         xSemaphoreGive(s_sd_mutex);
@@ -550,6 +553,7 @@ esp_err_t storage_cleanup(void)
 
     float new_pct = storage_get_free_percent();
     ESP_LOGI(TAG, "Cleanup done: deleted %d files, free now %.1f%%", deleted, new_pct);
+    LOG_EVENT(LOG_EVENT_SD_CLEANUP_DONE, "deleted=%d free=%.1f%%", deleted, new_pct);
     return ESP_OK;
 }
 
@@ -581,6 +585,7 @@ void storage_set_unavailable(void)
 {
     s_sd_available = false;
     ESP_LOGW(TAG, "SD card marked unavailable");
+    LOG_EVENT(LOG_EVENT_SD_REMOVED, "sd_marked_unavailable");
 }
 
 /**
