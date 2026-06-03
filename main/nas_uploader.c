@@ -17,7 +17,6 @@
 
 #include "nas_uploader.h"
 #include "webdav_client.h"
-#include "http_upload_client.h"
 #include "config_manager.h"
 #include "time_sync.h"
 #include "esp_log.h"
@@ -109,49 +108,19 @@ static void upload_task(void *arg)
         /* ---- Upload dispatch ---- */
         esp_task_wdt_reset();
 
-        switch (cfg->upload_method) {
-        case 0: /* 禁用 */
-            ESP_LOGD(TAG, "Upload disabled, skipping: %s", filepath);
-            success = true;
-            break;
+        /* ---- Upload dispatch ---- */
+        if (cfg->webdav_enabled && strlen(cfg->webdav_url) > 0) {
+            webdav_config_t dav_cfg = {0};
+            strncpy(dav_cfg.url, cfg->webdav_url, sizeof(dav_cfg.url) - 1);
+            strncpy(dav_cfg.user, cfg->webdav_user, sizeof(dav_cfg.user) - 1);
+            strncpy(dav_cfg.pass, cfg->webdav_pass, sizeof(dav_cfg.pass) - 1);
 
-        case 1: /* WebDAV */
-            if (strlen(cfg->webdav_url) > 0) {
-                webdav_config_t dav_cfg = {0};
-                strncpy(dav_cfg.url, cfg->webdav_url, sizeof(dav_cfg.url) - 1);
-                strncpy(dav_cfg.user, cfg->webdav_user, sizeof(dav_cfg.user) - 1);
-                strncpy(dav_cfg.pass, cfg->webdav_pass, sizeof(dav_cfg.pass) - 1);
-
-                webdav_mkdir_recursive(&dav_cfg, remote_dir);
-                if (webdav_upload(&dav_cfg, remote_path, filepath) == ESP_OK) {
-                    success = true;
-                }
-            } else {
-                ESP_LOGW(TAG, "WebDAV selected but URL not configured");
+            webdav_mkdir_recursive(&dav_cfg, remote_dir);
+            if (webdav_upload(&dav_cfg, remote_path, filepath) == ESP_OK) {
+                success = true;
             }
-            break;
-
-        case 2: /* HTTP/HTTPS */ {
-            if (strlen(cfg->http_upload_url) > 0) {
-                http_upload_config_t http_cfg = {0};
-                strncpy(http_cfg.url, cfg->http_upload_url, sizeof(http_cfg.url) - 1);
-                strncpy(http_cfg.user, cfg->http_upload_user, sizeof(http_cfg.user) - 1);
-                strncpy(http_cfg.pass, cfg->http_upload_pass, sizeof(http_cfg.pass) - 1);
-                http_cfg.skip_cert_verify = cfg->http_upload_skip_cert;
-
-                http_upload_mkdir(&http_cfg, remote_dir);
-                if (http_upload_file(&http_cfg, remote_path, filepath) == ESP_OK) {
-                    success = true;
-                }
-            } else {
-                ESP_LOGW(TAG, "HTTP upload selected but URL not configured");
-            }
-            break;
-        }
-
-        default:
-            ESP_LOGW(TAG, "Unknown upload_method %d, skipping", cfg->upload_method);
-            break;
+        } else {
+            ESP_LOGD(TAG, "Upload disabled or not configured, skipping: %s", filepath);
         }
 
         /* ---- Handle result ---- */

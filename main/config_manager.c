@@ -22,24 +22,22 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 static const char *TAG = "config";
 
 static cam_config_t s_config;
 
+static SemaphoreHandle_t s_config_mutex = NULL;
 static const cam_config_t s_defaults = {
     .wifi_ssid      = "",
     .wifi_pass      = "",
-    .upload_method = 0,         // 0=禁用, 1=WebDAV, 2=HTTP/HTTPS
     .upload_base_path = "/MiBeeHomeCam",  // 上传基础路径
     .webdav_url     = "",
     .webdav_user    = "",
     .webdav_pass    = "",
     .webdav_enabled = false,
-    .http_upload_url = "",
-    .http_upload_user = "",
-    .http_upload_pass = "",
-    .http_upload_skip_cert = false,
     .resolution     = 1,     // SVGA
     .fps            = 10,
     .segment_sec    = 300,
@@ -48,7 +46,6 @@ static const cam_config_t s_defaults = {
     .hmirror         = false,
     .device_name    = "MiBeeHomeCam",
     .timezone       = "CST-8",       // 中国标准时间 UTC+8
-
 };
 /* ---- internal helpers ---- */
 
@@ -158,17 +155,10 @@ static void parse_nas_txt(void)
     ESP_LOGI(TAG, "Found nas.txt on SD card");
     char line[256];
     while (fgets(line, sizeof(line), f)) {
-        if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
-        // FTP fields removed - use upload_method and upload_base_path instead
-        parse_uint8(line, "UPLOAD_METHOD", &s_config.upload_method);
         parse_line(line, "UPLOAD_BASE_PATH", s_config.upload_base_path, sizeof(s_config.upload_base_path));
         parse_line(line, "WEBDAV_URL", s_config.webdav_url, sizeof(s_config.webdav_url));
         parse_line(line, "WEBDAV_USER", s_config.webdav_user, sizeof(s_config.webdav_user));
         parse_line(line, "WEBDAV_PASS", s_config.webdav_pass, sizeof(s_config.webdav_pass));
-        parse_line(line, "HTTP_UPLOAD_URL", s_config.http_upload_url, sizeof(s_config.http_upload_url));
-        parse_line(line, "HTTP_UPLOAD_USER", s_config.http_upload_user, sizeof(s_config.http_upload_user));
-        parse_line(line, "HTTP_UPLOAD_PASS", s_config.http_upload_pass, sizeof(s_config.http_upload_pass));
-        parse_bool(line, "HTTP_UPLOAD_SKIP_CERT", &s_config.http_upload_skip_cert);
     }
     fclose(f);
 }
@@ -196,6 +186,14 @@ esp_err_t config_init(void)
 {
     // Initialize NVS
     esp_err_t err = nvs_flash_init();
+
+    // Initialize config mutex
+    s_config_mutex = xSemaphoreCreateMutex();
+    if (!s_config_mutex) {
+        ESP_LOGE(TAG, "Failed to create config mutex");
+        return ESP_FAIL;
+    }
+
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_LOGW(TAG, "NVS partition truncated, erasing");
         nvs_flash_erase();
@@ -220,15 +218,10 @@ esp_err_t config_init(void)
     read_str(h, "wifi_ssid", s_config.wifi_ssid, sizeof(s_config.wifi_ssid));
     read_str(h, "wifi_pass", s_config.wifi_pass, sizeof(s_config.wifi_pass));
     read_str(h, "upload_base_path", s_config.upload_base_path, sizeof(s_config.upload_base_path));
-    nvs_get_u8(h, "upload_method", &s_config.upload_method);
+    nvs_get_u8(h, "webdav_enabled", (uint8_t *)&s_config.webdav_enabled);
     read_str(h, "webdav_url", s_config.webdav_url, sizeof(s_config.webdav_url));
     read_str(h, "webdav_user", s_config.webdav_user, sizeof(s_config.webdav_user));
     read_str(h, "webdav_pass", s_config.webdav_pass, sizeof(s_config.webdav_pass));
-    nvs_get_u8(h, "webdav_enabled", (uint8_t *)&s_config.webdav_enabled);
-    read_str(h, "http_upload_url", s_config.http_upload_url, sizeof(s_config.http_upload_url));
-    read_str(h, "http_upload_user", s_config.http_upload_user, sizeof(s_config.http_upload_user));
-    read_str(h, "http_upload_pass", s_config.http_upload_pass, sizeof(s_config.http_upload_pass));
-    nvs_get_u8(h, "http_upload_skip_cert", (uint8_t *)&s_config.http_upload_skip_cert);
     nvs_get_u8(h, "resolution", &s_config.resolution);
     nvs_get_u8(h, "fps", &s_config.fps);
     nvs_get_u16(h, "segment_sec", &s_config.segment_sec);
@@ -246,15 +239,14 @@ esp_err_t config_init(void)
     nvs_close(h);
 
     if (needs_migration) {
-        ESP_LOGI(TAG, "Migrating legacy FTP config to upload_method");
-        // Set upload_method based on old config
+        ESP_LOGI(TAG, "Migrating legacy FTP config to webdav_enabled");
         if (old_ftp_enabled || s_config.webdav_enabled) {
-            s_config.upload_method = 1;  // WebDAV
+            s_config.webdav_enabled = true;
         }
         // Erase legacy FTP keys (need readwrite handle)
         nvs_handle_t h_m;
         if (nvs_open("cam_config", NVS_READWRITE, &h_m) == ESP_OK) {
-            nvs_set_u8(h_m, "upload_method", s_config.upload_method);
+            nvs_set_u8(h_m, "webdav_enabled", s_config.webdav_enabled ? 1 : 0);
             nvs_erase_key(h_m, "ftp_enabled");
             nvs_erase_key(h_m, "ftp_host");
             nvs_erase_key(h_m, "ftp_port");
@@ -264,7 +256,7 @@ esp_err_t config_init(void)
             nvs_commit(h_m);
             nvs_close(h_m);
         }
-        ESP_LOGI(TAG, "Migration complete: upload_method=%d", s_config.upload_method);
+        ESP_LOGI(TAG, "Migration complete: webdav_enabled=%d", s_config.webdav_enabled);
         return ESP_OK;
     }
 
@@ -286,17 +278,11 @@ esp_err_t config_save(void)
 
     write_str(h, "wifi_ssid", s_config.wifi_ssid);
     write_str(h, "wifi_pass", s_config.wifi_pass);
-    // FTP fields removed - config structure updated
     write_str(h, "upload_base_path", s_config.upload_base_path);
-    nvs_set_u8(h, "upload_method", s_config.upload_method);
     write_str(h, "webdav_url", s_config.webdav_url);
     write_str(h, "webdav_user", s_config.webdav_user);
     write_str(h, "webdav_pass", s_config.webdav_pass);
     nvs_set_u8(h, "webdav_enabled", s_config.webdav_enabled ? 1 : 0);
-    write_str(h, "http_upload_url", s_config.http_upload_url);
-    write_str(h, "http_upload_user", s_config.http_upload_user);
-    write_str(h, "http_upload_pass", s_config.http_upload_pass);
-    nvs_set_u8(h, "http_upload_skip_cert", s_config.http_upload_skip_cert ? 1 : 0);
     nvs_set_u8(h, "resolution", s_config.resolution);
     nvs_set_u8(h, "fps", s_config.fps);
     nvs_set_u16(h, "segment_sec", s_config.segment_sec);
@@ -332,4 +318,18 @@ esp_err_t config_load_from_sd(void)
     // (Always save so NVS stays in sync with SD overrides)
     esp_err_t ret = config_save();
     return ret;
+}
+
+void config_lock(void)
+{
+    if (s_config_mutex) {
+        xSemaphoreTake(s_config_mutex, portMAX_DELAY);
+    }
+}
+
+void config_unlock(void)
+{
+    if (s_config_mutex) {
+        xSemaphoreGive(s_config_mutex);
+    }
 }

@@ -27,19 +27,13 @@ typedef struct {
     // WiFi 路由器 SSID 名称
     char wifi_pass[64];
     // WiFi 路由器密码
-    uint8_t upload_method;      // 0=禁用, 1=WebDAV, 2=HTTP/HTTPS
+    bool webdav_enabled;
+    // 是否启用 WebDAV 上传
     char upload_base_path[128];  // 上传基础路径
     char webdav_url[128];       // WebDAV 服务器 URL
     char webdav_user[32];
     // WebDAV 登录用户名
     char webdav_pass[32];
-    // WebDAV 登录密码
-    bool webdav_enabled;
-    // 是否启用 WebDAV 上传
-    char http_upload_url[256];     // HTTP/HTTPS 上传 URL
-    char http_upload_user[64];     // HTTP/HTTPS 上传用户名
-    char http_upload_pass[64];     // HTTP/HTTPS 上传密码
-    bool http_upload_skip_cert;    // 跳过 HTTPS 证书验证
     uint8_t resolution;    // 0=VGA, 1=SVGA, 2=XGA
     // 摄像头分辨率：0=VGA, 1=SVGA, 2=XGA
     uint8_t fps;            // 1-30
@@ -68,3 +62,8 @@ esp_err_t config_save(void);         // Save current config to NVS
 esp_err_t config_reset(void);        // Restore factory defaults
 /** @brief 从 SD 卡读取 wifi.txt、config.txt 和 nas.txt 配置文件并覆盖当前配置 */
 esp_err_t config_load_from_sd(void); // Read config/wifi.txt + config/nas.txt from SD
+
+/** @brief 锁定配置互斥体（在修改配置前使用） */
+void config_lock(void);
+/** @brief 解锁配置互斥体（在修改配置完成后使用） */
+void config_unlock(void);

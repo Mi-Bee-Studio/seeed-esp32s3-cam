@@ -97,7 +97,6 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <select id="uploadMethod" onchange="onUploadMethodChange()">
 <option value="0">禁用</option>
 <option value="1">WebDAV</option>
-<option value="2">HTTP(S)</option>
 </select>
 </div>
 <div class="field">
@@ -124,31 +123,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </div>
 </div>
 </div>
-<div id="httpSection" style="display:none;">
-<div class="sub-section">
-<div class="sub-title">HTTP(S)</div>
-<div class="field">
-<label>HTTP(S) 上传 URL</label>
-<input type="text" id="httpUploadUrl" placeholder="https://nas.local/api/upload">
-</div>
-<div class="field">
-<label>用户名</label>
-<input type="text" id="httpUploadUser">
-</div>
-<div class="field">
-<label>密码</label>
-<div class="pw-wrap">
-<input type="password" id="httpUploadPass" placeholder="留空则不需要认证">
-<span class="eye" onclick="togPw(this)">&#128065;</span>
-</div>
-</div>
-<div class="field">
-<label>
-<input type="checkbox" id="httpUploadSkipCert"> 跳过证书验证（自签名证书）
-</label>
-</div>
-</div>
-</div>
+
 </div>
 
 <!-- Recording -->
@@ -296,14 +271,12 @@ function loadConfig(){
   $('wifi_pass').value=v.wifi_pass||'';
   $('device_name').value=v.device_name||'';
 
-  $('uploadMethod').value=v.upload_method!=null?v.upload_method:0;
+  $('uploadMethod').value=v.webdav_enabled?1:0;
   $('uploadBasePath').value=v.upload_base_path||'';
   $('webdav_url').value=v.webdav_url||'';
   $('webdav_user').value=v.webdav_user||'';
   $('webdav_pass').value=v.webdav_pass||'';
-  if(v.http_upload_url)$('httpUploadUrl').value=v.http_upload_url;
-  if(v.http_upload_user)$('httpUploadUser').value=v.http_upload_user;
-  $('httpUploadSkipCert').checked=!!v.http_upload_skip_cert;
+
   $('vflip').checked=!!v.vflip;
   $('hmirror').checked=!!v.hmirror;
   onUploadMethodChange();
@@ -365,15 +338,12 @@ function gatherFormData(){
   wifi_pass:$('wifi_pass').value,
   device_name:$('device_name').value,
 
-  upload_method:parseInt($('uploadMethod').value)||0,
+  webdav_enabled:parseInt($('uploadMethod').value)===1,
   upload_base_path:$('uploadBasePath').value,
   webdav_url:$('webdav_url').value,
   webdav_user:$('webdav_user').value,
   webdav_pass:$('webdav_pass').value,
-  http_upload_url:$('httpUploadUrl').value,
-  http_upload_user:$('httpUploadUser').value,
-  http_upload_pass:$('httpUploadPass').value,
-  http_upload_skip_cert:$('httpUploadSkipCert').checked,
+
   resolution:parseInt($('resolution').value),
   fps:parseInt($('fps').value),
   segment_sec:parseInt($('segment_sec').value),
@@ -439,7 +409,7 @@ function togPw(el){
 function onUploadMethodChange(){
  var m=$('uploadMethod').value;
  $('webdavSection').style.display=m==='1'?'block':'none';
- $('httpSection').style.display=m==='2'?'block':'none';
+
 }
 window.onload=function(){loadConfig();updateAuthUI()};
 </script>
