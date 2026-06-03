@@ -32,6 +32,7 @@
 #include "nas_uploader.h"
 #include "rtsp_server.h"
 #include "mjpeg_streamer.h"
+#include "ws_server.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -1120,6 +1121,8 @@ esp_err_t web_server_start(uint16_t port)
         };
         httpd_register_uri_handler(s_server, &uri);
     }
+
+    ws_server_init(s_server);
 
     s_port = port;
     ESP_LOGI(TAG, "Web server started on port %d", port);
