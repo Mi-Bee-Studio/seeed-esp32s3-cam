@@ -31,6 +31,7 @@
  *  11. Video recorder
  *  12. MJPEG streamer
  *  13. Web server + streamer registration
+ *  13a. OTA updater
  *  14. LED update for WiFi state
  *  15. Start recording
  *  16. BOOT button monitor (factory reset on 5s hold)
@@ -63,6 +64,7 @@
 #include "mjpeg_streamer.h"
 #include "nas_uploader.h"
 #include "rtsp_server.h"
+#include "ota_updater.h"
 #include "driver/temperature_sensor.h"
 
 static const char *TAG = "main";
@@ -305,7 +307,7 @@ static void health_monitor_task(void *arg)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "MiBeeHomeCam v0.1 starting...");
+    ESP_LOGI(TAG, "MiBeeHomeCam v" FW_VERSION " starting...");
     ESP_LOGI(TAG, "Free heap: %lu  Free PSRAM: %lu",
              (unsigned long)esp_get_free_heap_size(),
              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
@@ -399,6 +401,9 @@ void app_main(void)
     /* 第13步：启动Web服务器(端口80)并注册MJPEG流端点 */
     web_server_start(80);
 
+    /* ---- 13a. OTA updater -------------------------------------------- */
+    /* 第13a步：初始化OTA固件更新模块 */
+    ota_updater_init();
     /* ---- 14. LED reflects WiFi state --------------------------------- */
     /* 第14步：根据当前WiFi状态更新LED显示模式 */
     if (wifi_get_state() == WIFI_STATE_AP) {
@@ -450,7 +455,7 @@ void app_main(void)
 
     /* ---- Done -------------------------------------------------------- */
     /* 初始化完成，打印摄像头型号、分辨率和WiFi连接信息 */
-    ESP_LOGI(TAG, "MiBeeHomeCam v0.1 initialized successfully");
+    ESP_LOGI(TAG, "MiBeeHomeCam v" FW_VERSION " initialized successfully");
     ESP_LOGI(TAG, "Camera: %s @ %s",
         camera_get_sensor() == CAMERA_SENSOR_OV2640 ? "OV2640" :
         camera_get_sensor() == CAMERA_SENSOR_OV3660 ? "OV3660" : "unknown",
