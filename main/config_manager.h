@@ -61,6 +61,8 @@ typedef struct {
     uint8_t cleanup_low_pct;   // 存储空间清理下限百分比（低于此值开始清理）
     uint8_t cleanup_high_pct;  // 存储空间清理上限百分比（清理到此值停止）
     bool frame_drop_enabled;   // 写入积压时是否自动丢帧（默认 true）
+    char alert_webhook_url[256];  // Webhook 告警通知 URL
+    bool alert_webhook_enabled;   // 是否启用 Webhook 告警通知
 } cam_config_t;
 
 /** @brief 初始化配置模块，从 NVS 加载配置，无存储则使用默认值 */

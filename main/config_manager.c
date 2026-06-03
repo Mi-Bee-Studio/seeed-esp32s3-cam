@@ -52,6 +52,8 @@ static const cam_config_t s_defaults = {
     .cleanup_low_pct  = 20,
     .cleanup_high_pct = 30,
     .frame_drop_enabled = true,
+    .alert_webhook_url = "",
+    .alert_webhook_enabled = false,
 };
 
 /* ---- internal helpers ---- */
@@ -268,6 +270,8 @@ esp_err_t config_init(void)
     nvs_get_u8(h, "cleanup_low", &s_config.cleanup_low_pct);
     nvs_get_u8(h, "frame_drop", (uint8_t *)&s_config.frame_drop_enabled);
     nvs_get_u8(h, "cleanup_high", &s_config.cleanup_high_pct);
+    read_str(h, "alert_webhook_url", s_config.alert_webhook_url, sizeof(s_config.alert_webhook_url));
+    nvs_get_u8(h, "alert_webhook_enabled", (uint8_t *)&s_config.alert_webhook_enabled);
 
     /* ---- Legacy FTP config migration check ---- */
     uint8_t old_ftp_enabled = 0;
@@ -336,6 +340,8 @@ esp_err_t config_save(void)
     nvs_set_u8(h, "cleanup_low", s_config.cleanup_low_pct);
     nvs_set_u8(h, "cleanup_high", s_config.cleanup_high_pct);
     nvs_set_u8(h, "frame_drop", s_config.frame_drop_enabled ? 1 : 0);
+    write_str(h, "alert_webhook_url", s_config.alert_webhook_url);
+    nvs_set_u8(h, "alert_webhook_enabled", s_config.alert_webhook_enabled ? 1 : 0);
 
     err = nvs_commit(h);
     nvs_close(h);
