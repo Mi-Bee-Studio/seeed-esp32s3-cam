@@ -245,6 +245,12 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
 /** @brief 处理POST /api/config请求，更新设备配置（需密码认证，支持部分更新） */
 static esp_err_t api_config_post_handler(httpd_req_t *req)
 {
+
+    /** @brief 验证无符号整数是否在指定范围内 */
+    static bool validate_uint_range(int val, int min, int max)
+    {
+        return (val >= min && val <= max);
+    }
     if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
 
     char *body = read_body(req, 2048);
@@ -266,8 +272,14 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     if ((item = cJSON_GetObjectItem(json, "device_name")))
         strncpy(cfg->device_name, item->valuestring, sizeof(cfg->device_name) - 1);
 
-    if ((item = cJSON_GetObjectItem(json, "upload_base_path")))
+    if ((item = cJSON_GetObjectItem(json, "upload_base_path"))) {
+        if (strstr(item->valuestring, "..") != NULL) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid upload_base_path (must not contain '..')", HTTPD_400_BAD_REQUEST);
+        }
         strncpy(cfg->upload_base_path, item->valuestring, sizeof(cfg->upload_base_path) - 1);
+    }
     if ((item = cJSON_GetObjectItem(json, "webdav_enabled")))
         cfg->webdav_enabled = item->valueint;
     if ((item = cJSON_GetObjectItem(json, "webdav_url")))
@@ -277,14 +289,42 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     if ((item = cJSON_GetObjectItem(json, "webdav_pass")) && strcmp(item->valuestring, "****") != 0)
         strncpy(cfg->webdav_pass, item->valuestring, sizeof(cfg->webdav_pass) - 1);
 
-    if ((item = cJSON_GetObjectItem(json, "resolution")))
-        cfg->resolution = (uint8_t)item->valueint;
-    if ((item = cJSON_GetObjectItem(json, "fps")))
-        cfg->fps = (uint8_t)item->valueint;
-    if ((item = cJSON_GetObjectItem(json, "segment_sec")))
-        cfg->segment_sec = (uint16_t)item->valueint;
-    if ((item = cJSON_GetObjectItem(json, "jpeg_quality")))
-        cfg->jpeg_quality = (uint8_t)item->valueint;
+    if ((item = cJSON_GetObjectItem(json, "resolution"))) {
+        int val = item->valueint;
+        if (!validate_uint_range(val, 0, 3)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid resolution (must be 0-3)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->resolution = (uint8_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "fps"))) {
+        int val = item->valueint;
+        if (!validate_uint_range(val, 1, 30)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid fps (must be 1-30)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->fps = (uint8_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "segment_sec"))) {
+        int val = item->valueint;
+        if (!validate_uint_range(val, 5, 3600)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid segment_sec (must be 5-3600)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->segment_sec = (uint16_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "jpeg_quality"))) {
+        int val = item->valueint;
+        if (!validate_uint_range(val, 1, 63)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid jpeg_quality (must be 1-63)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->jpeg_quality = (uint8_t)val;
+    }
     if ((item = cJSON_GetObjectItem(json, "vflip")))
         cfg->vflip = item->valueint;
     if ((item = cJSON_GetObjectItem(json, "hmirror")))
@@ -294,7 +334,13 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     camera_set_flip(cfg->vflip, cfg->hmirror);
     if ((item = cJSON_GetObjectItem(json, "web_password")) && strcmp(item->valuestring, "****") != 0)
         strncpy(cfg->web_password, item->valuestring, sizeof(cfg->web_password) - 1);
-    if ((item = cJSON_GetObjectItem(json, "timezone")) && strlen(item->valuestring) > 0) {
+    if ((item = cJSON_GetObjectItem(json, "timezone"))) {
+        size_t len = strlen(item->valuestring);
+        if (len == 0 || len > 64) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid timezone (must be 1-64 characters)", HTTPD_400_BAD_REQUEST);
+        }
         strncpy(cfg->timezone, item->valuestring, sizeof(cfg->timezone) - 1);
         cfg->timezone[sizeof(cfg->timezone) - 1] = '\0';
         /* Apply timezone change immediately */
@@ -658,15 +704,14 @@ static esp_err_t api_format_handler(httpd_req_t *req)
     esp_err_t ret = storage_format();
 
     cJSON *data = cJSON_CreateObject();
+    esp_err_t resp;
     if (ret == ESP_OK) {
-        cJSON_AddBoolToObject(data, "ok", true);
         cJSON_AddStringToObject(data, "message", "SD card formatted");
+        resp = json_ok(req, data);
     } else {
-        cJSON_AddBoolToObject(data, "ok", false);
-        cJSON_AddStringToObject(data, "error", esp_err_to_name(ret));
+        cJSON_Delete(data);
+        resp = json_error(req, esp_err_to_name(ret), HTTPD_500_INTERNAL_SERVER_ERROR);
     }
-
-    esp_err_t resp = json_ok(req, data);
 
     /* Resume recording if it was active before format */
     if (was_recording && ret == ESP_OK) {
