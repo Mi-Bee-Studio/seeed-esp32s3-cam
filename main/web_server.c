@@ -853,6 +853,34 @@ static esp_err_t static_file_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* ---- Setup wizard ---- */
+/** @brief 提供首次配置向导页面 (GET /setup) */
+static esp_err_t setup_handler(httpd_req_t *req)
+{
+    FILE *f = fopen("/spiffs/setup.html", "r");
+    if (!f) {
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
+    httpd_resp_set_type(req, "text/html");
+    set_cors_headers(req);
+    char buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+        httpd_resp_send_chunk(req, buf, n);
+    }
+    fclose(f);
+    httpd_resp_send_chunk(req, NULL, 0);
+    return ESP_OK;
+}
+
+/** @brief 标记首次配置已完成 (POST /api/setup/done) */
+static esp_err_t api_setup_done_handler(httpd_req_t *req)
+{
+    config_save();
+    return json_ok(req, NULL);
+}
+
 
 /* ------------------------------------------------------------------ */
 /*  GET /metrics                                                     */
@@ -982,7 +1010,9 @@ typedef struct {
 static const uri_entry_t s_uris[] = {
     { "/api/status",   HTTP_GET,    api_status_handler        },
     { "/api/config",   HTTP_GET,    api_config_get_handler    },
+    { "/setup",        HTTP_GET,    setup_handler            },
     { "/api/config",   HTTP_POST,   api_config_post_handler   },
+    { "/api/setup/done", HTTP_POST,   api_setup_done_handler   },
     { "/api/files",    HTTP_GET,    api_files_get_handler     },
     { "/api/files",    HTTP_DELETE, api_files_delete_handler  },
     { "/api/files/batch", HTTP_POST,  api_files_batch_handler  },
