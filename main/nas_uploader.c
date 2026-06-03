@@ -88,6 +88,19 @@ static void upload_task(void *arg)
         const char *filename = strrchr(filepath, '/');
         filename = filename ? filename + 1 : filepath;
 
+        /* Try to read SHA256 companion file for integrity logging */
+        char sha_path[PATH_BUF_SIZE + 8];
+        snprintf(sha_path, sizeof(sha_path), "%s.sha256", filepath);
+        FILE *sf = fopen(sha_path, "r");
+        if (sf) {
+            char hex[65] = {0};
+            if (fread(hex, 1, 64, sf) > 0) {
+                hex[64] = '\0';
+                ESP_LOGI(TAG, "SHA256[%s] = %s", filename, hex);
+            }
+            fclose(sf);
+        }
+
         /* Build remote path from /recordings/... portion */
         char remote_path[256];
         const char *rec_part = strstr(filepath, "/recordings/");
