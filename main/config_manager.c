@@ -132,6 +132,7 @@ static void parse_bool(char *line, const char *key, bool *dest)
 /** @brief 从 SD 卡读取 wifi.txt 配置文件并覆盖 WiFi 配置 */
 static void parse_wifi_txt(void)
 {
+    bool one_time = false;
     FILE *f = fopen("/sdcard/config/wifi.txt", "r");
     if (!f) return;
 
@@ -142,13 +143,19 @@ static void parse_wifi_txt(void)
         parse_line(line, "SSID", s_config.wifi_ssid, sizeof(s_config.wifi_ssid));
         parse_line(line, "PASS", s_config.wifi_pass, sizeof(s_config.wifi_pass));
         parse_line(line, "TIMEZONE", s_config.timezone, sizeof(s_config.timezone));
+        parse_bool(line, "one_time", &one_time);
     }
     fclose(f);
+    if (one_time) {
+        remove("/sdcard/config/wifi.txt");
+        ESP_LOGW(TAG, "Deleted one-time config: /sdcard/config/wifi.txt");
+    }
 }
 
 /** @brief 从 SD 卡读取 nas.txt 配置文件并覆盖 NAS 上传配置 */
 static void parse_nas_txt(void)
 {
+    bool one_time = false;
     FILE *f = fopen("/sdcard/config/nas.txt", "r");
     if (!f) return;
 
@@ -159,13 +166,19 @@ static void parse_nas_txt(void)
         parse_line(line, "WEBDAV_URL", s_config.webdav_url, sizeof(s_config.webdav_url));
         parse_line(line, "WEBDAV_USER", s_config.webdav_user, sizeof(s_config.webdav_user));
         parse_line(line, "WEBDAV_PASS", s_config.webdav_pass, sizeof(s_config.webdav_pass));
+        parse_bool(line, "one_time", &one_time);
     }
     fclose(f);
+    if (one_time) {
+        remove("/sdcard/config/nas.txt");
+        ESP_LOGW(TAG, "Deleted one-time config: /sdcard/config/nas.txt");
+    }
 }
 
 /** @brief 从 SD 卡读取 config.txt 配置文件并覆盖 WiFi 配置 */
 static void parse_config_txt(void)
 {
+    bool one_time = false;
     FILE *f = fopen("/sdcard/config.txt", "r");
     if (!f) return;
 
@@ -175,8 +188,13 @@ static void parse_config_txt(void)
         if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
         parse_line(line, "WIFI.SSID", s_config.wifi_ssid, sizeof(s_config.wifi_ssid));
         parse_line(line, "WIFI.PASS", s_config.wifi_pass, sizeof(s_config.wifi_pass));
+        parse_bool(line, "one_time", &one_time);
     }
     fclose(f);
+    if (one_time) {
+        remove("/sdcard/config.txt");
+        ESP_LOGW(TAG, "Deleted one-time config: /sdcard/config.txt");
+    }
 }
 
 /* ---- public API ---- */

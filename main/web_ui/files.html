@@ -121,6 +121,13 @@ function fmtSize(b){
  return (b/1073741824).toFixed(2)+' GB';
 }
 
+/* ---- Escape HTML entities ---- */
+function escapeHtml(s){
+ var m={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
+ return String(s).replace(/[&<>"']/g,function(c){return m[c]});
+}
+
+
 /* ---- Load & render files ---- */
 function refreshFiles(){
  fetch('/api/files').then(function(r){return r.json()}).then(function(d){
@@ -165,12 +172,12 @@ function refreshFiles(){
    html+='</span></div>';
    for(var j=0;j<gf.length;j++){
     var fi=gf[j];
-    html+='<div class="file-item"><input type="checkbox" class="file-check" data-name="'+fi.name+'" onchange="updateSelection()">';
-    html+='<div class="file-info"><div class="file-name">'+fi.name+'</div>'
+    html+='<div class="file-item"><input type="checkbox" class="file-check" data-name="'+escapeHtml(fi.name)+'" onchange="updateSelection()">';
+    html+='<div class="file-info"><div class="file-name">'+escapeHtml(fi.name)+'</div>'
      +'<div class="file-size">'+fmtSize(fi.size)+'</div></div>'
      +'<div class="file-actions">'
-     +'<button class="btn-sm btn-dl" onclick="dlFile(\''+fi.name.replace(/'/g,"\\'")+'\')">下载</button>'
-     +'<button class="btn-sm btn-del" onclick="delFile(\''+fi.name.replace(/'/g,"\\'")+'\')">删除</button>'
+     +'<button class="btn-sm btn-dl" data-name="'+escapeHtml(fi.name)+'" onclick="dlFile(this.dataset.name)">下载</button>'
+     +'<button class="btn-sm btn-del" data-name="'+escapeHtml(fi.name)+'" onclick="delFile(this.dataset.name)">删除</button>'
      +'</div></div>';
    }
    html+='</div>';
