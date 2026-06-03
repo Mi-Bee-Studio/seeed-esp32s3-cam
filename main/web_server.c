@@ -34,6 +34,7 @@
 #include "mjpeg_streamer.h"
 #include "ws_server.h"
 
+#include "ota_updater.h"
 #include <string.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -209,6 +210,7 @@ static esp_err_t api_status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "upload_queue", upload_queue);
     cJSON_AddNumberToObject(data, "chip_temp", (double)get_chip_temp());
     cJSON_AddNumberToObject(data, "frames_dropped", (double)recorder_get_frames_dropped());
+    cJSON_AddStringToObject(data, "firmware_version", FW_VERSION);
 
     return json_ok(req, data);
 }
@@ -1075,6 +1077,7 @@ static const uri_entry_t s_uris[] = {
     { "/api/record",   HTTP_POST,   api_record_handler        },
     { "/api/reset",    HTTP_POST,   api_reset_handler         },
     { "/api/format",   HTTP_POST,   api_format_handler        },
+    { "/api/ota",     HTTP_POST,   api_ota_handler           },
     { "/metrics",      HTTP_GET,    metrics_handler           },
 /* MJPEG stream — before wildcard to avoid conflict */
     { "/stream",       HTTP_GET,    mjpeg_stream_handler      },
