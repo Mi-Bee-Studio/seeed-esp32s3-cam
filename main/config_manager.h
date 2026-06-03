@@ -28,6 +28,14 @@ typedef struct {
     char wifi_pass[64];
     // WiFi 路由器密码
     bool webdav_enabled;
+    char wifi_pass[64];
+    // WiFi 路由器密码
+    char wifi_ssid_2[33];
+    // WiFi 备用路由器 SSID 名称
+    char wifi_pass_2[64];
+    // WiFi 备用路由器密码
+    bool allow_ap_fallback;
+    // 是否允许退回到 AP 模式（默认 false，永不退回 AP）
     // 是否启用 WebDAV 上传
     char upload_base_path[128];  // 上传基础路径
     char webdav_url[128];       // WebDAV 服务器 URL
@@ -50,6 +58,9 @@ typedef struct {
     // 设备名称
     char timezone[48];
     // 时区设置，POSIX格式（如 CST-8、UTC0、EST5EDT）
+    uint8_t cleanup_low_pct;   // 存储空间清理下限百分比（低于此值开始清理）
+    uint8_t cleanup_high_pct;  // 存储空间清理上限百分比（清理到此值停止）
+    bool frame_drop_enabled;   // 写入积压时是否自动丢帧（默认 true）
 } cam_config_t;
 
 /** @brief 初始化配置模块，从 NVS 加载配置，无存储则使用默认值 */

@@ -679,7 +679,7 @@ esp_err_t rtsp_server_init(void)
     s_running = false;
 
     BaseType_t ret = xTaskCreatePinnedToCore(
-        rtsp_listener_task, "rtsp_srv", 8192, NULL, 3, &s_listener_task, 1);
+        rtsp_listener_task, "rtsp_srv", 8192, NULL, 2, &s_listener_task, 1);
 
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create RTSP server task");

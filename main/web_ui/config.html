@@ -87,6 +87,25 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <span class="eye" onclick="togPw(this)">&#128065;</span>
 </div>
 </div>
+<div class="field">
+<label>备用 SSID</label>
+<input type="text" id="wifi_ssid_2" placeholder="备用WiFi名称（可选）">
+</div>
+<div class="field">
+<label>备用密码</label>
+<div class="pw-wrap">
+<input type="password" id="wifi_pass_2" placeholder="备用WiFi密码">
+<span class="eye" onclick="togPw(this)">&#128065;</span>
+</div>
+</div>
+<div class="field">
+<label>
+<input type="checkbox" id="allow_ap_fallback"> 允许退回 AP 模式
+</label>
+</div>
+<div style="font-size:11px;color:#999;margin-top:2px">主备 WiFi 均失败后，启用则进入 AP 模式，禁用则持续重试主 WiFi
+</div>
+</div>
 </div>
 
 <!-- Upload Method -->
@@ -163,6 +182,23 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <span class="range-val" id="jpegVal">12</span>
 </div>
 </div>
+
+		<div class="field">
+			<label>存储清理下限 (%)</label>
+			<div class="range-row">
+				<input type="range" id="cleanup_low_pct" min="1" max="99" value="20">
+				<span class="range-val" id="cleanupLowVal">20</span>
+			</div>
+			<div style="font-size:11px;color:#999;margin-top:2px">可用空间低于此值时自动删除旧文件</div>
+		</div>
+		<div class="field">
+			<label>存储清理上限 (%)</label>
+			<div class="range-row">
+				<input type="range" id="cleanup_high_pct" min="1" max="100" value="30">
+				<span class="range-val" id="cleanupHighVal">30</span>
+			</div>
+			<div style="font-size:11px;color:#999;margin-top:2px">删除旧文件直到可用空间达到此值</div>
+		</div>
 <div class="field">
 <label>
 <input type="checkbox" id="vflip"> 垂直翻转（上下翻转）
@@ -182,6 +218,11 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <!-- System -->
 <div class="card">
 <div class="card-title">系统设置</div>
+	<div class="field">
+		<label>设备发现地址</label>
+		<div style="background:#f5f5f5;padding:8px 10px;border-radius:6px;font-size:14px;color:#7C3AED;font-weight:600;word-break:break-all" id="mdnsHostname">-</div>
+		<div style="font-size:11px;color:#999;margin-top:4px">通过 mDNS 发现：<code style="background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:11px">mibee_homecam-XXXX.local</code></div>
+	</div>
 <div class="field">
 <label>Web 管理密码</label>
 <div class="pw-wrap">
@@ -267,6 +308,8 @@ function showToast(msg,isErr){
 /* ---- Range sliders ---- */
 $('fps').oninput=function(){$('fpsVal').textContent=this.value};
 $('jpeg_quality').oninput=function(){$('jpegVal').textContent=this.value};
+$('cleanup_low_pct').oninput=function(){$('cleanupLowVal').textContent=this.value};
+$('cleanup_high_pct').oninput=function(){$('cleanupHighVal').textContent=this.value};
 
 /* ---- Load config ---- */
 function loadConfig(){
@@ -275,7 +318,21 @@ function loadConfig(){
   var v=d.data;
   $('wifi_ssid').value=v.wifi_ssid||'';
   $('wifi_pass').value=v.wifi_pass||'';
+  $('wifi_ssid').value=v.wifi_ssid||'';
+  $('wifi_pass').value=v.wifi_pass||'';
+  $('wifi_ssid_2').value=v.wifi_ssid_2||'';
+  $('wifi_pass_2').value=v.wifi_pass_2||'';
+  $('allow_ap_fallback').checked=!!v.allow_ap_fallback;
   $('device_name').value=v.device_name||'';
+  /* Set mDNS hostname display */
+  var mdnsEl=$('mdnsHostname');
+  if(v.mdns_hostname&&v.mdns_hostname!==''){
+    mdnsEl.textContent=v.mdns_hostname+'.local';
+    mdnsEl.title='http://'+v.mdns_hostname+'.local';
+  } else {
+    mdnsEl.textContent='(WiFi 未连接)';
+    mdnsEl.title='';
+  }
 
   $('uploadMethod').value=v.webdav_enabled?1:0;
   $('uploadBasePath').value=v.upload_base_path||'';
@@ -290,6 +347,8 @@ function loadConfig(){
   $('fps').value=v.fps||10;$('fpsVal').textContent=$('fps').value;
   $('segment_sec').value=v.segment_sec||300;
   $('jpeg_quality').value=v.jpeg_quality||12;$('jpegVal').textContent=$('jpeg_quality').value;
+  $('cleanup_low_pct').value=v.cleanup_low_pct||20;$('cleanupLowVal').textContent=$('cleanup_low_pct').value;
+  $('cleanup_high_pct').value=v.cleanup_high_pct||30;$('cleanupHighVal').textContent=$('cleanup_high_pct').value;
   $('web_password').value=v.web_password||'';
   /* Timezone: try exact match first, fallback to manual if not in list */
   var tzSel=$('timezone');
@@ -342,6 +401,11 @@ function gatherFormData(){
  var cfg={
   wifi_ssid:$('wifi_ssid').value,
   wifi_pass:$('wifi_pass').value,
+  wifi_ssid:$('wifi_ssid').value,
+  wifi_pass:$('wifi_pass').value,
+  wifi_ssid_2:$('wifi_ssid_2').value,
+  wifi_pass_2:$('wifi_pass_2').value,
+  allow_ap_fallback:$('allow_ap_fallback').checked,
   device_name:$('device_name').value,
 
   webdav_enabled:parseInt($('uploadMethod').value)===1,
@@ -357,6 +421,8 @@ function gatherFormData(){
   vflip:$('vflip').checked,
   hmirror:$('hmirror').checked,
   timezone:$('timezone').value
+  cleanup_low_pct:parseInt($('cleanup_low_pct').value),
+  cleanup_high_pct:parseInt($('cleanup_high_pct').value),
  };
  /* Only send password if user changed it (not masked "****") */
  var wp=$('web_password').value;

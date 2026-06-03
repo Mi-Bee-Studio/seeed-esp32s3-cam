@@ -58,4 +58,6 @@ void recorder_watchdog_feed(void);
 /** @brief 清理启动时发现的不完整录像文件（RIFF大小为0） */
 void recorder_cleanup_incomplete(void);
 /** @brief 获取录像任务的栈高水位标记（字节） */
+/** @brief 获取录像任务启动以来累计丢帧数 */
+uint32_t recorder_get_frames_dropped(void);
 uint32_t recorder_get_stack_hwm(void);

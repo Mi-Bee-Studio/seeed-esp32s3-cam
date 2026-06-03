@@ -153,6 +153,11 @@ static esp_err_t api_status_handler(httpd_req_t *req)
     /* WiFi */
     cam_config_t *cfg = config_get();
     cJSON_AddStringToObject(data, "wifi_ssid", cfg->wifi_ssid);
+    cJSON_AddStringToObject(data, "current_ssid", wifi_get_current_ssid());
+    cJSON_AddStringToObject(data, "wifi_mode",
+        ws == WIFI_STATE_AP ? "AP" :
+        ws == WIFI_STATE_STA_CONNECTED ? "STA" : "disconnected");
+    cJSON_AddBoolToObject(data, "ap_fallback_enabled", cfg->allow_ap_fallback);
     wifi_state_t ws = wifi_get_state();
     cJSON_AddStringToObject(data, "wifi_state",
         ws == WIFI_STATE_AP ? "AP" :
@@ -201,6 +206,7 @@ static esp_err_t api_status_handler(httpd_req_t *req)
     cJSON_AddStringToObject(data, "last_upload", last_upload);
     cJSON_AddNumberToObject(data, "upload_queue", upload_queue);
     cJSON_AddNumberToObject(data, "chip_temp", (double)get_chip_temp());
+    cJSON_AddNumberToObject(data, "frames_dropped", (double)recorder_get_frames_dropped());
 
     return json_ok(req, data);
 }
@@ -218,6 +224,11 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddStringToObject(data, "wifi_ssid", cfg->wifi_ssid);
     /* Mask password */
     cJSON_AddStringToObject(data, "wifi_pass", cfg->wifi_pass[0] ? "****" : "");
+    cJSON_AddStringToObject(data, "wifi_ssid", cfg->wifi_ssid);
+    cJSON_AddStringToObject(data, "wifi_pass", cfg->wifi_pass[0] ? "****" : "");
+    cJSON_AddStringToObject(data, "wifi_ssid_2", cfg->wifi_ssid_2);
+    cJSON_AddStringToObject(data, "wifi_pass_2", cfg->wifi_pass_2[0] ? "****" : "");
+    cJSON_AddBoolToObject(data, "allow_ap_fallback", cfg->allow_ap_fallback);
     cJSON_AddStringToObject(data, "device_name", cfg->device_name);
     cJSON_AddStringToObject(data, "upload_base_path", cfg->upload_base_path);
     cJSON_AddBoolToObject(data, "webdav_enabled", cfg->webdav_enabled);
@@ -234,6 +245,13 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     /* Mask web password */
     cJSON_AddStringToObject(data, "web_password", cfg->web_password[0] ? "****" : "");
     cJSON_AddStringToObject(data, "timezone", cfg->timezone);
+    cJSON_AddNumberToObject(data, "cleanup_low_pct", cfg->cleanup_low_pct);
+    cJSON_AddNumberToObject(data, "cleanup_high_pct", cfg->cleanup_high_pct);
+    cJSON_AddBoolToObject(data, "frame_drop_enabled", cfg->frame_drop_enabled);
+
+    /* Add mDNS hostname for display in web UI */
+    cJSON_AddStringToObject(data, "mdns_hostname", wifi_get_mdns_hostname());
+
 
     return json_ok(req, data);
 }
@@ -272,6 +290,21 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     if ((item = cJSON_GetObjectItem(json, "wifi_pass")) && strcmp(item->valuestring, "****") != 0) {
         strncpy(cfg->wifi_pass, item->valuestring, sizeof(cfg->wifi_pass) - 1);
         cfg->wifi_pass[sizeof(cfg->wifi_pass) - 1] = '\0';
+    }
+    if ((item = cJSON_GetObjectItem(json, "wifi_pass")) && strcmp(item->valuestring, "****") != 0) {
+        strncpy(cfg->wifi_pass, item->valuestring, sizeof(cfg->wifi_pass) - 1);
+        cfg->wifi_pass[sizeof(cfg->wifi_pass) - 1] = '\0';
+    }
+    if ((item = cJSON_GetObjectItem(json, "wifi_ssid_2"))) {
+        strncpy(cfg->wifi_ssid_2, item->valuestring, sizeof(cfg->wifi_ssid_2) - 1);
+        cfg->wifi_ssid_2[sizeof(cfg->wifi_ssid_2) - 1] = '\0';
+    }
+    if ((item = cJSON_GetObjectItem(json, "wifi_pass_2")) && strcmp(item->valuestring, "****") != 0) {
+        strncpy(cfg->wifi_pass_2, item->valuestring, sizeof(cfg->wifi_pass_2) - 1);
+        cfg->wifi_pass_2[sizeof(cfg->wifi_pass_2) - 1] = '\0';
+    }
+    if ((item = cJSON_GetObjectItem(json, "allow_ap_fallback"))) {
+        cfg->allow_ap_fallback = item->valueint != 0;
     }
     if ((item = cJSON_GetObjectItem(json, "device_name"))) {
         strncpy(cfg->device_name, item->valuestring, sizeof(cfg->device_name) - 1);
@@ -362,6 +395,27 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         setenv("TZ", cfg->timezone, 1);
         tzset();
     }
+    if ((item = cJSON_GetObjectItem(json, "cleanup_low_pct"))) {
+        int val = item->valueint;
+        if (!validate_uint_range(val, 1, 99)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid cleanup_low_pct (must be 1-99)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->cleanup_low_pct = (uint8_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "cleanup_high_pct"))) {
+        int val = item->valueint;
+        if (!validate_uint_range(val, 1, 100)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid cleanup_high_pct (must be 1-100)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->cleanup_high_pct = (uint8_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "frame_drop_enabled")))
+        cfg->frame_drop_enabled = item->valueint;
+
 
     cJSON_Delete(json);
     config_save();
@@ -834,6 +888,7 @@ static esp_err_t metrics_handler(httpd_req_t *req)
     
     /* 新增指标：RTSP客户端数量 */
     int rtsp_clients = rtsp_server_get_client_count();
+    uint32_t frames_dropped = recorder_get_frames_dropped();
 
     len = snprintf(buf, sizeof(buf),
         "# HELP esp_free_heap_bytes Free heap memory\n"
@@ -880,7 +935,10 @@ static esp_err_t metrics_handler(httpd_req_t *req)
         "esp_upload_failure_total %d\n"
         "# HELP esp_rtsp_clients Number of connected RTSP clients\n"
         "# TYPE esp_rtsp_clients gauge\n"
-        "esp_rtsp_clients %d\n",
+        "esp_rtsp_clients %d\n"
+        "# HELP esp_frames_dropped_total Total frames dropped due to write backlog\n"
+        "# TYPE esp_frames_dropped_total counter\n"
+        "esp_frames_dropped_total %lu\n",
         (unsigned long)free_heap,
         (unsigned long)free_psram,
         temp,
@@ -895,7 +953,8 @@ static esp_err_t metrics_handler(httpd_req_t *req)
         wifi_rssi,
         upload_success,
         upload_failure,
-        rtsp_clients);
+        rtsp_clients,
+        (unsigned long)frames_dropped);
 
     httpd_resp_send(req, buf, len);
     return ESP_OK;

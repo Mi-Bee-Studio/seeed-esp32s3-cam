@@ -30,6 +30,7 @@
 #include "freertos/event_groups.h"
 #include "esp_netif.h"
 #include "lwip/ip_addr.h"
+#include "mdns.h"
 
 static const char *TAG = "wifi";
 
@@ -39,7 +40,12 @@ static esp_netif_t *s_netif_ap  = NULL;
 static esp_netif_t *s_netif_sta = NULL;
 static EventGroupHandle_t s_event_group = NULL;
 static int s_retry_count = 0;
+static bool s_using_backup_wifi = false;  // true when using wifi_ssid_2
+static int s_network_failures = 0;  // count failures on current network
+static char s_current_ssid[33] = "";  // track current connected SSID
 static char s_ip_str[16] = "0.0.0.0";
+static bool s_mdns_initialized = false;
+static char s_mdns_hostname[32] = "";
 
 /* ---- event group bits ---- */
 #define CONNECTED_BIT   BIT0
@@ -55,8 +61,74 @@ static uint32_t s_retry_interval_ms = WIFI_RETRY_MIN_MS;
 static void get_ap_ssid(char *buf, size_t len);
 static void wifi_event_handler(void *arg, esp_event_base_t base,
                                int32_t id, void *event_data);
+static void start_mdns_service(void);
 
-/** @brief WiFi 重连定时器回调函数，指数退避重试（3s→60s 上限） */
+/** @brief WiFi 重连定时器回调函数，实现主备 WiFi 自动切换 */
+static void reconnect_timer_cb(TimerHandle_t timer)
+{
+    s_retry_count++;
+    s_network_failures++;
+    
+    ESP_LOGI(TAG, "Retry %d (network failures: %d, interval %lu ms)",
+             s_retry_count, s_network_failures, (unsigned long)s_retry_interval_ms);
+    
+    cam_config_t *cfg = config_get();
+    
+    /* Failover logic: 3 failures on current network → try backup */
+    if (s_network_failures >= 3) {
+        ESP_LOGW(TAG, "WiFi network failed 3 times");
+        s_network_failures = 0;
+        
+        if (!s_using_backup_wifi && strlen(cfg->wifi_ssid_2) > 0) {
+            /* Switch to backup WiFi */
+            s_using_backup_wifi = true;
+            ESP_LOGI(TAG, "Switching to backup WiFi: %s", cfg->wifi_ssid_2);
+            wifi_config_t sta_config = {0};
+            strlcpy((char *)sta_config.sta.ssid, cfg->wifi_ssid_2, sizeof(sta_config.sta.ssid));
+            strlcpy((char *)sta_config.sta.password, cfg->wifi_pass_2, sizeof(sta_config.sta.password));
+            sta_config.sta.threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
+            sta_config.sta.pmf_cfg.capable = true;
+            sta_config.sta.pmf_cfg.required = false;
+            sta_config.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
+            sta_config.sta.listen_interval = 10;
+            esp_wifi_set_config(WIFI_IF_STA, &sta_config);
+        } else if (s_using_backup_wifi) {
+            /* Backup WiFi also failed */
+            if (cfg->allow_ap_fallback) {
+                /* Allow AP fallback */
+                ESP_LOGW(TAG, "Both WiFi networks failed, allowing AP fallback");
+                if (s_reconnect_timer) {
+                    xTimerStop(s_reconnect_timer, 0);
+                }
+                esp_wifi_stop();
+                wifi_start_ap();
+                return;
+            } else {
+                /* Never AP fallback - retry from primary */
+                ESP_LOGW(TAG, "Both WiFi networks failed, AP fallback disabled, retrying primary");
+                s_using_backup_wifi = false;
+                wifi_config_t sta_config = {0};
+                strlcpy((char *)sta_config.sta.ssid, cfg->wifi_ssid, sizeof(sta_config.sta.ssid));
+                strlcpy((char *)sta_config.sta.password, cfg->wifi_pass, sizeof(sta_config.sta.password));
+                sta_config.sta.threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
+                sta_config.sta.pmf_cfg.capable = true;
+                sta_config.sta.pmf_cfg.required = false;
+                sta_config.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
+                sta_config.sta.listen_interval = 10;
+                esp_wifi_set_config(WIFI_IF_STA, &sta_config);
+            }
+        }
+    }
+    
+    /* Exponential backoff: double interval each retry, cap at 60000 ms */
+    s_retry_interval_ms *= 2;
+    if (s_retry_interval_ms > WIFI_RETRY_MAX_MS) {
+        s_retry_interval_ms = WIFI_RETRY_MAX_MS;
+    }
+    xTimerChangePeriod(s_reconnect_timer, pdMS_TO_TICKS(s_retry_interval_ms), portMAX_DELAY);
+    
+    esp_wifi_connect();
+}
 static void reconnect_timer_cb(TimerHandle_t timer)
 {
     s_retry_count++;
@@ -80,6 +152,53 @@ static void get_ap_ssid(char *buf, size_t len)
     esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
     uint16_t suffix = ((uint16_t)mac[4] << 8) | mac[5];
     snprintf(buf, len, "MiBeeHomeCam-%04X", suffix);
+}
+
+/* ---- mDNS helper ---- */
+/** @brief Start mDNS service with hostname mibee_homecam-XXXX,
+ *         advertising _http._tcp (port 80) and _rtsp._tcp (port 554).
+ *         Idempotent - only initializes once. */
+static void start_mdns_service(void)
+{
+    if (s_mdns_initialized) {
+        return;
+    }
+
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    uint16_t suffix = ((uint16_t)mac[4] << 8) | mac[5];
+
+    char hostname[32];
+    snprintf(hostname, sizeof(hostname), "mibee_homecam-%04X", suffix);
+
+    esp_err_t err = mdns_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "mDNS init failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    mdns_hostname_set(hostname);
+    strlcpy(s_mdns_hostname, hostname, sizeof(s_mdns_hostname));
+    ESP_LOGI(TAG, "mDNS hostname: %s.local", hostname);
+
+    /* Register _http._tcp on port 80 */
+    mdns_txt_item_t http_txt[] = { { (char *)"path", (char *)"/" } };
+    err = mdns_service_add("MiBeeHomeCam Web Server", "_http", "_tcp", 80,
+                             http_txt, sizeof(http_txt) / sizeof(http_txt[0]));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "mDNS _http service add failed: %s", esp_err_to_name(err));
+    }
+
+    /* Register _rtsp._tcp on port 554 */
+    mdns_txt_item_t rtsp_txt[] = { { (char *)"path", (char *)"/stream" } };
+    err = mdns_service_add("MiBeeHomeCam RTSP Stream", "_rtsp", "_tcp", 554,
+                             rtsp_txt, sizeof(rtsp_txt) / sizeof(rtsp_txt[0]));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "mDNS _rtsp service add failed: %s", esp_err_to_name(err));
+    }
+
+    s_mdns_initialized = true;
+    ESP_LOGI(TAG, "mDNS services started (http:80, rtsp:554)");
 }
 
 /* ---- event handler ---- */
@@ -112,9 +231,30 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
             snprintf(s_ip_str, sizeof(s_ip_str), IPSTR, IP2STR(&evt->ip_info.ip));
             s_state = WIFI_STATE_STA_CONNECTED;
             s_retry_count = 0;
+            s_network_failures = 0;
+            s_retry_interval_ms = WIFI_RETRY_MIN_MS;
+            xEventGroupSetBits(s_event_group, CONNECTED_BIT);
+            
+            /* Track current connected SSID */
+            wifi_ap_record_t ap_info;
+            if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+                strlcpy(s_current_ssid, (char *)ap_info.ssid, sizeof(s_current_ssid));
+                ESP_LOGI(TAG, "WiFi connected to %s, IP=%s", s_current_ssid, s_ip_str);
+            } else {
+                ESP_LOGI(TAG, "WiFi connected, IP=%s", s_ip_str);
+            }
+            
+            start_mdns_service();
+            break;
+        }
+            ip_event_got_ip_t *evt = (ip_event_got_ip_t *)event_data;
+            snprintf(s_ip_str, sizeof(s_ip_str), IPSTR, IP2STR(&evt->ip_info.ip));
+            s_state = WIFI_STATE_STA_CONNECTED;
+            s_retry_count = 0;
             s_retry_interval_ms = WIFI_RETRY_MIN_MS;
             xEventGroupSetBits(s_event_group, CONNECTED_BIT);
             ESP_LOGI(TAG, "WiFi connected, IP=%s", s_ip_str);
+            start_mdns_service();
             break;
         }
         case IP_EVENT_ASSIGNED_IP_TO_CLIENT: {
@@ -160,6 +300,16 @@ esp_err_t wifi_init(void)
     }
 
     /* Decide mode from config */
+    cam_config_t *cfg = config_get();
+    /* If both WiFi configs are empty, start AP mode */
+    if (strlen(cfg->wifi_ssid) == 0) {
+        return wifi_start_ap();
+    } else {
+        /* At least primary WiFi is configured, start STA mode */
+        s_using_backup_wifi = false;  /* Start with primary WiFi */
+        return wifi_start_sta();
+    }
+}
     cam_config_t *cfg = config_get();
     if (strlen(cfg->wifi_ssid) == 0) {
         return wifi_start_ap();
@@ -231,6 +381,7 @@ esp_err_t wifi_start_ap(void)
     s_state = WIFI_STATE_AP;
 
     ESP_LOGI(TAG, "AP mode started, SSID=%s, IP=192.168.4.1", ap_config.ap.ssid);
+    start_mdns_service();
     return ESP_OK;
 }
 
@@ -276,6 +427,12 @@ esp_err_t wifi_start_sta(void)
 
     s_state = WIFI_STATE_STA_CONNECTING;
     ESP_LOGI(TAG, "STA mode connecting to SSID=%s", config->wifi_ssid);
+    s_state = WIFI_STATE_STA_CONNECTING;
+    strlcpy(s_current_ssid, config->wifi_ssid, sizeof(s_current_ssid));
+    ESP_LOGI(TAG, "STA mode connecting to SSID=%s", config->wifi_ssid);
+    ESP_ERROR_CHECK(esp_wifi_connect());
+    return ESP_OK;
+}
 
     ESP_ERROR_CHECK(esp_wifi_connect());
     return ESP_OK;
@@ -327,4 +484,21 @@ int wifi_scan(wifi_ap_info_t *aps, int max_count)
 
     ESP_LOGI(TAG, "WiFi scan found %d APs", (int)fetched);
     return (int)fetched;
+}
+
+/** @brief 获取当前连接的 SSID（STA 模式），空字符串表示未连接或 AP 模式 */
+const char *wifi_get_current_ssid(void)
+{
+    if (s_state != WIFI_STATE_STA_CONNECTED) {
+        return "";
+    }
+    return s_current_ssid;
+}
+
+/** @brief 获取 mDNS 主机名（mibee_homecam-XXXX 格式） */
+
+/** @brief 获取 mDNS 主机名（mibee_homecam-XXXX 格式） */
+const char *wifi_get_mdns_hostname(void)
+{
+    return s_mdns_hostname;
 }

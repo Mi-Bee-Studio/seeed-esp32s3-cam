@@ -78,6 +78,8 @@ static char               s_current_file[128] = {0};
 static recorder_segment_cb_t s_segment_cb = NULL;
 static SemaphoreHandle_t  s_mutex        = NULL;
 static uint32_t           s_stack_hwm    = 0;   /* Stack high-water mark */
+static uint32_t          s_frames_dropped = 0;
+static int64_t           s_last_drop_log_us = 0; /* throttle drop log */
 
 /* Resolution → pixel dimensions */
 /**
@@ -517,6 +519,8 @@ static void recording_task(void *arg)
             segment_open = true;
             total_bytes  = 0;
         }
+        /* Record start of capture cycle */
+        int64_t cycle_start_us = esp_timer_get_time();
 
         /* Capture frame */
         camera_frame_t frame = {0};
@@ -524,6 +528,22 @@ static void recording_task(void *arg)
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "Capture failed (0x%x)", err);
             vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+
+        /* Smart frame dropping: skip write if cycle exceeds 500ms backlog */
+        int64_t cycle_elapsed_us = esp_timer_get_time() - cycle_start_us;
+        if (cycle_elapsed_us > 500000 && cfg->frame_drop_enabled) {
+            camera_return_fb(&frame);
+            s_frames_dropped++;
+            /* Throttle warning to max 1/sec */
+            if (cycle_start_us - s_last_drop_log_us > 1000000) {
+                ESP_LOGW(TAG, "Frame dropped: cycle=%lldms total_dropped=%lu",
+                         (long long)(cycle_elapsed_us / 1000),
+                         (unsigned long)s_frames_dropped);
+                s_last_drop_log_us = cycle_start_us;
+            }
+            vTaskDelay(pdMS_TO_TICKS(1000 / fps));
             continue;
         }
 
@@ -756,6 +776,12 @@ void recorder_watchdog_feed(void)
 uint32_t recorder_get_stack_hwm(void)
 {
     return s_stack_hwm;
+}
+
+/** @brief 获取录像任务启动以来累计丢帧数 */
+uint32_t recorder_get_frames_dropped(void)
+{
+    return s_frames_dropped;
 }
 
 /* Recursive helper: scan dir for .avi files with RIFF size=0 and delete them */
