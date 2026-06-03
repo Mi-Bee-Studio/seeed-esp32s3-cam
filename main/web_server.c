@@ -265,12 +265,18 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
 
     config_lock();
 
-    if ((item = cJSON_GetObjectItem(json, "wifi_ssid")))
+    if ((item = cJSON_GetObjectItem(json, "wifi_ssid"))) {
         strncpy(cfg->wifi_ssid, item->valuestring, sizeof(cfg->wifi_ssid) - 1);
-    if ((item = cJSON_GetObjectItem(json, "wifi_pass")) && strcmp(item->valuestring, "****") != 0)
+        cfg->wifi_ssid[sizeof(cfg->wifi_ssid) - 1] = '\0';
+    }
+    if ((item = cJSON_GetObjectItem(json, "wifi_pass")) && strcmp(item->valuestring, "****") != 0) {
         strncpy(cfg->wifi_pass, item->valuestring, sizeof(cfg->wifi_pass) - 1);
-    if ((item = cJSON_GetObjectItem(json, "device_name")))
+        cfg->wifi_pass[sizeof(cfg->wifi_pass) - 1] = '\0';
+    }
+    if ((item = cJSON_GetObjectItem(json, "device_name"))) {
         strncpy(cfg->device_name, item->valuestring, sizeof(cfg->device_name) - 1);
+        cfg->device_name[sizeof(cfg->device_name) - 1] = '\0';
+    }
 
     if ((item = cJSON_GetObjectItem(json, "upload_base_path"))) {
         if (strstr(item->valuestring, "..") != NULL) {
@@ -279,15 +285,22 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
             return json_error(req, "Invalid upload_base_path (must not contain '..')", HTTPD_400_BAD_REQUEST);
         }
         strncpy(cfg->upload_base_path, item->valuestring, sizeof(cfg->upload_base_path) - 1);
+        cfg->upload_base_path[sizeof(cfg->upload_base_path) - 1] = '\0';
     }
     if ((item = cJSON_GetObjectItem(json, "webdav_enabled")))
         cfg->webdav_enabled = item->valueint;
-    if ((item = cJSON_GetObjectItem(json, "webdav_url")))
+    if ((item = cJSON_GetObjectItem(json, "webdav_url"))) {
         strncpy(cfg->webdav_url, item->valuestring, sizeof(cfg->webdav_url) - 1);
-    if ((item = cJSON_GetObjectItem(json, "webdav_user")))
+        cfg->webdav_url[sizeof(cfg->webdav_url) - 1] = '\0';
+    }
+    if ((item = cJSON_GetObjectItem(json, "webdav_user"))) {
         strncpy(cfg->webdav_user, item->valuestring, sizeof(cfg->webdav_user) - 1);
-    if ((item = cJSON_GetObjectItem(json, "webdav_pass")) && strcmp(item->valuestring, "****") != 0)
+        cfg->webdav_user[sizeof(cfg->webdav_user) - 1] = '\0';
+    }
+    if ((item = cJSON_GetObjectItem(json, "webdav_pass")) && strcmp(item->valuestring, "****") != 0) {
         strncpy(cfg->webdav_pass, item->valuestring, sizeof(cfg->webdav_pass) - 1);
+        cfg->webdav_pass[sizeof(cfg->webdav_pass) - 1] = '\0';
+    }
 
     if ((item = cJSON_GetObjectItem(json, "resolution"))) {
         int val = item->valueint;
@@ -332,8 +345,10 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     
     /* Apply camera flip/mirror immediately */
     camera_set_flip(cfg->vflip, cfg->hmirror);
-    if ((item = cJSON_GetObjectItem(json, "web_password")) && strcmp(item->valuestring, "****") != 0)
+    if ((item = cJSON_GetObjectItem(json, "web_password")) && strcmp(item->valuestring, "****") != 0) {
         strncpy(cfg->web_password, item->valuestring, sizeof(cfg->web_password) - 1);
+        cfg->web_password[sizeof(cfg->web_password) - 1] = '\0';
+    }
     if ((item = cJSON_GetObjectItem(json, "timezone"))) {
         size_t len = strlen(item->valuestring);
         if (len == 0 || len > 64) {
