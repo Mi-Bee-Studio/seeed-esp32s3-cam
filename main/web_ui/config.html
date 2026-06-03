@@ -151,6 +151,21 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 
 </div>
 
+<!-- Webhook Alert -->
+<div class="card">
+<div class="card-title">🔔 告警通知</div>
+<div class="field">
+<label>Webhook URL</label>
+<input type="text" id="alert_webhook_url" placeholder="http://your-server/webhook">
+<div style="font-size:11px;color:#999;margin-top:2px">收到告警时推送 POST JSON 到此地址</div>
+</div>
+<div class="checkbox-row">
+<label>
+<input type="checkbox" id="alert_webhook_enabled"> 启用 Webhook 告警
+</label>
+</div>
+</div>
+
 <!-- Recording -->
 <div class="card">
 <div class="card-title">录制参数</div>
@@ -365,6 +380,8 @@ function loadConfig(){
   $('webdav_url').value=v.webdav_url||'';
   $('webdav_user').value=v.webdav_user||'';
   $('webdav_pass').value=v.webdav_pass||'';
+  $('alert_webhook_url').value=v.alert_webhook_url||'';
+  $('alert_webhook_enabled').checked=!!v.alert_webhook_enabled;
 
   $('vflip').checked=!!v.vflip;
   $('hmirror').checked=!!v.hmirror;
@@ -449,6 +466,8 @@ function gatherFormData(){
   timezone:$('timezone').value
   cleanup_low_pct:parseInt($('cleanup_low_pct').value),
   cleanup_high_pct:parseInt($('cleanup_high_pct').value),
+  alert_webhook_url:$('alert_webhook_url').value,
+  alert_webhook_enabled:$('alert_webhook_enabled').checked,
  };
  /* Only send password if user changed it (not masked "****") */
  var wp=$('web_password').value;

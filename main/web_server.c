@@ -248,6 +248,8 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "cleanup_low_pct", cfg->cleanup_low_pct);
     cJSON_AddNumberToObject(data, "cleanup_high_pct", cfg->cleanup_high_pct);
     cJSON_AddBoolToObject(data, "frame_drop_enabled", cfg->frame_drop_enabled);
+    cJSON_AddStringToObject(data, "alert_webhook_url", cfg->alert_webhook_url);
+    cJSON_AddBoolToObject(data, "alert_webhook_enabled", cfg->alert_webhook_enabled);
 
     /* Add mDNS hostname for display in web UI */
     cJSON_AddStringToObject(data, "mdns_hostname", wifi_get_mdns_hostname());
@@ -415,6 +417,15 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     }
     if ((item = cJSON_GetObjectItem(json, "frame_drop_enabled")))
         cfg->frame_drop_enabled = item->valueint;
+    if ((item = cJSON_GetObjectItem(json, "alert_webhook_url"))) {
+        size_t len = strlen(item->valuestring);
+        if (len < sizeof(cfg->alert_webhook_url)) {
+            strncpy(cfg->alert_webhook_url, item->valuestring, sizeof(cfg->alert_webhook_url) - 1);
+            cfg->alert_webhook_url[sizeof(cfg->alert_webhook_url) - 1] = '\0';
+        }
+    }
+    if ((item = cJSON_GetObjectItem(json, "alert_webhook_enabled")))
+        cfg->alert_webhook_enabled = item->valueint;
 
 
     cJSON_Delete(json);
