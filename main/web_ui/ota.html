@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MiBeeHomeCam OTA</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#FAFAFA;color:#333;font-size:14px;min-height:100vh}
+.wrap{width:100%;max-width:420px;padding:20px 16px;margin:0 auto}
+.header{text-align:center;margin-bottom:24px;padding-top:12px}
+.header h1{font-size:20px;color:#7C3AED;font-weight:700}
+.header .sub{font-size:13px;color:#999;margin-top:4px}
+.card{background:#fff;border-radius:12px;padding:24px 20px;box-shadow:0 2px 12px rgba(124,58,237,.1);margin-bottom:16px}
+.card-title{font-size:16px;color:#7C3AED;font-weight:600;margin-bottom:16px}
+.field{margin-bottom:14px}
+.field:last-child{margin-bottom:0}
+.field label{display:block;font-size:13px;color:#666;margin-bottom:4px;font-weight:500}
+.field input[type="text"],
+.field input[type="url"]{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;font-family:inherit;background:#fafafa;color:#333;transition:border-color .2s,background .2s}
+.field input:focus{outline:none;border-color:#7C3AED;background:#fff;box-shadow:0 0 0 3px rgba(124,58,237,.1)}
+.field .hint{font-size:11px;color:#999;margin-top:3px}
+.btn{width:100%;padding:12px 16px;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;transition:background .15s,opacity .15s}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{background:#7C3AED;color:#fff}
+.btn-primary:hover:not(:disabled){background:#5B21B6}
+.btn-back{display:inline-block;margin-top:16px;text-align:center;width:100%;color:#999;text-decoration:none;font-size:13px}
+.btn-back:hover{color:#7C3AED}
+.version-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f0f0f0}
+.version-row:last-child{border-bottom:none}
+.version-label{color:#888;font-size:13px}
+.version-value{color:#333;font-weight:600;font-size:14px}
+.progress{display:none;text-align:center;padding:12px 0}
+.progress.active{display:block}
+.progress-text{color:#7C3AED;font-size:14px;font-weight:500}
+.progress-spinner{display:inline-block;width:16px;height:16px;border:2px solid #ddd;border-top-color:#7C3AED;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);padding:10px 24px;border-radius:8px;font-size:14px;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none;font-weight:500;white-space:nowrap}
+.toast.show{opacity:1}
+.toast.success{background:#7C3AED;color:#fff}
+.toast.error{background:#e74c3c;color:#fff}
+.net-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:6px;background:#4CAF50;box-shadow:0 0 4px rgba(76,175,80,.5);transition:background .3s,box-shadow .3s;vertical-align:middle}
+.net-dot.offline{background:#e74c3c;box-shadow:0 0 4px rgba(231,76,60,.5);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="wrap">
+<div class="header">
+<h1>MiBeeHomeCam <span class="net-dot" id="netDot"></span></h1>
+<p class="sub">固件更新</p>
+</div>
+
+<div class="card">
+<div class="card-title">当前版本</div>
+<div class="version-row"><span class="version-label">固件版本</span><span class="version-value" id="versionDisplay">--</span></div>
+</div>
+
+<div class="card">
+<div class="card-title">更新固件</div>
+<div class="field">
+<label>固件 URL</label>
+<input type="url" id="firmwareUrl" placeholder="http://example.com/firmware.bin" autocomplete="off">
+<div class="hint">输入 .bin 固件文件的直接下载链接</div>
+</div>
+<div class="progress" id="progressArea">
+<span class="progress-spinner"></span>
+<span class="progress-text">更新中...</span>
+</div>
+<button class="btn btn-primary" id="updateBtn" onclick="startOta()">更新</button>
+</div>
+
+<a class="btn-back" href="/">&larr; 返回首页</a>
+</div>
+
+<script>
+var toastTimer=null;
+function showToast(msg,type,duration){
+ type=type||'success';duration=duration||3000;
+ var t=document.getElementById('toast');if(!t)return;
+ t.textContent=msg;t.className='toast show '+type;
+ clearTimeout(toastTimer);
+ toastTimer=setTimeout(function(){t.className='toast'},duration);
+}
+function updateNetDot(online){
+ var d=document.getElementById('netDot');if(!d)return;
+ d.className='net-dot '+(online?'online':'offline');
+ d.title=online?'网络已连接':'网络已断开';
+}
+window.addEventListener('offline',function(){updateNetDot(false)});
+window.addEventListener('online',function(){updateNetDot(true)});
+updateNetDot(navigator.onLine);
+
+function $(s){return document.getElementById(s)}
+
+function loadVersion(){
+ fetch('/api/status').then(function(r){return r.json()}).then(function(d){
+  if(d.ok&&d.data&&d.data.firmware_version){
+   $('versionDisplay').textContent=d.data.firmware_version;
+  }
+ }).catch(function(){});
+}
+loadVersion();
+
+function startOta(){
+ var url=$('firmwareUrl').value.trim();
+ if(!url){showToast('请输入固件 URL','error');return}
+ if(!url.match(/^https?:\/\//i)){showToast('URL 格式不正确','error');return}
+ var btn=$('updateBtn');
+ var prog=$('progressArea');
+ btn.disabled=true;
+ btn.textContent='更新中...';
+ prog.classList.add('active');
+ fetch('/api/ota',{
+  method:'POST',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({url:url})
+ }).then(function(r){
+  return r.json().then(function(d){return{status:r.status,body:d}});
+ }).then(function(res){
+  prog.classList.remove('active');
+  if(res.body.ok){
+   showToast('更新成功，设备即将重启...','success');
+   if(res.body.data&&res.body.data.version){
+    $('versionDisplay').textContent=res.body.data.version;
+   }
+  }else{
+   showToast('更新失败: '+(res.body.error||'未知错误'),'error');
+   btn.disabled=false;
+   btn.textContent='更新';
+  }
+ }).catch(function(e){
+  prog.classList.remove('active');
+  /* OTA may restart device before response arrives — show hopeful message */
+  if(e.name==='TypeError'||e.message==='Failed to fetch'){
+   showToast('更新请求已发送，设备即将重启...','success');
+   setTimeout(function(){window.location.reload()},5000);
+  }else{
+   showToast('请求失败: '+e.message,'error');
+   btn.disabled=false;
+   btn.textContent='更新';
+  }
+ });
+}
+</script>
+</body>
+</html>
