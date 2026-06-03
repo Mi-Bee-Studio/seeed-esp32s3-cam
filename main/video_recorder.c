@@ -37,6 +37,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <dirent.h>
+#include "mbedtls/sha256.h"
 
 /* ------------------------------------------------------------------ */
 /*  AVI binary helpers                                                */
@@ -465,6 +466,38 @@ static void close_segment(void)
 
     fclose(s_seg.fp);
     s_seg.fp = NULL;
+
+    /* Compute SHA256 for integrity verification */
+    if (file_size > 0 && s_current_file[0] != '\0') {
+        FILE *f = fopen(s_current_file, "rb");
+        if (f) {
+            mbedtls_sha256_context ctx;
+            mbedtls_sha256_init(&ctx);
+            mbedtls_sha256_starts(&ctx, 0);
+            uint8_t buf[4096];
+            size_t n;
+            while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+                mbedtls_sha256_update(&ctx, buf, n);
+            }
+            unsigned char hash[32];
+            mbedtls_sha256_finish(&ctx, hash);
+            mbedtls_sha256_free(&ctx);
+            fclose(f);
+
+            char sha_path[160];
+            snprintf(sha_path, sizeof(sha_path), "%s.sha256", s_current_file);
+            FILE *sf = fopen(sha_path, "w");
+            if (sf) {
+                char hex[65];
+                for (int i = 0; i < 32; i++) {
+                    sprintf(hex + i * 2, "%02x", hash[i]);
+                }
+                hex[64] = '\n';
+                fwrite(hex, 1, 65, sf);
+                fclose(sf);
+            }
+        }
+    }
 
     /* Calculate actual file size from file_size variable */
     float mb = (float)file_size / (1024.0f * 1024.0f);

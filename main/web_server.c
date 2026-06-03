@@ -37,6 +37,7 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include "mbedtls/sha256.h"
 
 static const char *TAG = "web";
 
@@ -601,6 +602,57 @@ static esp_err_t api_download_handler(httpd_req_t *req)
             httpd_resp_set_status(req, "409 Conflict");
             return json_error(req, "File is currently being recorded", 0);
         }
+    }
+
+    /* Check for verify=true query parameter */
+    char verify_str[8] = {0};
+    if (httpd_query_key_value(query, "verify", verify_str, sizeof(verify_str)) == ESP_OK
+        && strcmp(verify_str, "true") == 0) {
+
+        char sha_path[288];
+        snprintf(sha_path, sizeof(sha_path), "/sdcard/recordings/%s.sha256", name);
+        FILE *sf = fopen(sha_path, "r");
+        if (sf) {
+            char expected[65] = {0};
+            if (fread(expected, 1, 64, sf) > 0) {
+                expected[64] = '\0';
+
+                char avi_path[288];
+                snprintf(avi_path, sizeof(avi_path), "/sdcard/recordings/%s", name);
+                FILE *af = fopen(avi_path, "rb");
+                if (af) {
+                    mbedtls_sha256_context ctx;
+                    mbedtls_sha256_init(&ctx);
+                    mbedtls_sha256_starts(&ctx, 0);
+                    uint8_t buf[4096];
+                    size_t n;
+                    while ((n = fread(buf, 1, sizeof(buf), af)) > 0) {
+                        mbedtls_sha256_update(&ctx, buf, n);
+                    }
+                    unsigned char hash[32];
+                    mbedtls_sha256_finish(&ctx, hash);
+                    mbedtls_sha256_free(&ctx);
+                    fclose(af);
+
+                    char computed[65];
+                    for (int i = 0; i < 32; i++) {
+                        sprintf(computed + i * 2, "%02x", hash[i]);
+                    }
+                    computed[64] = '\0';
+
+                    if (strcmp(expected, computed) != 0) {
+                        fclose(sf);
+                        char err[256];
+                        snprintf(err, sizeof(err),
+                                 "SHA256 mismatch: expected=%s computed=%s",
+                                 expected, computed);
+                        return json_error(req, err, HTTPD_400_BAD_REQUEST);
+                    }
+                }
+            }
+            fclose(sf);
+        }
+        /* If no .sha256 file found or hash matches, proceed with normal download */
     }
 
     
