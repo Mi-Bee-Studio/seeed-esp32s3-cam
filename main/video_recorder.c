@@ -199,7 +199,7 @@ static void write_riff_hdr(uint8_t *buf)
 /**
  * @brief 写入AVI文件头列表（hdrl），包含主头部avih和视频流信息strl
  */
-static void write_hdrl(uint8_t *buf, uint16_t w, uint16_t h, uint8_t fps)
+static void write_hdrl(uint8_t *buf, uint16_t w, uint16_t h, uint8_t playback_fps)
 {
     int pos = 0;
 
@@ -211,7 +211,7 @@ static void write_hdrl(uint8_t *buf, uint16_t w, uint16_t h, uint8_t fps)
     /* avih chunk */
     memcpy(buf + pos, "avih", 4);                         pos += 4;
     put_u32(buf + pos, 56);                               pos += 4;
-    put_u32(buf + pos, 1000000 / fps);   /* dwMicroSecPerFrame */ pos += 4;
+    put_u32(buf + pos, 1000000 / playback_fps); /* dwMicroSecPerFrame */ pos += 4;
     put_u32(buf + pos, 0);              /* dwMaxBytesPerSec     */ pos += 4;
     put_u32(buf + pos, 0);              /* dwPaddingGranularity */ pos += 4;
     put_u32(buf + pos, AVIF_HASINDEX);  /* dwFlags              */ pos += 4;
@@ -241,7 +241,7 @@ static void write_hdrl(uint8_t *buf, uint16_t w, uint16_t h, uint8_t fps)
     put_u16(buf + pos, 0);              /* wLanguage      */ pos += 2;
     put_u32(buf + pos, 0);              /* dwInitialFrames */ pos += 4;
     put_u32(buf + pos, 1);              /* dwScale        */ pos += 4;
-    put_u32(buf + pos, fps);            /* dwRate         */ pos += 4;
+    put_u32(buf + pos, playback_fps); /* dwRate */ pos += 4;
     put_u32(buf + pos, 0);              /* dwStart        */ pos += 4;
     put_u32(buf + pos, 0);              /* dwLength       */ pos += 4;
     put_u32(buf + pos, 0x100000);       /* dwSuggestedBuf */ pos += 4;
@@ -295,7 +295,7 @@ static int mkdirs(const char *path)
 /**
  * @brief 根据当前时间生成分段录像文件路径（/sdcard/recordings/YYYY-MM/DD/REC_YYYYMMDD_HHMMSS.avi）
  */
-static void build_segment_path(char *out, size_t out_len)
+static void build_segment_path(char *out, size_t out_len, const char *prefix)
 {
     time_t now = time(NULL);
     struct tm tm;
@@ -308,10 +308,10 @@ static void build_segment_path(char *out, size_t out_len)
     mkdirs(dir);
 
     /* Filename: REC_YYYYMMDD_HHMMSS.avi */
-    snprintf(out, out_len, "%s/REC_%04d%02d%02d_%02d%02d%02d.avi",
-             dir,
-             tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-             tm.tm_hour, tm.tm_min, tm.tm_sec);
+    snprintf(out, out_len, "%s/%s_%04d%02d%02d_%02d%02d%02d.avi",
+      dir, prefix,
+      tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+      tm.tm_hour, tm.tm_min, tm.tm_sec);
 }
 
 /* ------------------------------------------------------------------ */
@@ -339,9 +339,9 @@ static int64_t s_seg_elapsed_ms(void)
 /**
  * @brief 打开新的录像分段文件，写入RIFF头、hdrl和movi列表头
  */
-static esp_err_t open_segment(uint16_t w, uint16_t h, uint8_t fps)
+static esp_err_t open_segment(uint16_t w, uint16_t h, uint8_t playback_fps, const char *prefix)
 {
-    build_segment_path(s_current_file, sizeof(s_current_file));
+    build_segment_path(s_current_file, sizeof(s_current_file), prefix);
 
     s_seg.fp = fopen(s_current_file, "wb");
     if (!s_seg.fp) {
@@ -356,7 +356,7 @@ static esp_err_t open_segment(uint16_t w, uint16_t h, uint8_t fps)
 
     /* Write hdrl LIST */
     uint8_t hdrl[AVI_HDRL_TOTAL];
-    write_hdrl(hdrl, w, h, fps);
+    write_hdrl(hdrl, w, h, playback_fps);
     fwrite(hdrl, 1, AVI_HDRL_TOTAL, s_seg.fp);
 
     /* Write movi LIST header — 'LIST' + size(placeholder) + 'movi' = 12 bytes */
@@ -519,7 +519,10 @@ static void recording_task(void *arg)
     cam_config_t *cfg = config_get();
     uint16_t w, h;
     resolution_dims(cfg->resolution, &w, &h);
-    uint8_t fps = cfg->fps > 0 ? cfg->fps : 10;
+uint8_t fps = cfg->fps > 0 ? cfg->fps : 10;
+bool timelapse = cfg->timelapse_interval_sec > 0;
+uint8_t playback_fps = timelapse ? 15 : fps;
+const char *prefix = timelapse ? "TLM_" : "REC_";
 
     bool segment_open = false;
     uint32_t total_bytes = 0;
@@ -527,8 +530,9 @@ static void recording_task(void *arg)
     /* Register with task watchdog */
     esp_task_wdt_add(NULL);
 
-    ESP_LOGI(TAG, "Recording task started: %ux%u @ %u fps, segment=%u s",
-             w, h, fps, cfg->segment_sec);
+    ESP_LOGI(TAG, "Recording task started: %s %ux%u @ %u fps, segment=%u s, interval=%u s",
+      timelapse ? "timelapse" : "continuous",
+      w, h, playback_fps, cfg->segment_sec, cfg->timelapse_interval_sec);
 
     while (s_state == RECORDER_RECORDING || s_state == RECORDER_PAUSED) {
         /* Feed task watchdog each iteration */
@@ -541,11 +545,14 @@ static void recording_task(void *arg)
 
         /* Re-read config in case it changed */
         cfg = config_get();
-        fps = cfg->fps > 0 ? cfg->fps : 10;
+fps = cfg->fps > 0 ? cfg->fps : 10;
+timelapse = cfg->timelapse_interval_sec > 0;
+playback_fps = timelapse ? 15 : fps;
+prefix = timelapse ? "TLM_" : "REC_";
 
         /* Open first segment */
         if (!segment_open) {
-            if (open_segment(w, h, fps) != ESP_OK) {
+            if (open_segment(w, h, playback_fps, prefix) != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to open segment, retrying in 5 s");
                 storage_set_unavailable();
                 vTaskDelay(pdMS_TO_TICKS(5000));
@@ -601,12 +608,14 @@ static void recording_task(void *arg)
 
         total_bytes += frame.len;
 
-        /* Flush to SD every ~1 second (10 frames) so stat() sees current size */
-        static int flush_counter = 0;
-        if (++flush_counter >= 10) {
-            fflush(s_seg.fp);
-            flush_counter = 0;
-        }
+        /* Flush to SD: every frame in timelapse (sparse), every ~1s in continuous */
+static int flush_counter = 0;
+if (timelapse) {
+    fflush(s_seg.fp);
+} else if (++flush_counter >= 10) {
+    fflush(s_seg.fp);
+    flush_counter = 0;
+}
 
         /* Track stack high-water mark */
         s_stack_hwm = uxTaskGetStackHighWaterMark(NULL);
@@ -629,7 +638,7 @@ static void recording_task(void *arg)
             }
 
             /* Immediately open next segment */
-            if (open_segment(w, h, fps) == ESP_OK) {
+            if (open_segment(w, h, playback_fps, prefix) == ESP_OK) {
                 segment_open = true;
                 total_bytes  = 0;
             }
