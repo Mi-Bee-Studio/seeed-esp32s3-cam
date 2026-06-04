@@ -37,7 +37,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <dirent.h>
-#include "mbedtls/sha256.h"
+#include "sha256.h"
 
 /* ------------------------------------------------------------------ */
 /*  AVI binary helpers                                                */
@@ -471,17 +471,15 @@ static void close_segment(void)
     if (file_size > 0 && s_current_file[0] != '\0') {
         FILE *f = fopen(s_current_file, "rb");
         if (f) {
-            mbedtls_sha256_context ctx;
-            mbedtls_sha256_init(&ctx);
-            mbedtls_sha256_starts(&ctx, 0);
+            sha256_ctx_t ctx;
+            sha256_init(&ctx);
             uint8_t buf[4096];
             size_t n;
             while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
-                mbedtls_sha256_update(&ctx, buf, n);
+                sha256_update(&ctx, buf, n);
             }
             unsigned char hash[32];
-            mbedtls_sha256_finish(&ctx, hash);
-            mbedtls_sha256_free(&ctx);
+            sha256_finish(&ctx, hash);
             fclose(f);
 
             char sha_path[160];
