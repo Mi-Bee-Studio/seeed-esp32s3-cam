@@ -61,6 +61,7 @@ typedef struct {
     bool frame_drop_enabled;   // 写入积压时是否自动丢帧（默认 true）
     char alert_webhook_url[256];  // Webhook 告警通知 URL
     bool alert_webhook_enabled;   // 是否启用 Webhook 告警通知
+    uint8_t timelapse_interval_sec; // Timelapse interval in seconds (0=disabled, >0=interval)
 } cam_config_t;
 
 /** @brief 初始化配置模块，从 NVS 加载配置，无存储则使用默认值 */
