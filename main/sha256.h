@@ -17,19 +17,25 @@
 
 #pragma once
 
-#include "esp_err.h"
-#include "esp_http_server.h"
 #include <stdint.h>
-#include "cJSON.h"
+#include <stddef.h>
+#include <string.h>
 
-/** @brief 启动HTTP Web服务器，注册所有URI处理程序 */
-esp_err_t web_server_start(uint16_t port);
-/** @brief 停止HTTP Web服务器并释放资源 */
-void web_server_stop(void);
-/** @brief 获取当前Web服务器的句柄 */
-httpd_handle_t web_server_get_handle(void);
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-/* Shared JSON helpers (used by ota_updater.c) */
-esp_err_t json_ok(httpd_req_t *req, cJSON *data);
-esp_err_t json_error(httpd_req_t *req, const char *msg, int status);
-char *read_body(httpd_req_t *req, size_t max_len);
+typedef struct {
+    uint32_t state[8];
+    uint64_t total_bytes;
+    uint8_t  buffer[64];
+    size_t   buffer_used;
+} sha256_ctx_t;
+
+void sha256_init(sha256_ctx_t *ctx);
+void sha256_update(sha256_ctx_t *ctx, const uint8_t *data, size_t len);
+void sha256_finish(sha256_ctx_t *ctx, uint8_t hash[32]);
+
+#ifdef __cplusplus
+}
+#endif

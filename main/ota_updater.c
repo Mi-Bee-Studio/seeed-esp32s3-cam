@@ -19,6 +19,7 @@
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_https_ota.h"
+#include "esp_http_client.h"
 #include "cJSON.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -31,10 +32,6 @@ static const char *TAG = "ota";
 
 static SemaphoreHandle_t s_ota_mutex = NULL;
 
-/* ---- Forward declarations from web_server.c ---- */
-extern esp_err_t json_ok(httpd_req_t *req, cJSON *data);
-extern esp_err_t json_error(httpd_req_t *req, const char *msg, int status);
-extern char *read_body(httpd_req_t *req, size_t max_len);
 
 #define OTA_BUF_SIZE 4096
 
@@ -46,7 +43,6 @@ extern char *read_body(httpd_req_t *req, size_t max_len);
  */
 static esp_err_t ota_do_update(const char *url)
 {
-    /* ---- Stop recording before OTA ---- */
     bool was_recording = (recorder_get_state() == RECORDER_RECORDING ||
                           recorder_get_state() == RECORDER_PAUSED);
     if (was_recording) {
@@ -56,59 +52,31 @@ static esp_err_t ota_do_update(const char *url)
 
     ESP_LOGI(TAG, "Starting OTA from: %s", url);
 
-    esp_https_ota_config_t ota_config = {
+    esp_http_client_config_t http_config = {
         .url = url,
-        .cert_pem = NULL, /* Skip cert verification (LAN only) */
+        .cert_pem = NULL,  /* Skip cert verification (LAN only) */
     };
 
-    esp_https_ota_handle_t https_ota_handle = NULL;
-    esp_err_t err = esp_https_ota_begin(&ota_config, &https_ota_handle);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "OTA begin failed: %s", esp_err_to_name(err));
-        goto resume_recording;
+    esp_https_ota_config_t ota_config = {
+        .http_config = &http_config,
+    };
+
+    esp_err_t ret = esp_https_ota(&ota_config);
+    /* If esp_https_ota returns OK, we should restart */
+    if (ret == ESP_OK) {
+        esp_ota_mark_app_valid_cancel_rollback();
+        vTaskDelay(pdMS_TO_TICKS(500));
+        esp_restart();
     }
 
-    int image_size = esp_https_ota_get_image_size(https_ota_handle);
-    ESP_LOGI(TAG, "OTA image size: %d bytes", image_size);
+    ESP_LOGE(TAG, "OTA failed: %s", esp_err_to_name(ret));
 
-    int remaining = image_size;
-    while (remaining > 0) {
-        char ota_buf[OTA_BUF_SIZE];
-        int read = esp_https_ota_read(https_ota_handle, ota_buf, OTA_BUF_SIZE);
-        if (read < 0) {
-            ESP_LOGE(TAG, "OTA read failed");
-            err = ESP_FAIL;
-            break;
-        }
-        err = esp_https_ota_write(https_ota_handle, ota_buf, read);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "OTA write failed: %s", esp_err_to_name(err));
-            break;
-        }
-        remaining -= read;
-    }
-
-    if (err == ESP_OK) {
-        err = esp_https_ota_finish(https_ota_handle);
-        if (err == ESP_OK) {
-            ESP_LOGI(TAG, "OTA update successful, marking app valid");
-            esp_ota_mark_app_valid_cancel_rollback();
-            /* Small delay for logs to flush, then restart */
-            vTaskDelay(pdMS_TO_TICKS(500));
-            esp_restart();
-        } else {
-            ESP_LOGE(TAG, "OTA finish failed: %s", esp_err_to_name(err));
-        }
-    } else {
-        esp_https_ota_abort(https_ota_handle);
-    }
-
-resume_recording:
+    /* Resume recording on failure */
     if (was_recording) {
         recorder_start();
         ESP_LOGI(TAG, "Recording resumed after OTA failure");
     }
-    return err;
+    return ret;
 }
 
 /* ------------------------------------------------------------------ */
@@ -121,7 +89,6 @@ esp_err_t api_ota_handler(httpd_req_t *req)
         return json_error(req, "OTA already in progress", 429);
     }
 
-    esp_err_t ret;
 
     char *body = read_body(req, 1024);
     if (!body) {

@@ -28,8 +28,6 @@ typedef struct {
     char wifi_pass[64];
     // WiFi 路由器密码
     bool webdav_enabled;
-    char wifi_pass[64];
-    // WiFi 路由器密码
     char wifi_ssid_2[33];
     // WiFi 备用路由器 SSID 名称
     char wifi_pass_2[64];

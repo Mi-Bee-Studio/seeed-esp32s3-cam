@@ -25,8 +25,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include <string.h>
 #include <stdio.h>
+#include "cJSON.h"
+#include <sys/stat.h>
 static const char *TAG = "uploader";
 #include "logging.h"
 
@@ -35,6 +38,8 @@ static const char *TAG = "uploader";
 #define MAX_CONSEC_FAILS     10
 #define PAUSE_DURATION_MS    (5 * 60 * 1000)  /* 5 minutes */
 #define PATH_BUF_SIZE        128
+#define QUEUE_FILE_PATH       "/spiffs/upload_queue.json"
+#define MAX_PERSISTENT_QUEUE  100
 
 static QueueHandle_t s_queue        = NULL;
 static TaskHandle_t  s_task_handle  = NULL;
@@ -47,9 +52,195 @@ static uint32_t      s_stack_hwm    = 0;
 static volatile int   s_upload_success = 0;
 static volatile int   s_upload_failure = 0;
 
+static SemaphoreHandle_t s_file_mutex  = NULL;
+
+/* ---- Persistent Queue (SPIFFS-backed) ---- */
+
+/**
+ * @brief Read persistent queue file, return cJSON array (caller must delete)
+ * @return cJSON array or NULL if file missing/corrupt
+ */
+static cJSON *read_queue_json(void)
+{
+    FILE *f = fopen(QUEUE_FILE_PATH, "r");
+    if (!f) return NULL;
+
+    fseek(f, 0, SEEK_END);
+    long fsize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    if (fsize <= 0 || fsize > 16384) {
+        fclose(f);
+        return NULL;
+    }
+
+    char *buf = malloc(fsize + 1);
+    if (!buf) {
+        fclose(f);
+        return NULL;
+    }
+
+    size_t rd = fread(buf, 1, fsize, f);
+    buf[rd] = '\0';
+    fclose(f);
+
+    cJSON *arr = cJSON_Parse(buf);
+    free(buf);
+    return arr;
+}
+
+/**
+ * @brief Write cJSON array to persistent queue file
+ */
+static esp_err_t write_queue_json(cJSON *arr)
+{
+    FILE *f = fopen(QUEUE_FILE_PATH, "w");
+    if (!f) return ESP_FAIL;
+
+    char *json_str = cJSON_PrintUnformatted(arr);
+    if (json_str) {
+        fputs(json_str, f);
+        cJSON_free(json_str);
+    }
+    fclose(f);
+    return ESP_OK;
+}
+
+/**
+ * @brief Add filepath to persistent queue file (FIFO, max 100)
+ */
+static void persist_enqueue(const char *filepath)
+{
+    if (!s_file_mutex) return;
+    xSemaphoreTake(s_file_mutex, portMAX_DELAY);
+
+    cJSON *arr = read_queue_json();
+    if (!arr) {
+        arr = cJSON_CreateArray();
+    }
+
+    /* Enforce FIFO cap — remove oldest entries */
+    while (cJSON_GetArraySize(arr) >= MAX_PERSISTENT_QUEUE) {
+        cJSON_DeleteItemFromArray(arr, 0);
+    }
+
+    cJSON_AddItemToArray(arr, cJSON_CreateString(filepath));
+    write_queue_json(arr);
+    cJSON_Delete(arr);
+
+    xSemaphoreGive(s_file_mutex);
+}
+
+/**
+ * @brief Remove filepath from persistent queue file after successful upload
+ */
+static void persist_remove(const char *filepath)
+{
+    if (!s_file_mutex) return;
+    xSemaphoreTake(s_file_mutex, portMAX_DELAY);
+
+    cJSON *arr = read_queue_json();
+    if (!arr) {
+        xSemaphoreGive(s_file_mutex);
+        return;
+    }
+
+    int size = cJSON_GetArraySize(arr);
+    for (int i = 0; i < size; i++) {
+        cJSON *item = cJSON_GetArrayItem(arr, i);
+        if (item && item->valuestring && strcmp(item->valuestring, filepath) == 0) {
+            cJSON_DeleteItemFromArray(arr, i);
+            break;
+        }
+    }
+
+    if (cJSON_GetArraySize(arr) == 0) {
+        remove(QUEUE_FILE_PATH);
+        cJSON_Delete(arr);
+    } else {
+        write_queue_json(arr);
+        cJSON_Delete(arr);
+    }
+
+    xSemaphoreGive(s_file_mutex);
+}
+
+/**
+ * @brief Try to load the next item from persistent file into FreeRTOS queue
+ * Called after each successful upload to keep the pipeline flowing
+ */
+static void persist_load_next(void)
+{
+    if (!s_file_mutex || !s_queue) return;
+    xSemaphoreTake(s_file_mutex, portMAX_DELAY);
+
+    cJSON *arr = read_queue_json();
+    if (!arr || cJSON_GetArraySize(arr) == 0) {
+        if (arr) cJSON_Delete(arr);
+        xSemaphoreGive(s_file_mutex);
+        return;
+    }
+
+    /* Only enqueue if there is room in the FreeRTOS queue */
+    UBaseType_t spaces = UPLOAD_QUEUE_SIZE - uxQueueMessagesWaiting(s_queue);
+    if (spaces == 0) {
+        cJSON_Delete(arr);
+        xSemaphoreGive(s_file_mutex);
+        return;
+    }
+
+    cJSON *item = cJSON_GetArrayItem(arr, 0);
+    if (item && item->valuestring) {
+        char buf[PATH_BUF_SIZE] = {0};
+        strncpy(buf, item->valuestring, sizeof(buf) - 1);
+        xQueueSend(s_queue, buf, 0);
+    }
+
+    cJSON_Delete(arr);
+    xSemaphoreGive(s_file_mutex);
+}
+
+/**
+ * @brief Load pending items from persistent file into FreeRTOS queue on startup
+ * Fills the queue up to its capacity; remaining items stay in the file
+ */
+static void persist_load(void)
+{
+    if (!s_file_mutex || !s_queue) return;
+    xSemaphoreTake(s_file_mutex, portMAX_DELAY);
+
+    cJSON *arr = read_queue_json();
+    if (!arr) {
+        xSemaphoreGive(s_file_mutex);
+        return;
+    }
+
+    int total = cJSON_GetArraySize(arr);
+    int loaded = 0;
+
+    for (int i = 0; i < total; i++) {
+        cJSON *item = cJSON_GetArrayItem(arr, i);
+        if (!item || !item->valuestring) continue;
+
+        char buf[PATH_BUF_SIZE] = {0};
+        strncpy(buf, item->valuestring, sizeof(buf) - 1);
+
+        /* Non-blocking — stop when queue is full */
+        if (xQueueSend(s_queue, buf, 0) != pdTRUE) {
+            break;
+        }
+        loaded++;
+    }
+
+    ESP_LOGI(TAG, "Loaded %d/%d items from persistent queue", loaded, total);
+    cJSON_Delete(arr);
+
+    xSemaphoreGive(s_file_mutex);
+}
+
 /**
  * @brief 上传任务主循环（FreeRTOS任务函数）
- * 从队列中取出文件路径，根据 upload_method 分发上传
+ * 从队列中取出文件路径，通过WebDAV上传
  * 支持指数退避重试和连续失败自动暂停
  * @param arg 未使用
  */
@@ -148,6 +339,9 @@ static void upload_task(void *arg)
             s_upload_success++;
             ESP_LOGI(TAG, "Upload success: %s", filepath);
             LOG_EVENT(LOG_EVENT_UPLOAD_SUCCESS, "file=%s", filepath);
+            /* Remove from persistent queue and load next pending item */
+            persist_remove(filepath);
+            persist_load_next();
         } else {
             s_consec_fails++;
             s_upload_failure++;
@@ -181,6 +375,14 @@ esp_err_t nas_uploader_init(void)
         return ESP_FAIL;
     }
 
+    s_file_mutex = xSemaphoreCreateMutex();
+    if (!s_file_mutex) {
+        ESP_LOGE(TAG, "Failed to create file mutex");
+        vQueueDelete(s_queue);
+        s_queue = NULL;
+        return ESP_FAIL;
+    }
+
     BaseType_t ret = xTaskCreatePinnedToCore(upload_task, "upload",
                                               6144, NULL, 3,
                                               &s_task_handle, 1);
@@ -190,6 +392,8 @@ esp_err_t nas_uploader_init(void)
         s_queue = NULL;
         return ESP_FAIL;
     }
+    /* Restore pending uploads from persistent queue */
+    persist_load();
 
     s_initialized = true;
     ESP_LOGI(TAG, "NAS uploader initialized (queue %d, core 1)", UPLOAD_QUEUE_SIZE);
@@ -209,6 +413,8 @@ esp_err_t nas_uploader_enqueue(const char *filepath)
 
     char buf[PATH_BUF_SIZE] = {0};
     strncpy(buf, filepath, sizeof(buf) - 1);
+
+    persist_enqueue(filepath);
 
     if (xQueueSend(s_queue, buf, pdMS_TO_TICKS(100)) != pdTRUE) {
         ESP_LOGW(TAG, "Upload queue full, %d entries queued", s_queue_count);

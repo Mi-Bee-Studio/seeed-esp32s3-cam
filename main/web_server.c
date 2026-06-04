@@ -39,7 +39,7 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <dirent.h>
-#include "mbedtls/sha256.h"
+#include "sha256.h"
 
 static const char *TAG = "web";
 
@@ -84,7 +84,7 @@ static void set_cors_headers(httpd_req_t *req)
 }
 
 /** @brief 发送JSON成功响应，格式为 {"ok":true,"data":...} */
-static esp_err_t json_ok(httpd_req_t *req, cJSON *data)
+esp_err_t json_ok(httpd_req_t *req, cJSON *data)
 {
     cJSON *root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "ok", true);
@@ -99,7 +99,7 @@ static esp_err_t json_ok(httpd_req_t *req, cJSON *data)
 }
 
 /** @brief 发送JSON错误响应，格式为 {"ok":false,"error":...} */
-static esp_err_t json_error(httpd_req_t *req, const char *msg, int status)
+esp_err_t json_error(httpd_req_t *req, const char *msg, int status)
 {
     cJSON *root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "ok", false);
@@ -115,7 +115,7 @@ static esp_err_t json_error(httpd_req_t *req, const char *msg, int status)
 
 /* Read the full request body into a heap-allocated buffer (caller frees). */
 /** @brief 读取HTTP请求体到堆分配的缓冲区（调用者负责释放内存） */
-static char *read_body(httpd_req_t *req, size_t max_len)
+char *read_body(httpd_req_t *req, size_t max_len)
 {
     size_t len = req->content_len;
     if (len == 0 || len > max_len) return NULL;
@@ -157,12 +157,8 @@ static esp_err_t api_status_handler(httpd_req_t *req)
     cam_config_t *cfg = config_get();
     cJSON_AddStringToObject(data, "wifi_ssid", cfg->wifi_ssid);
     cJSON_AddStringToObject(data, "current_ssid", wifi_get_current_ssid());
-    cJSON_AddStringToObject(data, "wifi_mode",
-        ws == WIFI_STATE_AP ? "AP" :
-        ws == WIFI_STATE_STA_CONNECTED ? "STA" : "disconnected");
-    cJSON_AddBoolToObject(data, "ap_fallback_enabled", cfg->allow_ap_fallback);
     wifi_state_t ws = wifi_get_state();
-    cJSON_AddStringToObject(data, "wifi_state",
+    cJSON_AddStringToObject(data, "wifi_mode",
         ws == WIFI_STATE_AP ? "AP" :
         ws == WIFI_STATE_STA_CONNECTED ? "STA" : "disconnected");
 
@@ -270,8 +266,7 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
 static esp_err_t api_config_post_handler(httpd_req_t *req)
 {
 
-    /** @brief 验证无符号整数是否在指定范围内 */
-    static bool validate_uint_range(int val, int min, int max)
+    bool validate_uint_range(int val, int min, int max)
     {
         return (val >= min && val <= max);
     }
@@ -624,17 +619,15 @@ static esp_err_t api_download_handler(httpd_req_t *req)
                 snprintf(avi_path, sizeof(avi_path), "/sdcard/recordings/%s", name);
                 FILE *af = fopen(avi_path, "rb");
                 if (af) {
-                    mbedtls_sha256_context ctx;
-                    mbedtls_sha256_init(&ctx);
-                    mbedtls_sha256_starts(&ctx, 0);
+                    sha256_ctx_t ctx;
+                    sha256_init(&ctx);
                     uint8_t buf[4096];
                     size_t n;
                     while ((n = fread(buf, 1, sizeof(buf), af)) > 0) {
-                        mbedtls_sha256_update(&ctx, buf, n);
+                        sha256_update(&ctx, buf, n);
                     }
                     unsigned char hash[32];
-                    mbedtls_sha256_finish(&ctx, hash);
-                    mbedtls_sha256_free(&ctx);
+                    sha256_finish(&ctx, hash);
                     fclose(af);
 
                     char computed[65];

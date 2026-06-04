@@ -130,20 +130,6 @@ static void reconnect_timer_cb(TimerHandle_t timer)
     
     esp_wifi_connect();
 }
-static void reconnect_timer_cb(TimerHandle_t timer)
-{
-    s_retry_count++;
-    ESP_LOGI(TAG, "Reconnect timer fired, retry %d (interval %lu ms)", s_retry_count, (unsigned long)s_retry_interval_ms);
-
-    /* Exponential backoff: double interval each retry, cap at WIFI_RETRY_MAX_MS */
-    s_retry_interval_ms *= 2;
-    if (s_retry_interval_ms > WIFI_RETRY_MAX_MS) {
-        s_retry_interval_ms = WIFI_RETRY_MAX_MS;
-    }
-    xTimerChangePeriod(s_reconnect_timer, pdMS_TO_TICKS(s_retry_interval_ms), portMAX_DELAY);
-
-    esp_wifi_connect();
-}
 
 /* ---- MAC helper for AP SSID ---- */
 /** @brief 根据设备 MAC 地址生成 AP 热点 SSID（格式：MiBeeHomeCam-XXXX） */
@@ -303,13 +289,6 @@ esp_err_t wifi_init(void)
         return wifi_start_sta();
     }
 }
-    cam_config_t *cfg = config_get();
-    if (strlen(cfg->wifi_ssid) == 0) {
-        return wifi_start_ap();
-    } else {
-        return wifi_start_sta();
-    }
-}
 
 /** @brief 获取当前 WiFi 连接状态 */
 wifi_state_t wifi_get_state(void)
@@ -428,9 +407,6 @@ esp_err_t wifi_start_sta(void)
     return ESP_OK;
 }
 
-    ESP_ERROR_CHECK(esp_wifi_connect());
-    return ESP_OK;
-}
 
 /** @brief 扫描周围 WiFi 热点，返回找到的数量，失败返回 -1 */
 int wifi_scan(wifi_ap_info_t *aps, int max_count)

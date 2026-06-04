@@ -4,5 +4,5 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(mibee_homecam)
 
 # Embed web UI files into SPIFFS partition
-spiffs_create_partition_image(storage main/web_ui FLASH_IN_PROJECT)
+spiffs_create_partition_image(spiffs main/web_ui FLASH_IN_PROJECT)
 
