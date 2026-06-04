@@ -11,7 +11,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .header{background:#7C3AED;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:8px}
 .header h1{font-size:16px;font-weight:600}
 .header .ver{font-size:12px;opacity:.7}
-.main{padding:12px;max-width:600px;margin:0 auto;padding-bottom:60px}
+.main{padding:12px;max-width:600px;margin:0 auto;padding-bottom:80px}
 .card{background:#fff;border-radius:8px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(124,58,237,.08)}
 .card-title{font-size:15px;color:#7C3AED;margin-bottom:10px;font-weight:600;border-bottom:1px solid #e8e8e8;padding-bottom:6px}
 .field{margin-bottom:10px}
@@ -62,6 +62,14 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .pw-wrap{position:relative}
 .pw-wrap input{padding-right:36px}
 .pw-wrap .eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);cursor:pointer;user-select:none;font-size:18px;color:#888;line-height:1}
+.accordion-section{margin-bottom:10px}
+.accordion-header{cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(124,58,237,.08);user-select:none}
+.accordion-header:hover{background:#f5f5f5}
+.accordion-header .card-title{margin-bottom:0;border-bottom:none;padding-bottom:0}
+.accordion-content{max-height:2000px;overflow:hidden;transition:max-height 0.3s ease}
+.accordion-content.collapsed{max-height:0}
+.accordion-indicator{transition:transform 0.3s;font-size:12px;color:#999}
+.accordion-content.collapsed+.accordion-indicator{transform:rotate(-90deg)}
 </style>
 </head>
 <body>
@@ -73,9 +81,14 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </div>
 <div class="main">
 
+<div class="accordion-section">
+	<div class="accordion-header" onclick="toggleSection(this)">
+		<span class="card-title">WiFi 配置</span>
+		<span class="accordion-indicator">▼</span>
+	</div>
+	<div class="accordion-content">
 <!-- WiFi -->
 <div class="card">
-<div class="card-title">WiFi 配置</div>
 <div class="field">
 <label>可用网络</label>
 <div class="ssid-row">
@@ -114,10 +127,17 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </div>
 </div>
 </div>
+</div>
 
+</div>
+<div class="accordion-section">
+	<div class="accordion-header" onclick="toggleSection(this)">
+		<span class="card-title">☁️ 上传方式</span>
+		<span class="accordion-indicator">▶</span>
+	</div>
+	<div class="accordion-content collapsed">
 <!-- Upload Method -->
 <div class="card">
-<div class="card-title">☁️ 上传方式</div>
 <div class="field">
 <label>上传方式</label>
 <select id="uploadMethod" onchange="onUploadMethodChange()">
@@ -151,10 +171,17 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </div>
 
 </div>
+</div>
+</div>
 
+<div class="accordion-section">
+	<div class="accordion-header" onclick="toggleSection(this)">
+		<span class="card-title">🔔 告警通知</span>
+		<span class="accordion-indicator">▶</span>
+	</div>
+	<div class="accordion-content collapsed">
 <!-- Webhook Alert -->
 <div class="card">
-<div class="card-title">🔔 告警通知</div>
 <div class="field">
 <label>Webhook URL</label>
 <input type="text" id="alert_webhook_url" placeholder="http://your-server/webhook">
@@ -166,10 +193,17 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </label>
 </div>
 </div>
+</div>
+</div>
 
+<div class="accordion-section">
+	<div class="accordion-header" onclick="toggleSection(this)">
+		<span class="card-title">录制参数</span>
+		<span class="accordion-indicator">▼</span>
+	</div>
+	<div class="accordion-content">
 <!-- Recording -->
 <div class="card">
-<div class="card-title">录制参数</div>
 <div class="field">
 <label>分辨率</label>
 <select id="resolution">
@@ -177,6 +211,28 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <option value="1">SVGA (800x600)</option>
 <option value="2">XGA (1024x768)</option>
 </select>
+</div>
+<div class="field">
+<label>录制模式</label>
+<select id="recordMode" onchange="onRecordModeChange()">
+<option value="continuous">连续录制</option>
+<option value="timelapse">延时摄影</option>
+</select>
+</div>
+<div class="field" id="intervalField" style="display:none;">
+<label>拍摄间隔</label>
+<select id="timelapseInterval">
+<option value="5">5 秒</option>
+<option value="10">10 秒</option>
+<option value="30">30 秒</option>
+<option value="60">60 秒</option>
+<option value="120">120 秒</option>
+<option value="300">300 秒</option>
+</select>
+</div>
+<div class="field">
+<label>播放帧率</label>
+<div style="color:#666;font-size:13px;">15 fps (固定)</div>
 </div>
 <div class="field">
 <label>帧率 (FPS)</label>
@@ -236,10 +292,17 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <input type="text" id="device_name" placeholder="MiBeeHomeCam">
 </div>
 </div>
+</div>
+</div>
 
+<div class="accordion-section">
+	<div class="accordion-header" onclick="toggleSection(this)">
+		<span class="card-title">系统设置</span>
+		<span class="accordion-indicator">▶</span>
+	</div>
+	<div class="accordion-content collapsed">
 <!-- System -->
 <div class="card">
-<div class="card-title">系统设置</div>
 	<div class="field">
 		<label>设备发现地址</label>
 		<div style="background:#f5f5f5;padding:8px 10px;border-radius:6px;font-size:14px;color:#7C3AED;font-weight:600;word-break:break-all" id="mdnsHostname">-</div>
@@ -285,11 +348,20 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <button class="btn btn-reset" onclick="factoryReset()">恢复出厂</button>
 </div>
 </div>
+</div>
+</div>
+<div class="accordion-section">
+	<div class="accordion-header" onclick="toggleSection(this)">
+		<span class="card-title">SD 卡一次性配置</span>
+		<span class="accordion-indicator">▶</span>
+	</div>
+	<div class="accordion-content collapsed">
 <div class="field" style="margin-top:12px;padding-top:10px;border-top:1px solid #e8e8e8">
-<label style="font-size:12px;color:#999">SD 卡一次性配置</label>
 <p style="font-size:12px;color:#888;line-height:1.5;margin:0">
 在 <code style="background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:11px">/sdcard/config/wifi.txt</code> 或 <code style="background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:11px">nas.txt</code> 中添加 <code style="background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:11px">one_time=true</code>，
 配置加载后文件将被自动删除，适用于首次配置。</p>
+</div>
+</div>
 </div>
 
 </div>
@@ -408,6 +480,17 @@ function loadConfig(){
     opt.value=tzVal;opt.textContent=tzVal+' (自定义)';
     tzSel.appendChild(opt);tzSel.value=tzVal;
   }
+  /* Timelapse mode: detect from interval value */
+  var tlInterval = v.timelapse_interval_sec || 0;
+  if(tlInterval > 0){
+    $('recordMode').value = 'timelapse';
+    $('timelapseInterval').value = tlInterval;
+    $('intervalField').style.display = 'block';
+  }else{
+    $('recordMode').value = 'continuous';
+    $('intervalField').style.display = 'none';
+  }
+  onRecordModeChange();
  }).catch(function(e){console.error('Load config failed:',e)});
 }
 
@@ -442,6 +525,8 @@ function scanWiFi(){
 
 /* ---- Gather form data ---- */
 function gatherFormData(){
+ var mode = $('recordMode').value;
+ var interval = mode === 'timelapse' ? parseInt($('timelapseInterval').value) : 0;
  var cfg={
   wifi_ssid:$('wifi_ssid').value,
   wifi_pass:$('wifi_pass').value,
@@ -465,6 +550,7 @@ function gatherFormData(){
   vflip:$('vflip').checked,
   hmirror:$('hmirror').checked,
   timezone:$('timezone').value
+  timelapse_interval_sec: interval,
   cleanup_low_pct:parseInt($('cleanup_low_pct').value),
   cleanup_high_pct:parseInt($('cleanup_high_pct').value),
   alert_webhook_url:$('alert_webhook_url').value,
@@ -534,6 +620,25 @@ function onUploadMethodChange(){
  $('webdavSection').style.display=m==='1'?'block':'none';
 
 }
+
+/* ---- Record mode visibility ---- */
+function onRecordModeChange(){
+  var mode = $('recordMode').value;
+  $('intervalField').style.display = mode === 'timelapse' ? 'block' : 'none';
+}
+function toggleSection(header){
+  var section=header.closest('.accordion-section');
+  var content=section.querySelector('.accordion-content');
+  var indicator=section.querySelector('.accordion-indicator');
+  if(content.classList.contains('collapsed')){
+    content.classList.remove('collapsed');
+    indicator.textContent='\u25BC';
+  }else{
+    content.classList.add('collapsed');
+    indicator.textContent='\u25B6';
+  }
+}
+
 window.onload=function(){loadConfig();updateAuthUI()};
 </script>
 </body>
