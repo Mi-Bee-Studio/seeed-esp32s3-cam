@@ -66,10 +66,10 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .accordion-header{cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(124,58,237,.08);user-select:none}
 .accordion-header:hover{background:#f5f5f5}
 .accordion-header .card-title{margin-bottom:0;border-bottom:none;padding-bottom:0}
-.accordion-content{max-height:2000px;overflow:hidden;transition:max-height 0.3s ease}
-.accordion-content.collapsed{max-height:0}
+.accordion-content{max-height:2000px;overflow:hidden;transition:max-height 0.3s ease;padding:0 14px 14px}
+.accordion-content.collapsed{max-height:0;padding:0 14px}
 .accordion-indicator{transition:transform 0.3s;font-size:12px;color:#999}
-.accordion-content.collapsed+.accordion-indicator{transform:rotate(-90deg)}
+.accordion-content>.card{background:transparent;box-shadow:none;border-radius:0;padding:0;margin:0}
 </style>
 </head>
 <body>
@@ -129,7 +129,6 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </div>
 </div>
 
-</div>
 <div class="accordion-section">
 	<div class="accordion-header" onclick="toggleSection(this)">
 		<span class="card-title">☁️ 上传方式</span>
@@ -398,12 +397,6 @@ function showToast(msg,type,duration){
  clearTimeout(toastTimer);
  toastTimer=setTimeout(function(){t.className='toast'},duration);
 }
- var t=$('toast');
- t.textContent=msg;
- t.className='toast show '+(isErr?'err':'ok');
- clearTimeout(toastTimer);
- toastTimer=setTimeout(function(){t.className='toast'},3000);
-}
 
 /* ---- Network Status ---- */
 function updateNetDot(online){
@@ -549,7 +542,7 @@ function gatherFormData(){
   jpeg_quality:parseInt($('jpeg_quality').value),
   vflip:$('vflip').checked,
   hmirror:$('hmirror').checked,
-  timezone:$('timezone').value
+  timezone:$('timezone').value,
   timelapse_interval_sec: interval,
   cleanup_low_pct:parseInt($('cleanup_low_pct').value),
   cleanup_high_pct:parseInt($('cleanup_high_pct').value),
