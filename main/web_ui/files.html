@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MiBeeHomeCam 文件管理</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%237C3AED'/%3E%3Cpath d='M10 22V10l16 6-16 6z' fill='white'/%3E%3C/svg%3E">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#FAFAFA;color:#333;font-size:14px}
@@ -117,13 +118,6 @@ function showToast(msg,type,duration){
  t.textContent=msg;t.className='toast show '+type;
  clearTimeout(toastTimer);
  toastTimer=setTimeout(function(){t.className='toast'},duration);
-}
- var t=$('toast');
- t.textContent=msg;
- t.className='toast show '+(isErr?'err':'ok');
- clearTimeout(toastTimer);
- toastTimer=setTimeout(function(){t.className='toast'},3000);
-}
 
 /* ---- Network Status ---- */
 function updateNetDot(online){
@@ -156,63 +150,74 @@ function escapeHtml(s){
 
 /* ---- Load & render files ---- */
 function refreshFiles(){
- fetch('/api/files').then(function(r){return r.json()}).then(function(d){
-  if(!d.ok){$('fileSummary').textContent='加载失败';return}
-  var v=d.data;
-  /* SD card info */
-  if(v.sd_total){
-   var used=v.sd_total-v.sd_free;
-   var pct=Math.round(used*100/v.sd_total);
-   $('sdBar').style.width=pct+'%';
-   $('sdBar').className='bar-fill '+(pct>90?'crit':pct>70?'warn':'ok');
-   $('sdText').textContent='已用 '+fmtSize(used)+' / '+fmtSize(v.sd_total)+' ('+pct+'%)';
-  }
-  var files=v.files||[];
-  if(!files.length){
-   $('fileSummary').textContent='共 0 个文件';
-   $('fileList').innerHTML='<div class="empty">暂无录像文件</div>';
-   return;
-  }
-  files.sort(function(a,b){return b.name.localeCompare(a.name)});
-  $('fileSummary').textContent='共 '+files.length+' 个文件';
-  /* Group by date from REC_YYYYMMDD_* */
-  var groups={};
-  var order=[];
-  for(var i=0;i<files.length;i++){
-   var f=files[i];
-   var dm=f.name.match(/REC_(\d{4})(\d{2})(\d{2})/);
-   var key=dm?dm[1]+'-'+dm[2]+'-'+dm[3]:'其他';
-   if(!groups[key]){groups[key]=[];order.push(key)}
-   groups[key].push(f);
-  }
-  var html='';
-  for(var g=0;g<order.length;g++){
-   var dk=order[g];
-   var gf=groups[dk];
-   html+='<div class="date-group"><div class="date-header" onclick="toggleGroup(this)" data-group="'+g+'">';
-   html+='<input type="checkbox" class="file-check" onclick="event.stopPropagation();toggleGroupSelect(this)">';
-   html+='&#128193; '+dk+' ('+gf.length+')';
-   html+='<span style="margin-left:auto;display:flex;gap:4px">';
-   html+='<button class="grp-btn dl" title="下载全部" onclick="event.stopPropagation();downloadGroup(this)">⬇</button>';
-   html+='<button class="grp-btn del" title="删除全部" onclick="event.stopPropagation();deleteGroup(this)">🗑</button>';
-   html+='</span></div>';
-   for(var j=0;j<gf.length;j++){
-    var fi=gf[j];
-    html+='<div class="file-item"><input type="checkbox" class="file-check" data-name="'+escapeHtml(fi.name)+'" onchange="updateSelection()">';
-    html+='<div class="file-info"><div class="file-name">'+escapeHtml(fi.name)+'</div>'
-     +'<div class="file-size">'+fmtSize(fi.size)+'</div></div>'
-     +'<div class="file-actions">'
-     +'<button class="btn-sm btn-dl" data-name="'+escapeHtml(fi.name)+'" onclick="dlFile(this.dataset.name)">下载</button>'
-     +'<button class="btn-sm btn-del" data-name="'+escapeHtml(fi.name)+'" onclick="delFile(this.dataset.name)">删除</button>'
-     +'</div></div>';
+ function doFetch(){
+  fetch('/api/files').then(function(r){return r.json()}).then(function(d){
+   if(!d.ok){$('fileSummary').textContent='加载失败';return}
+   var v=d.data;
+   /* SD card info */
+   if(v.sd_total){
+    var used=v.sd_total-v.sd_free;
+    var pct=Math.round(used*100/v.sd_total);
+    $('sdBar').style.width=pct+'%';
+    $('sdBar').className='bar-fill '+(pct>90?'crit':pct>70?'warn':'ok');
+    $('sdText').textContent='已用 '+fmtSize(used)+' / '+fmtSize(v.sd_total)+' ('+pct+'%)';
    }
-   html+='</div>';
-  }
-  $('fileList').innerHTML=html;
- }).catch(function(e){
-  $('fileSummary').textContent='加载失败';
-  console.error('Files fetch failed:',e);
- });
+   var files=v.files||[];
+   if(!files.length){
+    $('fileSummary').textContent='共 0 个文件';
+    $('fileList').innerHTML='<div class="empty">暂无录像文件</div>';
+    return;
+   }
+   files.sort(function(a,b){return b.name.localeCompare(a.name)});
+   $('fileSummary').textContent='共 '+files.length+' 个文件';
+   /* Group by date from REC_YYYYMMDD_* */
+   var groups={};
+   var order=[];
+   for(var i=0;i<files.length;i++){
+    var f=files[i];
+    var dm=f.name.match(/REC_(\d{4})(\d{2})(\d{2})/);
+    var key=dm?dm[1]+'-'+dm[2]+'-'+dm[3]:'其他';
+    if(!groups[key]){groups[key]=[];order.push(key)}
+    groups[key].push(f);
+   }
+   var html='';
+   for(var g=0;g<order.length;g++){
+    var dk=order[g];
+    var gf=groups[dk];
+    html+='<div class="date-group"><div class="date-header" onclick="toggleGroup(this)" data-group="'+g+'">';
+    html+='<input type="checkbox" class="file-check" onclick="event.stopPropagation();toggleGroupSelect(this)">';
+    html+='&#128193; '+dk+' ('+gf.length+')';
+    html+='<span style="margin-left:auto;display:flex;gap:4px">';
+    html+='<button class="grp-btn dl" title="下载全部" onclick="event.stopPropagation();downloadGroup(this)">⬇</button>';
+    html+='<button class="grp-btn del" title="删除全部" onclick="event.stopPropagation();deleteGroup(this)">🗑</button>';
+    html+='</span></div>';
+    for(var j=0;j<gf.length;j++){
+     var fi=gf[j];
+     html+='<div class="file-item"><input type="checkbox" class="file-check" data-name="'+escapeHtml(fi.name)+'" onchange="updateSelection()">';
+     html+='<div class="file-info"><div class="file-name">'+escapeHtml(fi.name)+'</div>'
+      +'<div class="file-size">'+fmtSize(fi.size)+'</div></div>'
+      +'<div class="file-actions">'
+      +'<button class="btn-sm btn-dl" data-name="'+escapeHtml(fi.name)+'" onclick="dlFile(this.dataset.name)">下载</button>'
+      +'<button class="btn-sm btn-del" data-name="'+escapeHtml(fi.name)+'" onclick="delFile(this.dataset.name)">删除</button>'
+      +'</div></div>';
+    }
+    html+='</div>';
+   }
+   $('fileList').innerHTML=html;
+  }).catch(function(e){
+   console.error('Files fetch failed:',e);
+   if(!refreshFiles._retryCount){
+    refreshFiles._retryCount=1;
+    $('fileSummary').textContent='网络错误，3秒后重试...';
+    setTimeout(doFetch,3000);
+   }else{
+    $('fileSummary').textContent='网络错误: 无法连接到设备';
+    showToast('网络错误: 无法连接到设备 ('+(e.message||'未知错误')+')','error',5000);
+   }
+  });
+ }
+ refreshFiles._retryCount=0;
+ doFetch();
 }
 
 function dlFile(name){
