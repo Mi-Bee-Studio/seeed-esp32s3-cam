@@ -67,6 +67,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <span>&#128247;</span>
 <h1>MiBeeHomeCam <span class="ver">v0.1</span></h1>
 <span class="net-dot" id="netDot"></span>
+<span style="margin-left:auto;cursor:pointer;font-size:12px;opacity:.8" id="authBtn" onclick="toggleAuth()">🔒 登录</span>
 </div>
 <div class="main">
 
@@ -77,6 +78,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </div>
 <div class="filename" id="recFile"></div>
 <div class="rec-actions" id="recActions"></div>
+<div id="timelapseMode" style="display:none;margin-top:8px;color:#7C3AED;font-size:13px;"></div>
 </div>
 
 <div class="grid">
@@ -129,23 +131,16 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <script>
 function $(s){return document.getElementById(s)}
 
-/* ---- Auth ---- */
-function getPw(){return localStorage.getItem('cam_password')||''}
-function setPw(p){localStorage.setItem('cam_password',p)}
-function authHeaders(){var p=getPw();return p?{'X-Password':p}:{}}
-function authFetch(url,opts){
- opts=opts||{};opts.headers=Object.assign({},opts.headers||{},authHeaders());
- return fetch(url,opts).then(function(r){
-  if(r.status===401){setPw('');promptLogin();throw new Error('Unauthorized')}
-  return r
- })
-}
-function promptLogin(cb){
- var p=prompt('请输入管理密码:');if(!p)return;
- fetch('/api/status',{headers:{'X-Password':p}}).then(function(r){
-  if(r.ok){setPw(p);if(cb)cb()}else{showToast('密码错误','error');promptLogin(cb)}
- })
-}
+/* ---- Auth Helper ---- */
+function getStoredPassword(){return localStorage.getItem('cam_password')||''}
+function setStoredPassword(p){localStorage.setItem('cam_password',p)}
+function clearStoredPassword(){localStorage.removeItem('cam_password')}
+function authHeaders(){var p=getStoredPassword();return p?{'X-Password':p}:{}}
+function authFetch(url,opts){opts=opts||{};opts.headers=Object.assign({},opts.headers||{},authHeaders());return fetch(url,opts).then(function(r){if(r.status===401){clearStoredPassword();showLoginDialog();throw new Error('Unauthorized')}return r})}
+function showLoginDialog(cb){var p=prompt('请输入管理密码:');if(!p)return;fetch('/api/status',{headers:{'X-Password':p}}).then(function(r){if(r.ok){setStoredPassword(p);updateAuthUI();if(cb)cb()}else{showToast('密码错误','error');showLoginDialog(cb)}})}
+function requireAuth(cb){if(getStoredPassword())cb();else showLoginDialog(cb)}
+function updateAuthUI(){var btn=document.getElementById('authBtn');if(btn)btn.textContent=getStoredPassword()?'🔓 登出':'🔒 登录'}
+function toggleAuth(){if(getStoredPassword()){clearStoredPassword();updateAuthUI()}else showLoginDialog()}
 
 /* ---- Toast & Network Status ---- */
 var toastTimer=null;
@@ -175,7 +170,7 @@ var _recBusy=false;
 function toggleRec(){
  if(_recBusy)return;
  var v=window._lastStatus;if(!v)return;
- if(!getPw()){promptLogin(toggleRec);return}
+ if(!getStoredPassword()){showLoginDialog(toggleRec);return}
  var action=v.recording==='recording'?'stop':'start';
  if(action==='stop'){
   if(!confirm('确定停止录制？'))return;
@@ -189,9 +184,10 @@ function toggleRec(){
 }
 
 function fmtTime(s){
- var h=Math.floor(s/3600),m=Math.floor(s%3600/60);
- if(h>0)return h+'h '+m+'m';
- return m+'m';
+ var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+ if(d>0)return d+' 天 '+h+' 小时';
+ if(h>0)return h+' 小时 '+m+' 分钟';
+ return m+' 分钟';
 }
 function fmtSize(bytes){
  if(bytes<1024)return bytes+'B';
@@ -207,11 +203,21 @@ function refresh(){
   var rec=$('recDot'),rt=$('recText'),rf=$('recFile'),ra=$('recActions');
   if(v.recording==='recording'){
    rec.className='dot rec';rt.className='status-text rec';rt.textContent='录制中';
-   rf.textContent=v.current_file||'';
+   rf.textContent=v.current_file?v.current_file.split('/').pop():'';
    ra.innerHTML='<button class="btn-rec stop" onclick="toggleRec()">⏹ 停止录制</button>';
   }else{
    rec.className='dot idle';rt.className='status-text idle';rt.textContent='空闲';rf.textContent='';
    ra.innerHTML='<button class="btn-rec start" onclick="toggleRec()">⏺ 开始录制</button>';
+  }
+  if(v.timelapse_interval_sec>0){
+   var tl=$('timelapseMode');
+   if(tl){
+    tl.textContent='⏱ 延时摄影 (间隔 '+v.timelapse_interval_sec+'秒)';
+    tl.style.display='block';
+   }
+  }else{
+   var tl=$('timelapseMode');
+   if(tl)tl.style.display='none';
   }
   var bar=$('sdBar'),txt=$('sdText');
   if(v.sd_total_bytes!=null&&v.sd_free_bytes!=null){
@@ -240,7 +246,7 @@ function refresh(){
   var ns=$('nasStatus');
   if(v.upload_queue>=0){ns.className='val';ns.innerHTML='<span class="badge ok">正常</span>'}
   else{ns.className='val';ns.innerHTML='<span class="badge err">异常</span>'}
-  $('nasLast').textContent=v.last_upload||'--';
+  $('nasLast').textContent=v.last_upload||'暂无上传记录';
  $('nasQueue').textContent=(v.upload_queue||0)+' 个文件';
  var ct=v.chip_temp,ce=$('chip_temp');
  ce.textContent=ct!=null?ct.toFixed(1)+' °C':'--';
@@ -248,7 +254,7 @@ function refresh(){
  }).catch(function(e){console.error('Status fetch failed:',e)});
 }
 setInterval(refresh,5000);
-window.onload=refresh;
+window.onload=function(){refresh();updateAuthUI()};
 </script>
 </body>
 </html>

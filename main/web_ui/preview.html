@@ -44,6 +44,10 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .toast.info{background:#1565c0;color:#fff}
 .net-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:6px;background:#4CAF50;box-shadow:0 0 4px rgba(76,175,80,.5);transition:background .3s,box-shadow .3s}
 .net-dot.offline{background:#e74c3c;box-shadow:0 0 4px rgba(231,76,60,.5);animation:pulse 1s infinite}
+.preview-controls{position:fixed;bottom:70px;right:16px;display:flex;flex-direction:column;gap:10px;z-index:1000}
+.control-btn{width:48px;height:48px;border-radius:50%;background:rgba(124,58,237,.9);color:#fff;border:2px solid #fff;font-size:22px;cursor:pointer;transition:background .2s,transform .15s;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.control-btn:hover{background:#5B21B6;transform:scale(1.08)}
+.control-btn:active{transform:scale(.95)}
 </style>
 </head>
 <body>
@@ -64,6 +68,10 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </div>
 <img id="stream" style="display:none" alt="实时画面">
 </div>
+</div>
+<div class="preview-controls" id="previewControls">
+<button class="control-btn" id="fullscreenBtn" onclick="toggleFullscreen()" title="全屏">⛶</button>
+<button class="control-btn" id="screenshotBtn" onclick="takeScreenshot()" title="截图">📷</button>
 </div>
 <div class="status-bar">
 <div class="status-left">
@@ -186,6 +194,22 @@ function toggleFullscreen(){
   if(c.requestFullscreen)c.requestFullscreen();
   else if(c.webkitRequestFullscreen)c.webkitRequestFullscreen();
  }
+}
+
+function takeScreenshot(){
+ var img=document.getElementById('stream');
+ if(!img||img.style.display==='none'){showToast('没有可截图的画面','error');return}
+ var canvas=document.createElement('canvas');
+ canvas.width=img.naturalWidth||640;
+ canvas.height=img.naturalHeight||480;
+ var ctx=canvas.getContext('2d');
+ ctx.drawImage(img,0,0,canvas.width,canvas.height);
+ var link=document.createElement('a');
+ var ts=new Date().toISOString().replace(/[:.]/g,'-');
+ link.download='screenshot_'+ts+'.png';
+ link.href=canvas.toDataURL('image/png');
+ link.click();
+ showToast('截图已保存','success');
 }
 
 /* Abort MJPEG stream — release socket before navigating away */

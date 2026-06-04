@@ -207,6 +207,7 @@ static esp_err_t api_status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "chip_temp", (double)get_chip_temp());
     cJSON_AddNumberToObject(data, "frames_dropped", (double)recorder_get_frames_dropped());
     cJSON_AddStringToObject(data, "firmware_version", FW_VERSION);
+    cJSON_AddNumberToObject(data, "timelapse_interval_sec", cfg->timelapse_interval_sec);
 
     return json_ok(req, data);
 }
@@ -248,6 +249,7 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "cleanup_low_pct", cfg->cleanup_low_pct);
     cJSON_AddNumberToObject(data, "cleanup_high_pct", cfg->cleanup_high_pct);
     cJSON_AddBoolToObject(data, "frame_drop_enabled", cfg->frame_drop_enabled);
+    cJSON_AddNumberToObject(data, "timelapse_interval_sec", cfg->timelapse_interval_sec);
     cJSON_AddStringToObject(data, "alert_webhook_url", cfg->alert_webhook_url);
     cJSON_AddBoolToObject(data, "alert_webhook_enabled", cfg->alert_webhook_enabled);
 
@@ -416,6 +418,15 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     }
     if ((item = cJSON_GetObjectItem(json, "frame_drop_enabled")))
         cfg->frame_drop_enabled = item->valueint;
+    if ((item = cJSON_GetObjectItem(json, "timelapse_interval_sec"))) {
+        int val = item->valueint;
+        if (!validate_uint_range(val, 0, 255)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid timelapse_interval_sec (must be 0-255)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->timelapse_interval_sec = (uint8_t)val;
+    }
     if ((item = cJSON_GetObjectItem(json, "alert_webhook_url"))) {
         size_t len = strlen(item->valuestring);
         if (len < sizeof(cfg->alert_webhook_url)) {
