@@ -645,7 +645,11 @@ if (timelapse) {
         }
 
         /* Frame rate control */
-        vTaskDelay(pdMS_TO_TICKS(1000 / fps));
+        if (timelapse) {
+            vTaskDelay(pdMS_TO_TICKS(cfg->timelapse_interval_sec * 1000));
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(1000 / fps));
+        }
     }
 
     /* Cleanup: close any open segment and notify */
