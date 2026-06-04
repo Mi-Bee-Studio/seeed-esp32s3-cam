@@ -208,6 +208,7 @@ static esp_err_t api_status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "frames_dropped", (double)recorder_get_frames_dropped());
     cJSON_AddStringToObject(data, "firmware_version", FW_VERSION);
     cJSON_AddNumberToObject(data, "timelapse_interval_sec", cfg->timelapse_interval_sec);
+    cJSON_AddBoolToObject(data, "timelapse_mode", cfg->timelapse_interval_sec > 0);
 
     return json_ok(req, data);
 }
