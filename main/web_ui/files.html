@@ -118,7 +118,7 @@ function showToast(msg,type,duration){
  t.textContent=msg;t.className='toast show '+type;
  clearTimeout(toastTimer);
  toastTimer=setTimeout(function(){t.className='toast'},duration);
-
+}
 /* ---- Network Status ---- */
 function updateNetDot(online){
  var d=document.getElementById('netDot');if(!d)return;
