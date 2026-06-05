@@ -47,7 +47,6 @@ static const char *TAG = "camera";
 static camera_sensor_t s_sensor      = CAMERA_SENSOR_UNKNOWN;
 static camera_res_t    s_current_res = CAMERA_RES_SVGA;
 static bool            s_initialized = false;
-static camera_fb_t    *s_pending_fb  = NULL;
 
 /** @brief 将分辨率枚举转换为 esp_camera 驱动的帧大小枚举
  *
@@ -108,7 +107,7 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
         .pixel_format  = PIXFORMAT_JPEG,
         .frame_size    = res_to_framesize(res),
         .jpeg_quality  = quality,
-        .fb_count      = 2,                /* double buffer in PSRAM */
+        .fb_count      = 3,                /* triple buffer in PSRAM */
         .fb_location   = CAMERA_FB_IN_PSRAM,
         .grab_mode     = CAMERA_GRAB_LATEST,
     };
@@ -205,7 +204,7 @@ esp_err_t camera_capture(camera_frame_t *frame)
 
     frame->buf = fb->buf;
     frame->len = fb->len;
-    s_pending_fb = fb;
+    frame->_fb = fb;
 
     return ESP_OK;
 }
@@ -217,10 +216,9 @@ esp_err_t camera_capture(camera_frame_t *frame)
  */
 void camera_return_fb(camera_frame_t *frame)
 {
-    (void)frame;
-    if (s_pending_fb) {
-        esp_camera_fb_return(s_pending_fb);
-        s_pending_fb = NULL;
+    if (frame && frame->_fb) {
+        esp_camera_fb_return((camera_fb_t *)frame->_fb);
+        frame->_fb = NULL;
     }
 }
 

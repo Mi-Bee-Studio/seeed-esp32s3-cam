@@ -47,6 +47,8 @@ typedef struct {
     uint8_t *buf;
     /** 帧数据长度（字节） */
     size_t   len;
+    /** Internal driver handle — do not modify */
+    void    *_fb;
 } camera_frame_t;
 
 /** @brief 初始化摄像头
