@@ -27,6 +27,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_task_wdt.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -468,8 +469,22 @@ static void close_segment(void)
     fclose(s_seg.fp);
     s_seg.fp = NULL;
 
+    /* Delete zero-frame segments to prevent 0B file accumulation */
+    if (s_seg.frame_count == 0 && s_current_file[0] != '\0') {
+        ESP_LOGW(TAG, "Deleting zero-frame segment: %s", s_current_file);
+        remove(s_current_file);
+        /* Also remove SHA256 file if it exists */
+        char sha_path[160];
+        snprintf(sha_path, sizeof(sha_path), "%s.sha256", s_current_file);
+        remove(sha_path);
+        idx1_free(&s_seg.idx);
+        return;
+    }
+
     /* Compute SHA256 for integrity verification */
-    if (file_size > 0 && s_current_file[0] != '\0') {
+    /* DISABLED: re-reading file after recording causes heap corruption crash */
+    /* TODO: investigate root cause of heap corruption and re-enable */
+    if (false && file_size > 0 && s_current_file[0] != '\0') {
         FILE *f = fopen(s_current_file, "rb");
         if (f) {
             sha256_ctx_t ctx;
@@ -580,12 +595,29 @@ prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
             continue;
         }
 
+        /* Copy frame data to PSRAM and return camera fb immediately.
+         * This frees the camera framebuffer for the MJPEG streamer,
+         * reducing contention that causes stream disconnects when
+         * motion detection holds the fb for 200-500ms. */
+        size_t jpeg_data_len = frame.len;
+        uint8_t *jpeg_copy = heap_caps_malloc(frame.len, MALLOC_CAP_SPIRAM);
+        const uint8_t *jpeg_data;
+
+        if (jpeg_copy) {
+            memcpy(jpeg_copy, frame.buf, frame.len);
+            jpeg_data = jpeg_copy;
+            camera_return_fb(&frame);
+        } else {
+            ESP_LOGW(TAG, "PSRAM alloc %zu failed, holding camera fb", frame.len);
+            jpeg_data = frame.buf;
+        }
+
 /* Dynamic timelapse: process motion detection */
 uint16_t dynamic_interval_sec = cfg->timelapse_interval_sec;
 if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
     motion_result_t mr;
     esp_err_t merr = motion_detector_process(
-        frame.buf, frame.len,
+        jpeg_data, jpeg_data_len,
         cfg->motion_sensitivity,
         cfg->motion_active_interval_sec,
         cfg->motion_idle_interval_sec,
@@ -597,10 +629,18 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
     }
 }
 
-        /* Smart frame dropping: skip write if cycle exceeds 500ms backlog */
+        /* Smart frame dropping: skip write if cycle exceeds threshold.
+         * NOTE: For dynamic timelapse (tl_mode==2), motion detection itself
+         * takes ~500ms, so use a higher threshold (2000ms) to avoid dropping
+         * every single frame. Regular continuous mode uses 500ms threshold. */
+        int64_t drop_threshold_us = (tl_mode == 2) ? 2000000 : 500000;
         int64_t cycle_elapsed_us = esp_timer_get_time() - cycle_start_us;
-        if (cycle_elapsed_us > 500000 && cfg->frame_drop_enabled) {
-            camera_return_fb(&frame);
+        if (cycle_elapsed_us > drop_threshold_us && cfg->frame_drop_enabled) {
+            if (jpeg_copy) {
+                free(jpeg_copy);
+            } else {
+                camera_return_fb(&frame);
+            }
             s_frames_dropped++;
             /* Throttle warning to max 1/sec */
             if (cycle_start_us - s_last_drop_log_us > 1000000) {
@@ -612,13 +652,25 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
                          (unsigned long)s_frames_dropped);
                 s_last_drop_log_us = cycle_start_us;
             }
-            vTaskDelay(pdMS_TO_TICKS(tl_mode == 2 ? dynamic_interval_sec * 1000 : 1000 / fps));
+            {
+                int drop_delay_ms = tl_mode == 2 ? dynamic_interval_sec * 1000 : 1000 / fps;
+                while (drop_delay_ms > 0 && s_state == RECORDER_RECORDING) {
+                    int chunk_ms = (drop_delay_ms > 5000) ? 5000 : drop_delay_ms;
+                    esp_task_wdt_reset();
+                    vTaskDelay(pdMS_TO_TICKS(chunk_ms));
+                    drop_delay_ms -= chunk_ms;
+                }
+            }
             continue;
         }
 
         /* Write frame to AVI */
-        err = write_avi_frame(frame.buf, frame.len);
-        camera_return_fb(&frame);
+        err = write_avi_frame(jpeg_data, jpeg_data_len);
+        if (jpeg_copy) {
+            free(jpeg_copy);
+        } else {
+            camera_return_fb(&frame);
+        }
 
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "SD write failed — closing segment, attempting cleanup");
@@ -644,7 +696,7 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
             break;
         }
 
-        total_bytes += frame.len;
+        total_bytes += jpeg_data_len;
 
         /* Flush to SD: every frame in timelapse (sparse), every ~1s in continuous */
 static int flush_counter = 0;
@@ -682,13 +734,23 @@ if (timelapse) {
             }
         }
 
-        /* Frame rate control */
-        if (tl_mode == 2) {
-            vTaskDelay(pdMS_TO_TICKS(dynamic_interval_sec * 1000));
-        } else if (timelapse) {
-            vTaskDelay(pdMS_TO_TICKS(cfg->timelapse_interval_sec * 1000));
-        } else {
-            vTaskDelay(pdMS_TO_TICKS(1000 / fps));
+        /* Frame rate control — break long sleeps to feed watchdog (TWDT=30s) */
+        {
+            int delay_ms;
+            if (tl_mode == 2) {
+                delay_ms = dynamic_interval_sec * 1000;
+            } else if (timelapse) {
+                delay_ms = cfg->timelapse_interval_sec * 1000;
+            } else {
+                delay_ms = 1000 / fps;
+            }
+            /* Sleep in 5-second chunks, feeding watchdog each iteration */
+            while (delay_ms > 0 && s_state == RECORDER_RECORDING) {
+                int chunk_ms = (delay_ms > 5000) ? 5000 : delay_ms;
+                esp_task_wdt_reset();
+                vTaskDelay(pdMS_TO_TICKS(chunk_ms));
+                delay_ms -= chunk_ms;
+            }
         }
     }
 
@@ -800,11 +862,11 @@ esp_err_t recorder_stop(void)
     s_state = RECORDER_IDLE;   /* task checks this and exits */
     xSemaphoreGive(s_mutex);
 
-    /* Wait for task to finish */
+    /* Wait for task to finish — recording uses 5s watchdog chunks, so wait at least 8s */
     int waited = 0;
-    while (s_task_handle != NULL && waited < 2000) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-        waited += 50;
+    while (s_task_handle != NULL && waited < 8000) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+        waited += 100;
     }
 
 /* Cleanup motion detector */
