@@ -64,21 +64,46 @@ Access-Control-Allow-Headers: Content-Type, X-Password
 
 ## 接口总览
 
+
+
 | # | 方法 | 路径 | 认证 | 描述 |
+
 |---|------|------|------|------|
+
 | 1 | GET | `/api/status` | 否 | 获取设备状态 |
+
 | 2 | GET | `/api/config` | 否 | 获取当前配置 |
+
 | 3 | POST | `/api/config` | **是** | 更新配置 |
+
 | 4 | GET | `/api/files` | 否 | 获取录制文件列表 |
+
 | 5 | DELETE | `/api/files?name=xxx` | **是** | 删除指定文件 |
+
 | 6 | GET | `/api/download?name=xxx` | 否 | 下载指定文件 |
+
 | 7 | GET | `/api/scan` | 否 | 扫描 WiFi 网络 |
+
 | 8 | POST | `/api/time` | **是** | 手动设置系统时间 |
+
 | 9 | POST | `/api/record?action=start\|stop` | **是** | 控制录像 |
+
 | 10 | POST | `/api/reset` | **是** | 恢复出厂设置 |
+
 | 11 | GET | `/stream` | 否 | MJPEG 实时视频流 |
+
 | 12 | OPTIONS | `/*` | 否 | CORS 预检请求 |
+
 | 13 | GET | `/*` | 否 | 静态文件（SPIFFS） |
+
+| 14 | POST | `/api/ota` | **是** | OTA固件升级 |
+
+| 15 | POST | `/api/format` | **是** | 格式化SD卡 |
+
+| 16 | GET | `/setup` | 否 | 首次WiFi配置向导页面 |
+
+| 17 | GET | `/ota` | 否 | OTA固件升级页面 |
+
 
 ## HTTP 状态码
 
@@ -141,11 +166,16 @@ Web 界面静态文件存储在 SPIFFS 分区（约 256KB），路径前缀 `/sp
     "chip_temp": 42.5,
     "free_heap": 185432,
     "free_psram": 4194304,
-    "timelapse_mode": false,
-    "timelapse_interval_sec": 0,
+    "timelapse_mode": "normal",
+
+    "motion_score": 0,
+
     "firmware_version": "0.2.0",
+
     "upload_queue": 0,
+
     "last_upload": "",
+
     "frames_dropped": 0
   }
 }
@@ -288,3 +318,50 @@ RTSP 服务器运行在端口 554（TCP-interleaved only），支持标准 RTSP 
 **最大并发客户端**：2
 
 **VLC 播放**：打开 VLC → 媒体 → 打开网络串流 → 输入 `rtsp://<设备IP>:554/stream`
+
+
+### POST /api/ota - OTA 固件升级
+
+
+
+从URL触发固件升级。
+
+
+
+**请求体**：
+
+```json
+
+{"url": "https://example.com/firmware/mibee_homecam.bin"}
+
+```
+
+
+
+**响应**：
+
+```json
+
+{"ok": true, "data": {"message": "OTA更新已启动，设备将重启..."}}
+
+```
+
+
+
+**认证**：需要
+
+
+
+## WebSocket 实时推送
+
+
+
+设备在根路径 `/` 提供WebSocket连接，用于Web UI仪表盘实时更新。
+
+
+
+**事件**：
+
+- {"type":"status","data":{...}} 状态更新(每5秒)
+
+- {"type":"motion","data":{"score":30}} 运动检测事件
