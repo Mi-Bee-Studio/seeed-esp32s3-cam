@@ -32,12 +32,14 @@
 | config | 配置管理（WiFi、录像、NAS 上传等全部参数） |
 | preview | 实时视频预览（浏览器内 MJPEG 流） |
 | files | 录像文件管理（浏览、下载、删除） |
+| ota | 固件远程升级（上传固件或从 URL 更新） |
+| setup | 首次配置向导（自动引导 WiFi 设置） |
 
 ### 仪表盘页面
 
 ![仪表盘](images/index-dashboard.png)
 
-仪表盘显示实时设备状态：录像状态、当前文件、WiFi 连接、SD 卡用量、摄像头型号、芯片温度和运行时间。
+仪表盘显示实时设备状态：录像状态、当前文件、WiFi 连接、SD 卡用量、摄像头型号、芯片温度和运行时间。通过 WebSocket 实时推送，无需刷新页面。
 
 ### 配置页面
 
@@ -87,29 +89,29 @@ curl -X POST http://192.168.4.1/api/config \
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-|| `wifi_ssid` | string | `""` | WiFi 名称，为空则进入 AP 模式 |
-|| `wifi_pass` | string | `""` | WiFi 密码 |
-|| `wifi_ssid_2` | string | `""` | WiFi 备份 SSID（AP 回退） |
-|| `wifi_pass_2` | string | `""` | WiFi 备份密码 |
-|| `allow_ap_fallback` | bool | `true` | WiFi 失败时允许回退到 AP 模式 |
+| `wifi_ssid` | string | `""` | WiFi 名称，为空则进入 AP 模式 |
+| `wifi_pass` | string | `""` | WiFi 密码 |
+| `wifi_ssid_2` | string | `""` | WiFi 备份 SSID（AP 回退） |
+| `wifi_pass_2` | string | `""` | WiFi 备份密码 |
+| `allow_ap_fallback` | bool | `true` | WiFi 失败时允许回退到 AP 模式 |
 #### 设备配置
 
 | 参数 | 类型 | 默认值 | 说明 |
-|| `device_name` | string | `"MiBeeHomeCam"` | 设备名称 |
-|| `web_password` | string | `"admin"` | Web 管理密码 |
+| `device_name` | string | `"MiBeeHomeCam"` | 设备名称 |
+| `web_password` | string | `"admin"` | Web 管理密码 |
 
 #### 上传方式配置
 
-|| `upload_method` | uint8 | `0` | 上传方式：0=禁用, 1=WebDAV, 2=HTTP(S) |
-|| `upload_base_path` | string | `"/MiBeeHomeCam"` | 上传基础路径 |
-|| `webdav_url` | string | `""` | WebDAV 服务器 URL |
-|| `webdav_user` | string | `""` | WebDAV 用户名 |
-|| `webdav_pass` | string | `""` | WebDAV 密码（GET 请求返回 `****`） |
-|| `webdav_enabled` | bool | `false` | 是否启用 WebDAV 上传 |
-|| `http_upload_url` | string | `""` | HTTP(S) 上传完整 URL |
-|| `http_upload_user` | string | `""` | HTTP(S) 用户名 |
-|| `http_upload_pass` | string | `""` | HTTP(S) 密码（GET 请求返回 `****`） |
-|| `http_upload_skip_cert_verify` | bool | `false` | 跳过 HTTPS 证书验证 |
+| `upload_method` | uint8 | `0` | 上传方式：0=禁用, 1=WebDAV, 2=HTTP(S) |
+| `upload_base_path` | string | `"/MiBeeHomeCam"` | 上传基础路径 |
+| `webdav_url` | string | `""` | WebDAV 服务器 URL |
+| `webdav_user` | string | `""` | WebDAV 用户名 |
+| `webdav_pass` | string | `""` | WebDAV 密码（GET 请求返回 `****`） |
+| `webdav_enabled` | bool | `false` | 是否启用 WebDAV 上传 |
+| `http_upload_url` | string | `""` | HTTP(S) 上传完整 URL |
+| `http_upload_user` | string | `""` | HTTP(S) 用户名 |
+| `http_upload_pass` | string | `""` | HTTP(S) 密码（GET 请求返回 `****`） |
+| `http_upload_skip_cert_verify` | bool | `false` | 跳过 HTTPS 证书验证 |
 
 #### 摄像头配置
 
@@ -127,24 +129,33 @@ curl -X POST http://192.168.4.1/api/config \
 | `jpeg_quality` | uint8 | `12` | JPEG 画质，1-63，数值越低画质越好 |
 #### 录像配置
 
-ZP|| 参数 | 类型 | 默认值 | 说明 |
-ZP||------|------|--------|------|
-ZP|| `timelapse_interval_sec` | uint16 | `0` | 延时摄影间隔（0=连续, >0=延时摄影秒数） |
-ZP|| `frame_drop_enabled` | bool | `false` | 资源压力下启用丢帧功能 |
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `timelapse_mode` | uint8 | `0` | 录像模式：0=连续, 1=普通延时, 2=动态延时 |
+| `timelapse_interval_sec` | uint16 | `0` | 延时拍摄间隔（0=连续, >0=延时秒数） |
+
+#### 运动检测配置
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `motion_sensitivity` | uint8 | `30` | 运动检测灵敏度 0-100（越大越灵敏） |
+| `motion_active_interval_sec` | uint8 | `2` | 动态模式：有运动时拍摄间隔（秒） |
+| `motion_idle_interval_sec` | uint16 | `60` | 动态模式：无运动时拍摄间隔（秒） |
+| `frame_drop_enabled` | bool | `false` | 资源压力下启用丢帧功能 |
 
 #### 存储配置
 
-ZP|| 参数 | 类型 | 默认值 | 说明 |
-ZP||------|------|--------|------|
-ZP|| `cleanup_low_pct` | uint8 | `20` | 自动清理时可用空间 < 此百分比时触发 |
-ZP|| `cleanup_high_pct` | uint8 | `30` | 可用空间 > 此百分比时停止清理 |
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `cleanup_low_pct` | uint8 | `20` | 自动清理时可用空间 < 此百分比时触发 |
+| `cleanup_high_pct` | uint8 | `30` | 可用空间 > 此百分比时停止清理 |
 
 #### 告警配置
 
-ZP|| 参数 | 类型 | 默认值 | 说明 |
-ZP||------|------|--------|------|
-ZP|| `alert_webhook_url` | string | `""` | 告警 webhook URL |
-ZP|| `alert_webhook_enabled` | bool | `false` | 启用告警 webhook 通知 |
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `alert_webhook_url` | string | `""` | 告警 webhook URL，用于 HTTP 回调通知 |
+| `alert_webhook_enabled` | bool | `false` | 启用告警 webhook 通知 |
 
 ## LED 指示灯
 ## LED 指示灯
@@ -217,6 +228,20 @@ curl -X POST "http://192.168.4.1/api/record?action=stop" \
 - **延时摄影模式**：当 `timelapse_interval_sec > 0` 时，文件使用 `TLM_` 前缀，15fps 播放
 
 每个分段完成后自动触发：NAS 上传 → 存储清理 → 开启下一段。
+
+### 录像模式
+
+设备支持三种录像模式，通过 `timelapse_mode` 控制：
+
+| 模式 | 说明 | 存储消耗 |
+|------|------|----------|
+| 连续录像（0） | 标准 AVI 分段录像 | 最高（全帧率） |
+| 普通延时（1） | 固定间隔拍摄，15fps AVI 播放 | 低（约 1/间隔倍数） |
+| 动态延时（2） | 运动自适应：有运动时快速拍摄，无运动时慢速 | 最低（安静时段节省 90%+） |
+
+动态延时是核心功能。设置 timelapse_mode=2，调节运动灵敏度（motion_sensitivity，0-100），
+运动检测自动切换拍摄间隔：有运动时按 motion_active_interval_sec（默认 2 秒）高频拍摄，
+无运动时按 motion_idle_interval_sec（默认 60 秒）低频拍摄。适用于停车场、仓库、3D 打印机等场景。
 
 ## 存储管理
 
@@ -304,6 +329,25 @@ curl http://192.168.4.1/api/status
 
 返回 `upload_queue`（待上传数）和 `last_upload`（上次上传时间）。
 
+## OTA 固件升级
+
+设备支持远程固件升级，无需连接串口线。
+
+### 通过 Web 界面
+
+1. 打开 OTA 页面（/ota.html）
+2. 输入固件下载 URL 或直接上传 .bin 文件
+3. 点击更新按钮，等待升级完成
+4. 设备自动重启
+
+### 通过 API
+
+```bash
+curl -X POST http://192.168.4.1/api/ota -H "Content-Type: application/json" -H "X-Password: admin" -d '{"url":"https://example.com/firmware/mibee_homecam.bin"}'
+```
+
+当前固件版本：v0.2.0，可在仪表盘页面查看。
+
 ## TF 卡配置覆盖
 
 设备启动时会读取 SD 卡上的配置文件，优先级高于 NVS 中保存的配置。
@@ -317,6 +361,26 @@ SSID=你的WiFi名称
 PASS=你的WiFi密码
 ```
 
+## Webhook 通知
+
+设备支持通过 HTTP 回调（Webhook）发送事件通知：
+
+| 事件类型 | 触发条件 |
+|----------|----------|
+| motion_detected | 运动检测触发（动态延时模式） |
+| recording_error | 录像异常 |
+| system_startup | 设备启动完成 |
+
+在配置页面设置 alert_webhook_url 和启用 alert_webhook_enabled 后，
+事件发生时设备会向该 URL 发送 POST 请求：
+
+```json
+{"event_type": "motion_detected", "message": "检测到运动"}
+```
+
+## WebSocket 实时推送
+
+仪表盘页面使用 WebSocket 实时更新状态（录像状态、运动事件等），无需手动刷新页面。
 ### nas.txt
 
 路径：`/sdcard/config/nas.txt`
