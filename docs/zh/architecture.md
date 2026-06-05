@@ -81,26 +81,35 @@ ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP
 
 ```c
 typedef struct {
-    char wifi_ssid[33];       // WiFi 名称
+char wifi_ssid[33];       // WiFi 名称
     char wifi_pass[64];       // WiFi 密码
-    uint8_t upload_method;    // 0=禁用, 1=WebDAV, 2=HTTP/HTTPS
-    char upload_base_path[128]; // 上传基础路径
-    char webdav_url[128];      // WebDAV URL
-    char webdav_user[32];      // WebDAV 用户名
-    char webdav_pass[32];      // WebDAV 密码
-    bool webdav_enabled;       // WebDAV 上传开关
-    char http_upload_url[256]; // HTTP(S) 上传 URL
-    char http_upload_user[64]; // HTTP(S) 用户名
-    char http_upload_pass[64]; // HTTP(S) 密码
-    bool http_upload_skip_cert_verify; // 跳过 HTTPS 证书验证
-    uint8_t resolution;       // 0=VGA, 1=SVGA, 2=XGA
-    uint8_t fps;              // 1-30
-    uint16_t segment_sec;     // 每段时长（秒）
-    uint8_t jpeg_quality;     // 1-63
-    bool vflip;               // 垂直翻转
-    bool hmirror;             // 水平镜像
-    char web_password[32];    // Web 管理密码
+    char wifi_ssid_2[33];     // WiFi 备份 SSID
+    char wifi_pass_2[64];     // WiFi 备份密码
+uint8_t upload_method;    // 0=禁用, 1=WebDAV, 2=HTTP/HTTPS
+char upload_base_path[128]; // 上传基础路径
+char webdav_url[128];      // WebDAV URL
+char webdav_user[32];      // WebDAV 用户名
+char webdav_pass[32];      // WebDAV 密码
+bool webdav_enabled;       // WebDAV 上传开关
+char http_upload_url[256]; // HTTP(S) 上传 URL
+char http_upload_user[64]; // HTTP(S) 用户名
+char http_upload_pass[64]; // HTTP(S) 密码
+bool http_upload_skip_cert_verify; // 跳过 HTTPS 证书验证
+uint8_t resolution;       // 0=VGA, 1=SVGA, 2=XGA
+uint8_t fps;              // 1-30
+uint16_t segment_sec;     // 每段时长（秒）
+uint8_t jpeg_quality;     // 1-63
+bool vflip;               // 垂直翻转
+bool hmirror;             // 水平镜像
+char web_password[32];    // Web 管理密码
     char device_name[32];     // 设备名称
+    bool allow_ap_fallback;   // WiFi 失败时允许回退到 AP 模式
+    uint16_t timelapse_interval_sec; // 延时摄影间隔（0=连续，>0=延时摄影）
+    uint8_t cleanup_low_pct;  // 剩余空间低于此 % 时自动清理
+    uint8_t cleanup_high_pct; // 清理到剩余空间高于此 % 时停止
+    bool frame_drop_enabled;  // 资源压力下启用丢帧
+    char alert_webhook_url[256]; // 告警 webhook URL
+    bool alert_webhook_enabled; // 启用告警 webhook
 } cam_config_t;
 ```
 
@@ -112,12 +121,13 @@ typedef struct {
 
 摄像头采集的 JPEG 帧经过录像器写入 AVI 文件，分段完成后触发回调链：
 
+```c
 camera_capture()
     │
     ▼
     Video Recorder (recording_task, Core 0)
     │  ← 帧数据写入 AVI 文件
-    │  ← 按 segment_sec 时长分段
+    │  ← 按 segment_sec 时长分段（连续 vs 延时摄影模式）
     │  ← 写入 AVI idx1 索引
     │
     ▼  分段完成
@@ -135,10 +145,13 @@ camera_capture()
     └──→ storage_cleanup()
             │
             ▼
-         检查剩余空间 < 20%？
-            ├── 是 → 删除最旧录像文件，直到 ≥ 30%
+         检查剩余空间 < cleanup_low_pct？（默认 20%）
+            ├── 是 → 删除最旧录像文件，直到 ≥ cleanup_high_pct（默认 30%）
+            │        写入失败时也尝试清理+重试
             └── 否 → 无操作
 ```
+
+**延时摄影模式**：当 `timelapse_interval_sec > 0` 时，按指定间隔采集帧而非连续采集。文件使用 `TLM_` 前缀，播放速度为 15fps。
 
 ### MJPEG 实时流数据流
 
@@ -183,15 +196,25 @@ RTSP 客户端 → TCP 连接 (port 554)
 ## 5. FreeRTOS 任务表
 
 | 任务名 | 函数 | 优先级 | 核心 | 栈大小 | 周期/触发 | 文件 |
+|
 |--------|------|--------|------|--------|-----------|------|
+|
 | `recorder` | `recording_task` | 5 (configMAX-2) | Core 0 | 4096 B | 持续循环（帧采集） | video_recorder.c |
+|
 | `upload` | `upload_task` | 3 | Core 1 | 6144 B | 队列阻塞等待 | nas_uploader.c |
+|
 | `rtsp_listener` | `rtsp_server_listener` | 3 | Core 1 | 6144 B | 连接事件驱动 | rtsp_server.c |
+|
 | `rtsp_client_N` | `rtsp_client_task` | 3 | Core 1 | 6144 B | 帧采集循环 | rtsp_server.c |
+|
 | `sd_monitor` | `sd_monitor_task` | 2 | Core 1 | 3072 B | 10 秒轮询 | main.c |
+|
 | `boot_btn` | `boot_button_monitor` | 1 | 任意 | 2048 B | 200ms 轮询 | main.c |
+|
 | `health_mon` | `health_monitor_task` | 1 | Core 1 | 3072 B | 60 秒轮询 | main.c |
+|
 | `httpd` | ESP-IDF 内置 | 默认 | — | 8192 B | 事件驱动 | web_server.c |
+|
 | `main` | `app_main` | 1 | Core 0 | 8192 B | 初始化后返回 | main.c |
 
 ### 任务调度策略
@@ -222,22 +245,24 @@ RTSP 客户端 → TCP 连接 (port 554)
 
 ## 7. Web API 端点
 
-服务器运行在端口 80，共 12 个 URI 处理器：
+服务器运行在端口 80，共 14 个 URI 处理器：
 
 | 方法 | 路径 | 认证 | 说明 |
 |------|------|------|------|
-| GET | `/api/status` | 否 | 设备状态（录像、WiFi、存储、摄像头） |
-| GET | `/api/config` | 否 | 当前配置（密码字段返回 `****`） |
-| POST | `/api/config` | 是 | 修改配置 |
-| GET | `/api/files` | 否 | 录像文件列表 |
-| DELETE | `/api/files` | 是 | 删除指定文件 |
-| GET | `/api/download?name=xxx` | 否 | 下载录像文件 |
-| POST | `/api/files/batch` | 是 | 批量删除文件 |
-| GET | `/api/scan` | 否 | WiFi AP 扫描 |
-| POST | `/api/time` | 是 | 手动设置时间 |
-| POST | `/api/record?action=start\|stop` | 是 | 录像控制 |
-| POST | `/api/reset` | 是 | 恢复出厂设置 |
-| OPTIONS | `/*` | 否 | CORS 预检 |
+|| GET | `/api/status` | 否 | 设备状态（录像、WiFi、存储、摄像头、温度） |
+|| GET | `/api/config` | 否 | 当前配置（密码字段返回 `****`） |
+|| POST | `/api/config` | 是 | 修改配置 |
+|| GET | `/api/files` | 否 | 录像文件列表 |
+|| GET | `/api/files/batch` | 否 | 批量文件操作元数据 |
+|| POST | `/api/files/batch` | 是 | 批量删除文件 |
+|| DELETE | `/api/files` | 是 | 删除指定文件 |
+|| GET | `/api/download?name=xxx` | 否 | 下载录像文件 |
+|| GET | `/api/scan` | 否 | WiFi AP 扫描 |
+|| POST | `/api/time` | 是 | 手动设置时间 |
+|| POST | `/api/record?action=start\|stop` | 是 | 录像控制 |
+|| POST | `/api/reset` | 是 | 恢复出厂设置 |
+|| OPTIONS | `/*` | 否 | CORS 预检 |
+|| GET | `/*` | 否 | 静态文件（Web UI） |
 | GET | `/*` | 否 | 静态文件（Web UI） |
 
 | GET | `/metrics` | 否 | Prometheus 监控指标（15 项） |
@@ -250,9 +275,13 @@ RTSP 客户端 → TCP 连接 (port 554)
 
 4 个 HTML 页面，烧录至 SPIFFS 分区，由通配 GET 处理器提供服务：
 
-| 页面 | 文件 | 功能 |
-|------|------|------|
-| 首页 | `index.html` | 状态总览 |
-| 配置 | `config.html` | WiFi / NAS / 摄像头参数配置 |
-| 文件 | `files.html` | 录像文件浏览、下载、删除 |
-| 预览 | `preview.html` | MJPEG 实时流预览 |
+|| 页面 | 文件 | 功能 |
+||------|------|------|
+|| 首页 | `index.html` | 状态总览 |
+|| 配置 | `config.html` | WiFi / NAS / 摄像头参数配置（手风琴布局） |
+|| 文件 | `files.html` | 录像文件浏览、下载、批量操作带折叠日期分组 |
+|| 预览 | `preview.html` | MJPEG 实时流预览带全屏和截图按钮 |
+
+**Prometheus 集成**：`/metrics` 端点提供 15 个系统指标，文本格式导出。
+
+**温度监控**：ESP32-S3 芯片温度可通过 `/api/status` 获取，仪表盘带有颜色编码指示器。

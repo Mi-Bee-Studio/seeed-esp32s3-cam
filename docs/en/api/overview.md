@@ -6,7 +6,7 @@
 
 ---
 
-This firmware API documentation is based on `web_server.c`, `mjpeg_streamer.c`, `config_manager.c` source code. Last updated: 2026-04-24.
+#QS|This firmware API documentation is based on `web_server.c`, `mjpeg_streamer.c`, `config_manager.c` source code. Last updated: 2026-06-05.
 
 ## Base Address
 
@@ -87,20 +87,41 @@ Access-Control-Allow-Headers: Content-Type, X-Password
 
 ```json
 {
+#WM|
   "ok": true,
+#WV|
   "data": {
+#KV|
     "recording": false,
+#KT|
     "wifi_state": "STA_CONNECTED",
+#MM|
     "sd_available": 75.5,
+#PW|
     "sd_total": 29.7,
+#JW|
     "sd_free_percent": 75.5,
+#KV|
     "camera_sensor": "OV2640",
+#XZ|
     "camera_res": "SVGA",
+#HR|
     "camera_quality": 12,
+#PR|
     "chip_temp": 42.5,
+#RY|
     "free_heap": 185432,
-    "free_psram": 4194304
+#SJ|
+    "free_psram": 4194304,
+#KQ|    "timelapse_mode": false,
+#VV|    "timelapse_interval_sec": 0,
+#ZP|    "firmware_version": "0.2.0",
+#HT|    "upload_queue": 0,
+#JP|    "last_upload": "",
+#XR|    "frames_dropped": 0
+#KQ|
   }
+#VV|}
 }
 ```
 
