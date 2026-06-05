@@ -553,10 +553,15 @@ prefix = timelapse ? "TLM_" : "REC_";
         /* Open first segment */
         if (!segment_open) {
             if (open_segment(w, h, playback_fps, prefix) != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to open segment, retrying in 5 s");
-                storage_set_unavailable();
-                vTaskDelay(pdMS_TO_TICKS(5000));
-                continue;
+                ESP_LOGW(TAG, "Failed to open segment — trying cleanup");
+                storage_cleanup();
+                /* Retry once after cleanup */
+                if (open_segment(w, h, playback_fps, prefix) != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to open segment after cleanup, retrying in 5 s");
+                    storage_set_unavailable();
+                    vTaskDelay(pdMS_TO_TICKS(5000));
+                    continue;
+                }
             }
             segment_open = true;
             total_bytes  = 0;
@@ -597,9 +602,23 @@ prefix = timelapse ? "TLM_" : "REC_";
         camera_return_fb(&frame);
 
         if (err != ESP_OK) {
-            ESP_LOGE(TAG, "SD write failed — closing segment, marking SD unavailable");
+            ESP_LOGW(TAG, "SD write failed — closing segment, attempting cleanup");
             close_segment();  /* Save what we have */
             segment_open = false;
+
+            /* Try cleanup to free space (SD may be full) */
+            storage_cleanup();
+
+            /* Re-open segment after cleanup — give it one more chance */
+            if (open_segment(w, h, playback_fps, prefix) == ESP_OK) {
+                segment_open = true;
+                total_bytes = 0;
+                ESP_LOGI(TAG, "Resumed recording after cleanup");
+                continue;
+            }
+
+            /* Cleanup didn't help — truly unrecoverable */
+            ESP_LOGE(TAG, "SD write failed after cleanup — entering ERROR state");
             storage_set_unavailable();
             s_state = RECORDER_ERROR;
             led_set_status(LED_ERROR);
