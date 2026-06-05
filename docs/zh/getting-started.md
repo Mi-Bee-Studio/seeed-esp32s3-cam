@@ -44,23 +44,47 @@ cd esp32s3-camera
 
 ```
 esp32s3-camera/
-├── main/                 # 固件源码（14 个 C 模块）
+├── main/                 # 固件源码（20 个 C 模块）
+
 │   ├── main.c            # 入口，19 步启动流程
+
 │   ├── camera_driver.c   # 摄像头驱动
+
 │   ├── video_recorder.c  # AVI 录像引擎
+
 │   ├── mjpeg_streamer.c  # MJPEG 实时流
+
 │   ├── web_server.c      # HTTP 服务器 + REST API
+
 │   ├── nas_uploader.c    # NAS 上传调度
+
 │   ├── wifi_manager.c    # WiFi AP/STA 管理
+
 │   ├── config_manager.c  # NVS 配置持久化
+
 │   ├── storage_manager.c # SD 卡 + 循环清理
+
 │   ├── status_led.c      # LED 状态机
+
 │   ├── time_sync.c       # SNTP 时间同步
+
 │   ├── webdav_client.c   # WebDAV 客户端
+
 │   ├── rtsp_server.c    # RTSP 服务器
+
 │   ├── http_upload_client.c # HTTP/HTTPS 上传客户端
+
+│   ├── motion_detector.c  # 运动检测模块
+
+│   ├── ota_updater.c     # OTA 固件升级模块
+
+│   ├── webhook.c         # Webhook 通知模块
+
+│   ├── ws_server.c       # WebSocket 服务器模块
+
 │   ├── cJSON.c/h         # JSON 解析库
-│   └── web_ui/           # Web 管理界面（4 个 HTML 页面）
+
+│   └── web_ui/           # Web 管理界面（6 个 HTML 页面）
 ├── docs/                 # 项目文档
 ├── partitions.csv        # 分区表
 └── sdkconfig.defaults    # 硬件默认配置
@@ -240,3 +264,52 @@ curl http://<设备IP>/api/status
 ```
 
 返回 JSON 包含 `recording`、`wifi_state`、`sd_available`、`camera_sensor` 等字段，全部正常即表示系统运行正常。
+
+
+### OTA 固件版本检查
+
+
+
+**通过 Web 界面验证：**
+
+
+
+1. 访问设备管理页面
+
+2. 查看"设备信息"部分
+
+3. 确认固件版本显示为 `0.2.0`
+
+
+
+**通过 API 验证：**
+
+
+
+```bash
+
+curl http://<设备IP>/api/status | grep firmware_version
+
+```
+
+
+
+返回结果应包含：`"firmware_version": "0.2.0"`
+
+
+
+**通过串口日志验证：**
+
+
+
+启动日志中应包含：
+
+
+
+```
+
+I (xxx) main: MiBeeHomeCam v0.2.0 starting...
+
+I (xxx) main: Firmware: 0.2.0
+
+```
