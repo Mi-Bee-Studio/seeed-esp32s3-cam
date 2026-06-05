@@ -1,119 +1,169 @@
-## MiBeeHomeCam - ESP32-S3 摄像头监控
+# MiBeeHomeCam — ESP32-S3 智能摄像头固件
 
-> 基于 XIAO ESP32-S3 Sense 的智能监控摄像头固件
+[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![ESP-IDF](https://img.shields.io/badge/ESP--IDF-v5.x%2Fv6.0-1C7C3D?logo=espressif)](https://idf.espressif.com/)
+[![Platform](https://img.shields.io/badge/Platform-XIAO%20ESP32--S3%20Sense-EA4C89)](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/)
+[![CI](https://img.shields.io/github/actions/workflow/status/Mi-Bee-Studio/esp32s3-cam/release.yml?logo=github&label=CI)](https://github.com/Mi-Bee-Studio/esp32s3-cam/actions)
+[![Release](https://img.shields.io/github/v/release/Mi-Bee-Studio/esp32s3-cam?logo=github)](https://github.com/Mi-Bee-Studio/esp32s3-cam/releases)
+[![Firmware](https://img.shields.io/badge/%E5%9B%BA%E4%BB%B6-v0.2.0-7C3AED)](https://github.com/Mi-Bee-Studio/esp32s3-cam/releases)
+
+> **家用级 AI 增强监控摄像头固件** — 巴掌大的身躯，企业级的能耐。
+> 一块 15 美元的 XIAO ESP32-S3 Sense 开发板，变身全功能网络监控摄像头。
 
 [English](README.md) | 中文文档
 
-基于 ESP32-S3 的监控摄像头固件，支持 MJPEG 实时流、AVI 分段录像、NAS 自动上传。使用 ESP-IDF 开发，针对 8MB Octal PSRAM 优化，在资源受限的嵌入式环境下稳定运行实时视频采集与传输。
+---
+
+## 为什么选择 MiBeeHomeCam？
+
+大多数 ESP32 摄像头项目止步于「能看视频流」。MiBeeHomeCam 一路走到底——分段录像、智能延时摄影（运动检测自适应）、双协议 NAS 上传（WebDAV + HTTPS）、RTSP 推流、OTA 远程升级、紫色主题 Web 管理界面——全部跑在一个双核 FreeRTOS 上。无需 Linux、无需云服务。**你的摄像头、你的数据、你的网络。**
+
+---
 
 ## 功能亮点
 
-- 📹 MJPEG 实时视频流，浏览器直接查看
-- 🎬 AVI 自动分段录像，循环存储不担心空间
-- ☁️ WebDAV / HTTP(S) 自动上传至 NAS，下拉互斥选择
-- 📸 延时摄影模式，可配置拍摄间隔（5s-300s），AVI 15fps 播放
-- 📡 WiFi AP/STA 双模式，即插即用
-- 📡 RTSP 实时流（MJPEG over RTP，VLC 兼容）
-- 🔄 摄像头翻转/镜像 Web 可配置
-- 🌐 REST API + Web 管理界面
-- 💾 TF 卡热插拔，自动恢复录像
-- 🔍 OV2640 / OV3660 自动检测
-- 🛡️ 看门狗 + 健康监控，长期稳定运行
-- 🌡️ ESP32-S3 芯片温度监测，Web 仪表盘实时显示
-- 📊 Prometheus `/metrics` 端点，支持外部监控系统对接
-- 📁 批量文件操作：多选、下载、删除
-- 🎨 Mi\&Bee 紫色主题，全站统一视觉风格
-- 🚀 GitHub Actions CI/CD，自动构建发布固件
+- **智能录像** — 连续录像、普通延时、**动态延时**（运动自适应捕获，无活动时节省 90%+ 存储）
+- **实时视频** — HTTP MJPEG + RTSP（MJPEG-over-RTP，VLC 兼容），最多 2 路并发
+- **NAS 上传** — WebDAV 或 HTTP(S) PUT，队列调度，3 次重试退避，互斥选择
+- **运动检测** — 帧差分析，0–100 评分，触发动态延时和 Webhook 告警
+- **Web 仪表盘** — 6 页响应式界面：状态总览、配置管理、文件管理、实时预览、OTA 升级、首次配置向导
+- **OTA 远程升级** — 网页上传固件或从 URL 触发更新，SHA‑256 校验
+- **WebSocket 实时推送** — 状态更新、运动事件实时推送到仪表盘
+- **Webhook 通知** — 运动检测、录像异常、系统事件 HTTP 回调
+- **Prometheus `/metrics`** — 15+ 项系统指标，接入 Grafana / 家庭实验室监控
+- **循环存储** — SD 卡剩余 < 20% 自动清理，恢复至 30%，开机崩溃恢复清理
+- **TF 卡热插拔** — 拔出自动暂停录像，插入自动恢复（10 秒轮询）
+- **双模 WiFi** — AP 模式用于配置，STA 模式用于生产，支持备用 SSID + 自动回退
+- **SNTP 时间同步** — 双 NTP 服务器、手动设置、时区配置
+- **健康看门狗** — 30s TWDT + 60s 健康监控（堆 / PSRAM / 栈 / 芯片温度）
+- **紫色主题** — Mi&Bee 品牌视觉，全站统一
+
+---
 
 ## Web 管理界面
 
 ![仪表盘](docs/images/index-dashboard.png)
-*仪表盘 — 实时状态总览*
+*仪表盘 — 实时状态、录像控制、系统健康状况一目了然*
 
-内置 Web 管理界面，提供完整的设备管理功能：
-
-- **📊 仪表盘** — 录像状态、WiFi 信息、存储用量、芯片温度
-- **⚙ 配置** — 手风琴式 WiFi、视频、延时摄影、NAS 上传、告警设置
-- **📁 文件** — 浏览、下载、批量删除录像文件，支持按日期折叠
-- **📹 预览** — 浏览器内实时 MJPEG 视频流
+| 页面 | 功能 |
+|------|------|
+| **仪表盘** (`/`) | 录像状态、WiFi 信息、存储用量、芯片温度、固件版本 |
+| **配置** (`/config.html`) | 全部设置：WiFi、视频、录像模式、NAS、Webhook、运动检测 |
+| **文件** (`/files.html`) | 按日期分组浏览、下载、批量删除录像文件 |
+| **预览** (`/preview.html`) | 实时 MJPEG 视频流，支持全屏和截图 |
+| **OTA** (`/ota.html`) | 固件远程升级，支持 URL 和文件上传 |
+| **首次配置** (`/setup.html`) | WiFi 配置向导，首次开机自动引导 |
 
 ![文件管理](docs/images/files-page.png)
 ![配置页面](docs/images/config-page.png)
 
+---
+
 ## 快速开始
 
 ```bash
-git clone https://github.com/Mi-Bee-Studio/esp32s3-cam.git
+git clone --recursive https://github.com/Mi-Bee-Studio/esp32s3-cam.git
 cd esp32s3-camera
+idf.py set-target esp32s3
 idf.py build
 idf.py -p COM3 flash monitor
 ```
 
-需要 ESP-IDF v5.x 或 v6.0 开发环境。👉 [详细安装指南](docs/zh/getting-started.md)
+> 需要 ESP-IDF v5.x 或 v6.0。👉 [详细安装指南](docs/zh/getting-started.md)
 
-## 硬件要求
+### 硬件要求
 
-[XIAO ESP32-S3 Sense](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/) 开发板 + 板载 OV2640/OV3660 摄像头 + TF 卡（FAT32，Class 10+）
+- [XIAO ESP32-S3 Sense](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/)（任意带 PSRAM 的 ESP32-S3 均可）
+- TF 卡（FAT32，Class 10+）
+- USB-C 数据线（供电 + 烧录）
 
-👉 [硬件详情与引脚定义](docs/zh/hardware.md)
+👉 [引脚定义与硬件详情](docs/zh/hardware.md)
 
-## 文档
+---
 
-| 文档                                 | 说明               |
-| ---------------------------------- | ---------------- |
-| [安装指南](docs/zh/getting-started.md) | 环境搭建、编译烧录、首次配置   |
-| [硬件手册](docs/zh/hardware.md)        | 引脚定义、硬件规格、接线说明   |
-| [使用手册](docs/zh/user-guide.md)      | 配置管理、LED 指示、存储策略 |
-| [系统架构](docs/zh/architecture.md)    | 启动流程、模块架构、数据流    |
-| [故障排除](docs/zh/troubleshooting.md) | 常见问题、调试方法        |
-| [API 参考](docs/zh/api/overview.md)  | REST API 完整文档    |
+## 录像模式
+
+| 模式 | 说明 | 存储消耗 |
+|------|------|----------|
+| **连续录像**（默认） | 标准 AVI 分段录像 | 最高（全帧率） |
+| **普通延时** | 固定间隔拍摄（5–300s），15fps AVI | 低（约 1/间隔倍数） |
+| **动态延时** | 运动自适应：有动作时快速拍摄，无动作时慢速 | 最低（安静时段节省 90%+） |
+
+动态延时是核心亮点——设置 `timelapse_mode=2`，调节灵敏度（0–100），运动检测自动切换拍摄间隔。适用于停车场、仓库、3D 打印机监控等场景。
+
+---
 
 ## API 速览
 
-| 方法   | 路径                               | 说明                       |
-| ---- | -------------------------------- | ------------------------ |
-| GET  | `/api/status`                    | 设备状态（录像、WiFi、存储、摄像头、温度）  |
-| GET  | `/stream`                        | MJPEG 实时视频流              |
-| POST | `/api/config`                    | 修改配置（需认证）                |
-| POST | `/api/record?action=start\|stop` | 录像控制（需认证）                |
-| GET  | `/api/files`                     | 录像文件列表                   |
-| GET  | `/api/download?name=xxx`         | 下载录像文件                   |
-| POST | `/api/files/batch`               | 批量删除文件（需认证）              |
-| GET  | `/metrics`                       | Prometheus 监控指标（15 项，text 格式） |
-| RTSP | `rtsp://<IP>:554/stream`       | RTSP 实时视频流（VLC 兼容） |
+| 方法 | 路径 | 认证 | 说明 |
+|------|------|------|------|
+| GET | `/api/status` | 否 | 设备状态（录像、WiFi、存储、温度、运动、固件） |
+| GET | `/api/config` | 否 | 当前配置（密码字段返回 `****`） |
+| POST | `/api/config` | 是 | 修改配置 |
+| POST | `/api/record?action=start\|stop` | 是 | 录像控制 |
+| POST | `/api/ota` | 是 | OTA 固件升级（从 URL） |
+| POST | `/api/format` | 是 | 格式化 SD 卡 |
+| POST | `/api/reset` | 是 | 恢复出厂设置 |
+| POST | `/api/time` | 是 | 手动设置系统时间 |
+| GET | `/api/files` | 否 | 录像文件列表 |
+| POST | `/api/files/batch` | 是 | 批量删除文件 |
+| DELETE | `/api/files?name=xxx` | 是 | 删除单个文件 |
+| GET | `/api/download?name=xxx` | 否 | 下载录像文件 |
+| GET | `/api/scan` | 否 | 扫描 WiFi 网络 |
+| GET | `/stream` | 否 | MJPEG 实时视频流 |
+| GET | `/metrics` | 否 | Prometheus 监控指标（text 格式） |
+| RTSP | `rtsp://<IP>:554/stream` | 否 | RTSP 视频流（VLC 兼容） |
+| WS | `ws://<IP>/` | 否 | WebSocket 实时推送 |
 
-默认管理密码：`admin`。👉 [完整 API 文档](docs/zh/api/overview.md)
+默认密码：`admin` 👉 [完整 API 文档](docs/zh/api/overview.md)
+
+---
 
 ## 项目结构
 
 ```
-esp32s3-camera/
-├── main/                 # 固件源码（16 个 C 模块）
-│   ├── main.c            # 入口，19 步启动流程
-│   ├── camera_driver.c   # 摄像头驱动（OV2640/OV3660）
-│   ├── video_recorder.c  # AVI 录像引擎
-│   ├── mjpeg_streamer.c  # MJPEG 实时流
-│   ├── web_server.c      # HTTP 服务器 + REST API
-│   ├── nas_uploader.c    # NAS 上传调度（WebDAV/HTTP(S) 互斥）
-│   ├── wifi_manager.c    # WiFi AP/STA 管理
-│   ├── config_manager.c  # NVS 配置持久化
-│   ├── storage_manager.c # SD 卡 + 循环清理
-│   ├── status_led.c      # LED 状态机（5 种模式）
-│   ├── time_sync.c       # SNTP 时间同步
-│   ├── webdav_client.c   # WebDAV 协议客户端
-│   ├── rtsp_server.c      # RTSP 服务器（MJPEG over RTP）
-│   ├── http_upload_client.c # HTTP/HTTPS 上传客户端
-├── docs/                 # 项目文档
-│   ├── en/               # 英文文档
-│   └── zh/               # 中文文档
-├── partitions.csv        # 分区表（factory 3.5MB + SPIFFS 256KB）
-└── sdkconfig.defaults    # XIAO ESP32-S3 Sense 默认配置
+main/  —  20 个 C 模块 + main.c + cJSON（平面布局）
+├── main.c                 # 入口，20 步启动流程，看门狗
+├── camera_driver.c/h      # OV2640/OV3660 摄像头驱动
+├── video_recorder.c/h     # AVI MJPEG 分段录像（3 种模式）
+├── motion_detector.c/h    # 帧差运动检测分析
+├── mjpeg_streamer.c/h     # HTTP MJPEG 实时推流
+├── rtsp_server.c/h        # RTSP 服务器（MJPEG-over-RTP）
+├── web_server.c/h         # HTTP 服务器 + REST API（16 个端点）
+├── ws_server.c/h          # WebSocket 实时推送
+├── ota_updater.c/h        # OTA 远程固件升级
+├── sha256.c/h             # SHA-256 哈希校验
+├── webhook.c/h            # HTTP 事件通知
+├── nas_uploader.c/h       # 上传调度（WebDAV / HTTPS 互斥）
+├── webdav_client.c/h      # WebDAV 协议客户端
+├── http_upload_client.c/h # HTTP/HTTPS 分块上传
+├── wifi_manager.c/h       # WiFi AP/STA 双模管理
+├── config_manager.c/h     # NVS 配置持久化 + SD 卡覆盖
+├── storage_manager.c/h    # SD 卡 FAT32 + 循环清理
+├── time_sync.c/h          # SNTP 双服务器时间同步
+├── status_led.c/h         # GPIO21 LED 状态机（5 种模式）
+├── logging.c/h            # 日志工具
+└── cJSON.c/h              # 内嵌 JSON 解析库（IDF v6.0 已移除）
 ```
+
+👉 [系统架构详解](docs/zh/architecture.md)
+
+---
+
+## 文档
+
+| 指南 | 内容 |
+|------|------|
+| [安装指南](docs/zh/getting-started.md) | 环境搭建、编译烧录、首次配置 |
+| [硬件手册](docs/zh/hardware.md) | 引脚定义、硬件规格、接线说明 |
+| [使用手册](docs/zh/user-guide.md) | 配置管理、录像模式、NAS、OTA、运动检测 |
+| [系统架构](docs/zh/architecture.md) | 启动流程、模块设计、数据流 |
+| [API 参考](docs/zh/api/overview.md) | 完整 REST API + WebSocket + RTSP |
+| [故障排除](docs/zh/troubleshooting.md) | 常见问题排查与修复 |
+| [LED 状态说明](docs/zh/led-status.md) | LED 闪烁模式解码 |
+
+---
 
 ## 许可证
 
-[GNU General Public License v3.0](LICENSE)
-
-本项目采用 GNU General Public License v3.0 许可证。详情请参阅 [LICENSE](LICENSE) 文件。
-
-您可以在遵守许可证条款的前提下，自由使用、修改和分发本软件。
+[GNU General Public License v3.0](LICENSE) — 自由使用、修改和分发。

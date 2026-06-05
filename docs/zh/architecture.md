@@ -2,7 +2,7 @@
 
 ## 1. 系统概览
 
-ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP32-S3 上运行 16 个松耦合的 C 模块。系统采用事件驱动与轮询混合架构，摄像头采集帧数据后分三路输出：实时流（HTTP MJPEG + RTSP）和录像存储。
+ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP32-S3 上运行 20 个松耦合的 C 模块。系统采用事件驱动与轮询混合架构，摄像头采集帧数据后分三路输出：实时流（HTTP MJPEG + RTSP）和录像存储。
 
 ```
   Camera ──→ MJPEG Streamer ──→ HTTP Server ──→ Browser/Client
@@ -29,7 +29,7 @@ ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP
 
 ## 2. 启动流程
 
-`app_main()` 中的 19 步顺序初始化，任何关键步骤失败会记录错误日志但继续执行（部分功能降级）。
+`app_main()` 中的 20 步顺序初始化，任何关键步骤失败会记录错误日志但继续执行（部分功能降级）。
 
 | 步骤 | 操作 | 说明 |
 |------|------|------|
@@ -46,28 +46,31 @@ ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP
 | 10 | NAS 上传器 | 创建上传队列（容量 16）和上传任务 |
 | 11 | 视频录像器 | 初始化 AVI 录像引擎，注册分段回调 |
 | 12 | MJPEG 流服务 | 初始化实时流模块，最大 2 个并发客户端 |
-| 13 | Web 服务器 | 端口 80，注册 12 个 URI 处理器（10 API + 2 通配） |
-| 14 | LED 状态更新 | 根据当前 WiFi 状态更新 LED 模式 |
-| 15 | 等待 STA + 开始录像 | 最多等 30 秒连接 WiFi，连接后开始录像 |
-| 16 | BOOT 按钮监控 | GPIO0，按住 5 秒触发恢复出厂设置 |
-| 17 | 看门狗 | 30 秒 TWDT，双核 idle 任务均纳入监控 |
-| 18 | SD 监控任务 | Core 1，每 10 秒轮询 SD 卡状态，处理热插拔 |
-| 19 | 健康监控任务 | Core 1，每 60 秒输出堆/栈水位信息 |
+| 13 | OTA 更新器 | 初始化固件升级模块（版本 0.2.0） |
+| 14 | WebSocket 服务器 | 初始化实时数据推送服务 |
+| 15 | Web 服务器 | 端口 80，注册 16 个 URI 处理器（14 API + 2 通配） |
+| 16 | LED 状态更新 | 根据当前 WiFi 状态更新 LED 模式 |
+| 17 | 等待 STA + 开始录像 | 最多等 30 秒连接 WiFi，连接后开始录像 |
+| 18 | BOOT 按钮监控 | GPIO0，按住 5 秒触发恢复出厂设置 |
+| 19 | 看门狗 | 30 秒 TWDT，双核 idle 任务均纳入监控 |
+| 20 | SD 监控任务 | Core 1，每 10 秒轮询 SD 卡状态，处理热插拔 |
+| 21 | 健康监控任务 | Core 1，每 60 秒输出堆/栈水位信息 |
+
 
 ---
 
 ## 3. 模块说明
 
-系统共 16 个模块，全部位于 `main/` 目录，每个模块一个 `.c`/`.h` 文件对。
+系统共 20 个模块，全部位于 `main/` 目录，每个模块一个 `.c`/`.h` 文件对。
 
 | 模块 | 文件 | 职责 | 关键函数 |
 |------|------|------|----------|
 | 主入口 | `main.c` | 19 步启动流程，任务创建 | `app_main()`, `on_segment_complete()` |
 | 摄像头驱动 | `camera_driver.c` | OV2640/OV3660 自动检测，帧采集 | `camera_init()`, `camera_capture()` |
-| 视频录像器 | `video_recorder.c` | AVI MJPEG 分段录像，状态机 | `recorder_start()`, `recorder_stop()` |
+| 视频录像器 | `video_recorder.c` | AVI MJPEG 分段录像，状态机，延时摄影模式 | `recorder_start()`, `recorder_stop()` |
 | MJPEG 流服务 | `mjpeg_streamer.c` | MJPEG 实时视频流推送 | `mjpeg_streamer_init()`, `mjpeg_streamer_register()` |
 | RTSP 服务器 | `rtsp_server.c` | RTSP 服务器，MJPEG over RTP，TCP-interleaved | `rtsp_server_start()` |
-| Web 服务器 | `web_server.c` | HTTP 服务器 + REST API（10 端点） | `web_server_start()`, `web_server_get_handle()` |
+| Web 服务器 | `web_server.c` | HTTP 服务器 + REST API（16 端点） | `web_server_start()`, `web_server_get_handle()` |
 | WiFi 管理 | `wifi_manager.c` | AP/STA 双模式，自动选择 | `wifi_init()`, `wifi_scan()` |
 | 配置管理 | `config_manager.c` | NVS 持久化，SD 卡覆盖 | `config_init()`, `config_save()`, `config_reset()` |
 | 存储管理 | `storage_manager.c` | SD 卡挂载/卸载，循环清理 | `storage_init()`, `storage_cleanup()` |
@@ -76,8 +79,13 @@ ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP
 | WebDAV 客户端 | `webdav_client.c` | WebDAV 协议上传实现 | — |
 | 状态 LED | `status_led.c` | 5 种 LED 模式控制 | `led_init()`, `led_set_status()` |
 | 时间同步 | `time_sync.c` | SNTP 同步，手动设置时间 | `time_sync_init()`, `time_is_synced()` |
+| 运动检测 | `motion_detector.c` | 帧差分析，运动评分，告警触发 | `motion_detector_init()`, `get_motion_score()` |
+| OTA 更新器 | `ota_updater.c` | 固件升级，版本管理 | `ota_updater_init()`, `check_firmware_update()` |
+| SHA-256 哈希 | `sha256.c` | 文件完整性校验 | `sha256_hash()` |
+| Webhook 通知 | `webhook.c` | HTTP 事件推送 | `webhook_send_motion_alert()` |
+| WebSocket 服务器 | `ws_server.c` | 实时数据推送 | `ws_server_init()` |
+| 日志工具 | `logging.c` | 结构化日志输出 | `log_init()`, `log_write()` |
 | JSON 解析 | `cJSON.c` | 第三方 JSON 库（IDF v6.0 已移除） | — |
-### 配置结构体
 
 ```c
 typedef struct {
@@ -104,12 +112,16 @@ bool hmirror;             // 水平镜像
 char web_password[32];    // Web 管理密码
     char device_name[32];     // 设备名称
     bool allow_ap_fallback;   // WiFi 失败时允许回退到 AP 模式
-    uint16_t timelapse_interval_sec; // 延时摄影间隔（0=连续，>0=延时摄影）
-    uint8_t cleanup_low_pct;  // 剩余空间低于此 % 时自动清理
-    uint8_t cleanup_high_pct; // 清理到剩余空间高于此 % 时停止
-    bool frame_drop_enabled;  // 资源压力下启用丢帧
-    char alert_webhook_url[256]; // 告警 webhook URL
-    bool alert_webhook_enabled; // 启用告警 webhook
+    #KJ|    uint16_t timelapse_interval_sec; // 延时摄影间隔（0=连续，>0=延时摄影）
+    uint8_t timelapse_mode;          // 0=连续录像, 1=普通延时, 2=动态延时（运动触发）
+    uint8_t motion_sensitivity;      // 运动敏感度（0-100）
+    uint16_t motion_active_interval_sec; // 运动触发间隔（1-30s）
+    uint16_t motion_idle_interval_sec;  // 静态间隔（5-300s）
+    uint8_t cleanup_low_pct;        // 剩余空间低于此 % 时自动清理
+    uint8_t cleanup_high_pct;       // 清理到剩余空间高于此 % 时停止
+    bool frame_drop_enabled;        // 资源压力下启用丢帧
+    char alert_webhook_url[256];    // 告警 webhook URL
+    bool alert_webhook_enabled;     // 启用告警 webhook
 } cam_config_t;
 ```
 
@@ -151,7 +163,9 @@ camera_capture()
             └── 否 → 无操作
 ```
 
-**延时摄影模式**：当 `timelapse_interval_sec > 0` 时，按指定间隔采集帧而非连续采集。文件使用 `TLM_` 前缀，播放速度为 15fps。
+**延时摄影模式**：当 `timelapse_mode = 1` 时，按 `timelapse_interval_sec` 指定间隔采集帧而非连续采集。当 `timelapse_mode = 2` 时，采用动态延时模式，仅在检测到运动时采集帧。
+文件使用 `TLM_` 前缀，播放速度为 15fps。
+**运动检测**：通过帧差分析计算运动评分（0-100），超过 `motion_sensitive` 阈值时触发告警和录像。
 
 ### MJPEG 实时流数据流
 
@@ -245,24 +259,26 @@ RTSP 客户端 → TCP 连接 (port 554)
 
 ## 7. Web API 端点
 
-服务器运行在端口 80，共 14 个 URI 处理器：
+服务器运行在端口 80，共 16 个 URI 处理器：
 
 | 方法 | 路径 | 认证 | 说明 |
 |------|------|------|------|
-|| GET | `/api/status` | 否 | 设备状态（录像、WiFi、存储、摄像头、温度） |
-|| GET | `/api/config` | 否 | 当前配置（密码字段返回 `****`） |
-|| POST | `/api/config` | 是 | 修改配置 |
-|| GET | `/api/files` | 否 | 录像文件列表 |
-|| GET | `/api/files/batch` | 否 | 批量文件操作元数据 |
-|| POST | `/api/files/batch` | 是 | 批量删除文件 |
-|| DELETE | `/api/files` | 是 | 删除指定文件 |
-|| GET | `/api/download?name=xxx` | 否 | 下载录像文件 |
-|| GET | `/api/scan` | 否 | WiFi AP 扫描 |
-|| POST | `/api/time` | 是 | 手动设置时间 |
-|| POST | `/api/record?action=start\|stop` | 是 | 录像控制 |
-|| POST | `/api/reset` | 是 | 恢复出厂设置 |
-|| OPTIONS | `/*` | 否 | CORS 预检 |
-|| GET | `/*` | 否 | 静态文件（Web UI） |
+| GET | `/api/status` | 否 | 设备状态（录像、WiFi、存储、摄像头、温度、运动） |
+| GET | `/api/config` | 否 | 当前配置（密码字段返回 `****`） |
+| POST | `/api/config` | 是 | 修改配置 |
+| GET | `/api/files` | 否 | 录像文件列表 |
+| GET | `/api/files/batch` | 否 | 批量文件操作元数据 |
+| POST | `/api/files/batch` | 是 | 批量删除文件 |
+| DELETE | `/api/files` | 是 | 删除指定文件 |
+| GET | `/api/download?name=xxx` | 否 | 下载录像文件 |
+| GET | `/api/scan` | 否 | WiFi AP 扫描 |
+| POST | `/api/time` | 是 | 手动设置时间 |
+| POST | `/api/record?action=start\|stop` | 是 | 录像控制 |
+| POST | `/api/reset` | 是 | 恢复出厂设置 |
+| GET | `/api/ota/status` | 否 | OTA 更新状态 |
+| POST | `/api/ota/update` | 是 | 启动 OTA 固件更新 |
+| OPTIONS | `/*` | 否 | CORS 预检 |
+| GET | `/*` | 否 | 静态文件（Web UI） |
 | GET | `/*` | 否 | 静态文件（Web UI） |
 
 | GET | `/metrics` | 否 | Prometheus 监控指标（15 项） |
@@ -273,15 +289,18 @@ RTSP 客户端 → TCP 连接 (port 554)
 
 ## 8. Web UI
 
-4 个 HTML 页面，烧录至 SPIFFS 分区，由通配 GET 处理器提供服务：
+6 个 HTML 页面，烧录至 SPIFFS 分区，由通配 GET 处理器提供服务：
 
-|| 页面 | 文件 | 功能 |
+| 页面 | 文件 | 功能 |
 ||------|------|------|
-|| 首页 | `index.html` | 状态总览 |
-|| 配置 | `config.html` | WiFi / NAS / 摄像头参数配置（手风琴布局） |
-|| 文件 | `files.html` | 录像文件浏览、下载、批量操作带折叠日期分组 |
-|| 预览 | `preview.html` | MJPEG 实时流预览带全屏和截图按钮 |
+| 首页 | `index.html` | 状态总览 |
+| 配置 | `config.html` | WiFi / NAS / 摄像头参数配置（手风琴布局） |
+| 文件 | `files.html` | 录像文件浏览、下载、批量操作带折叠日期分组 |
+| 预览 | `preview.html` | MJPEG 实时流预览带全屏和截图按钮 |
+| OTA 更新 | `ota.html` | 固件版本管理和在线更新 |
+| 系统设置 | `setup.html` | 高级配置和系统管理 |
 
 **Prometheus 集成**：`/metrics` 端点提供 15 个系统指标，文本格式导出。
 
 **温度监控**：ESP32-S3 芯片温度可通过 `/api/status` 获取，仪表盘带有颜色编码指示器。
+**运动检测**：实时显示运动评分和告警状态。
