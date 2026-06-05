@@ -62,6 +62,10 @@ typedef struct {
     char alert_webhook_url[256];  // Webhook 告警通知 URL
     bool alert_webhook_enabled;   // 是否启用 Webhook 告警通知
     uint8_t timelapse_interval_sec; // Timelapse interval in seconds (0=disabled, >0=interval)
+    uint8_t timelapse_mode;              // 0=continuous, 1=normal timelapse, 2=dynamic timelapse
+    uint8_t motion_sensitivity;          // Motion sensitivity 0-100 (higher=more sensitive)
+    uint8_t motion_active_interval_sec;  // Dynamic: interval when motion detected (1-30s)
+    uint8_t motion_idle_interval_sec;    // Dynamic: interval when no motion (5-300s)
 } cam_config_t;
 
 /** @brief 初始化配置模块，从 NVS 加载配置，无存储则使用默认值 */
