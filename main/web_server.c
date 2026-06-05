@@ -33,6 +33,7 @@
 #include "rtsp_server.h"
 #include "mjpeg_streamer.h"
 #include "ws_server.h"
+#include "motion_detector.h"
 
 #include "ota_updater.h"
 #include <string.h>
@@ -208,7 +209,11 @@ static esp_err_t api_status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "frames_dropped", (double)recorder_get_frames_dropped());
     cJSON_AddStringToObject(data, "firmware_version", FW_VERSION);
     cJSON_AddNumberToObject(data, "timelapse_interval_sec", cfg->timelapse_interval_sec);
-    cJSON_AddBoolToObject(data, "timelapse_mode", cfg->timelapse_interval_sec > 0);
+    cJSON_AddNumberToObject(data, "timelapse_mode", cfg->timelapse_mode);
+    cJSON_AddNumberToObject(data, "motion_sensitivity", cfg->motion_sensitivity);
+    cJSON_AddNumberToObject(data, "motion_active_interval_sec", cfg->motion_active_interval_sec);
+    cJSON_AddNumberToObject(data, "motion_idle_interval_sec", cfg->motion_idle_interval_sec);
+    cJSON_AddNumberToObject(data, "motion_score", motion_detector_get_score());
 
     return json_ok(req, data);
 }
@@ -251,6 +256,10 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "cleanup_high_pct", cfg->cleanup_high_pct);
     cJSON_AddBoolToObject(data, "frame_drop_enabled", cfg->frame_drop_enabled);
     cJSON_AddNumberToObject(data, "timelapse_interval_sec", cfg->timelapse_interval_sec);
+    cJSON_AddNumberToObject(data, "timelapse_mode", cfg->timelapse_mode);
+    cJSON_AddNumberToObject(data, "motion_sensitivity", cfg->motion_sensitivity);
+    cJSON_AddNumberToObject(data, "motion_active_interval_sec", cfg->motion_active_interval_sec);
+    cJSON_AddNumberToObject(data, "motion_idle_interval_sec", cfg->motion_idle_interval_sec);
     cJSON_AddStringToObject(data, "alert_webhook_url", cfg->alert_webhook_url);
     cJSON_AddBoolToObject(data, "alert_webhook_enabled", cfg->alert_webhook_enabled);
 
@@ -427,6 +436,42 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
             return json_error(req, "Invalid timelapse_interval_sec (must be 0-255)", HTTPD_400_BAD_REQUEST);
         }
         cfg->timelapse_interval_sec = (uint8_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "timelapse_mode"))) {
+        int val = item->valueint;
+        if (val < 0 || val > 2) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid timelapse_mode (must be 0-2)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->timelapse_mode = (uint8_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "motion_sensitivity"))) {
+        int val = item->valueint;
+        if (val < 0 || val > 100) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid motion_sensitivity (must be 0-100)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->motion_sensitivity = (uint8_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "motion_active_interval_sec"))) {
+        int val = item->valueint;
+        if (val < 1 || val > 30) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid motion_active_interval_sec (must be 1-30)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->motion_active_interval_sec = (uint8_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "motion_idle_interval_sec"))) {
+        int val = item->valueint;
+        if (val < 5 || val > 300) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid motion_idle_interval_sec (must be 5-300)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->motion_idle_interval_sec = (uint8_t)val;
     }
     if ((item = cJSON_GetObjectItem(json, "alert_webhook_url"))) {
         size_t len = strlen(item->valuestring);
@@ -1131,9 +1176,12 @@ esp_err_t web_server_start(uint16_t port)
     config.stack_size = 8192;
     config.stack_size = 8192;
     config.uri_match_fn = httpd_uri_match_wildcard;
-    config.recv_wait_timeout = 30;
-    config.send_wait_timeout = 30;
-
+    config.recv_wait_timeout = 300;
+    config.send_wait_timeout = 300;
+    config.keep_alive_enable = true;
+    config.keep_alive_idle = 60;
+    config.keep_alive_interval = 5;
+    config.keep_alive_count = 3;
     esp_err_t ret = httpd_start(&s_server, &config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start web server: %s", esp_err_to_name(ret));
