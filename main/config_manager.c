@@ -55,6 +55,10 @@ static const cam_config_t s_defaults = {
     .alert_webhook_url = "",
     .alert_webhook_enabled = false,
     .timelapse_interval_sec = 0,
+    .timelapse_mode = 0,
+    .motion_sensitivity = 50,
+    .motion_active_interval_sec = 1,
+    .motion_idle_interval_sec = 30,
 };
 
 /* ---- internal helpers ---- */
@@ -274,12 +278,23 @@ esp_err_t config_init(void)
     read_str(h, "alert_webhook_url", s_config.alert_webhook_url, sizeof(s_config.alert_webhook_url));
     nvs_get_u8(h, "alert_webhook_enabled", (uint8_t *)&s_config.alert_webhook_enabled);
     nvs_get_u8(h, "timelapse_interval", &s_config.timelapse_interval_sec);
+    nvs_get_u8(h, "timelapse_mode", &s_config.timelapse_mode);
+    nvs_get_u8(h, "motion_sens", &s_config.motion_sensitivity);
+    nvs_get_u8(h, "motion_active_int", &s_config.motion_active_interval_sec);
+    nvs_get_u8(h, "motion_idle_int", &s_config.motion_idle_interval_sec);
 
     /* ---- Legacy FTP config migration check ---- */
     uint8_t old_ftp_enabled = 0;
     bool needs_migration = (nvs_get_u8(h, "ftp_enabled", &old_ftp_enabled) == ESP_OK);
 
     nvs_close(h);
+
+    /* Backward compat: old configs had timelapse_interval_sec>0 but no timelapse_mode */
+    if (s_config.timelapse_interval_sec > 0 && s_config.timelapse_mode == 0) {
+        s_config.timelapse_mode = 1;
+        ESP_LOGI(TAG, "Migrated: timelapse_mode=1 (normal timelapse)");
+        /* Will be persisted on next config_save() */
+    }
 
     if (needs_migration) {
         ESP_LOGI(TAG, "Migrating legacy FTP config to webdav_enabled");
@@ -345,6 +360,10 @@ esp_err_t config_save(void)
     write_str(h, "alert_webhook_url", s_config.alert_webhook_url);
     nvs_set_u8(h, "alert_webhook_enabled", s_config.alert_webhook_enabled ? 1 : 0);
     nvs_set_u8(h, "timelapse_interval", s_config.timelapse_interval_sec);
+    nvs_set_u8(h, "timelapse_mode", s_config.timelapse_mode);
+    nvs_set_u8(h, "motion_sens", s_config.motion_sensitivity);
+    nvs_set_u8(h, "motion_active_int", s_config.motion_active_interval_sec);
+    nvs_set_u8(h, "motion_idle_int", s_config.motion_idle_interval_sec);
 
     err = nvs_commit(h);
     nvs_close(h);
