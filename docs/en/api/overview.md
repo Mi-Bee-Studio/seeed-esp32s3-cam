@@ -1,4 +1,4 @@
-# API Overview
+﻿# API Overview
 
 > ESP32-S3 Camera Monitor Firmware REST API Documentation
 
@@ -6,7 +6,7 @@
 
 ---
 
-#QS|This firmware API documentation is based on `web_server.c`, `mjpeg_streamer.c`, `config_manager.c` source code. Last updated: 2026-06-05.
+This firmware API documentation is based on `web_server.c`, `mjpeg_streamer.c`, `config_manager.c` source code. Last updated: 2026-06-05.
 
 ## Base Address
 
@@ -77,51 +77,69 @@ Access-Control-Allow-Headers: Content-Type, X-Password
 | 9 | POST | `/api/record?action=start\|stop` | **Yes** | Control recording |
 | 10 | POST | `/api/reset` | **Yes** | Factory reset |
 | 11 | GET | `/stream` | No | MJPEG real-time video stream |
+| # | Method | Path | Auth | Description |
+||---|--------|------|------|-------------|
+| 1 | GET | `/api/status` | No | Get device status |
+| 2 | GET | `/api/config` | No | Get current configuration |
+| 3 | POST | `/api/config` | **Yes** | Update configuration |
+| 4 | GET | `/api/files` | No | Get recording file list |
+| 5 | DELETE | `/api/files?name=xxx` | **Yes** | Delete specified file |
+| 6 | GET | `/api/download?name=xxx` | No | Download specified file |
+| 7 | GET | `/api/scan` | No | Scan WiFi networks |
+| 8 | POST | `/api/time` | **Yes** | Manually set system time |
+| 9 | POST | `/api/record?action=start\|stop` | **Yes** | Control recording |
+| 10 | POST | `/api/reset` | **Yes** | Factory reset |
+| 11 | GET | `/stream` | No | MJPEG real-time video stream |
 | 12 | POST | `/api/files/batch` | **Yes** | Batch delete files |
 | 13 | GET | `/metrics` | No | Prometheus metrics (text format) |
-| 14 | OPTIONS | `/*` | No | CORS preflight request |
-
+| 14 | POST | `/api/ota` | **Yes** | Trigger OTA firmware update from URL |
+| 15 | POST | `/api/format` | **Yes** | Format SD card |
+| 16 | GET | `/setup` | No | First-time WiFi setup wizard page |
+| 17 | GET | `/ota` | No | OTA firmware update web page |
+| 18 | OPTIONS | `/*` | No | CORS preflight request |
+## `/api/status` Response Fields
 ## `/api/status` Response Fields
 
 `/api/status` returns JSON with following fields:
 
 ```json
 {
-#WM|
+
   "ok": true,
-#WV|
+
   "data": {
-#KV|
+
     "recording": false,
-#KT|
+
     "wifi_state": "STA_CONNECTED",
-#MM|
+
     "sd_available": 75.5,
-#PW|
+
     "sd_total": 29.7,
-#JW|
+
     "sd_free_percent": 75.5,
-#KV|
+
     "camera_sensor": "OV2640",
-#XZ|
+
     "camera_res": "SVGA",
-#HR|
+
     "camera_quality": 12,
-#PR|
+
     "chip_temp": 42.5,
-#RY|
+
     "free_heap": 185432,
-#SJ|
+
     "free_psram": 4194304,
-#KQ|    "timelapse_mode": false,
-#VV|    "timelapse_interval_sec": 0,
-#ZP|    "firmware_version": "0.2.0",
-#HT|    "upload_queue": 0,
-#JP|    "last_upload": "",
-#XR|    "frames_dropped": 0
-#KQ|
+    "free_psram": 4194304,
+    "timelapse_mode": 0,
+    "motion_score": 0,
+    "firmware_version": "0.2.0",
+    "upload_queue": 0,
+    "last_upload": "",
+    "frames_dropped": 0
+
   }
-#VV|}
+}
 }
 ```
 
@@ -154,7 +172,36 @@ Delete multiple recording files in a single request.
 }
 ```
 
+### `/api/files/batch` - Batch File Operations
+
 **Authentication**: Required (X-Password header or ?password= query param)
+
+---
+
+### POST /api/ota - OTA Firmware Update
+
+Trigger firmware update from a URL.
+
+**Request:**
+```json
+{"url": "https://example.com/firmware/mibee_homecam.bin"}
+```
+
+**Response:** `{"ok": true, "data": {"message": "OTA update started, device will reboot..."}}`
+
+**Authentication:** Required
+
+### WebSocket Real-time Push
+
+The device provides WebSocket at the root path `/` for real-time updates (used by the Web UI dashboard).
+
+**Events (JSON):**
+- `{"type":"status","data":{...}}` — Status update (every 5 seconds)
+- `{"type":"motion","data":{"score":30}}` — Motion detection event
+
+---
+
+### `/metrics` - Prometheus Metrics
 
 ---
 
