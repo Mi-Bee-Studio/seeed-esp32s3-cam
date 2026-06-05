@@ -44,7 +44,7 @@ Project structure:
 
 ```
 esp32s3-camera/
-├── main/                 # Firmware source code (14 C modules)
+├── main/                 # Firmware source code (20 C modules)
 │   ├── main.c            # Entry point, 19-step boot process
 │   ├── camera_driver.c   # Camera driver
 │   ├── video_recorder.c  # AVI recording engine
@@ -59,8 +59,14 @@ esp32s3-camera/
 │   ├── webdav_client.c   # WebDAV client
 │   ├── rtsp_server.c    # RTSP server
 │   ├── http_upload_client.c # HTTP/HTTPS upload client
+│   ├── motion_detector.c # Motion detection engine
+│   ├── ota_updater.c     # OTA firmware update
+│   ├── webhook.c         # HTTP event notification
+│   ├── ws_server.c       # WebSocket real-time push
+│   ├── sha256.c          # SHA-256 hash
+│   ├── logging.c         # Logging utility
 │   ├── cJSON.c/h         # JSON parsing library
-│   └── web_ui/           # Web management interface (4 HTML pages)
+│   └── web_ui/           # Web management interface (6 HTML pages)
 ├── docs/                 # Project documentation
 ├── partitions.csv        # Partition table
 └── sdkconfig.defaults    # Hardware default configuration

@@ -1,4 +1,4 @@
-# User Guide
+﻿# User Guide
 
 > Daily usage guide for ESP32-S3 Camera Monitor firmware
 
@@ -27,17 +27,18 @@ Default management password: `admin`. API requests involving write operations ne
 ### Page Description
 
 | Page | Function |
-|------|----------|
+||------|----------|
 | index | Status overview (recording status, WiFi, storage, camera model, uptime) |
 | config | Configuration management (all parameters including WiFi, recording, NAS upload) |
 | preview | Real-time video preview (MJPEG stream in browser) |
 | files | Recording file management (browse, download, delete) |
-
+| ota | Firmware update page (upload new firmware via web UI) |
+| setup | First-time WiFi setup wizard (auto-shown on first boot) |
 ### Dashboard Page
 
 ![Dashboard](images/index-dashboard.png)
 
-The dashboard shows real-time device status: recording state, current file, WiFi connection, SD card usage, camera model, chip temperature, and uptime.
+The dashboard shows real-time device status: recording state, current file, WiFi connection, SD card usage, camera model, chip temperature, and uptime. Uses WebSocket for live data push — no page refresh needed.
 
 ### Configuration Page
 
@@ -87,35 +88,35 @@ curl -X POST http://192.168.4.1/api/config \
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-|| `wifi_ssid` | string | `""` | WiFi name, enters AP mode if empty |
-|| `wifi_pass` | string | `""` | WiFi password |
-|| `wifi_ssid_2` | string | `""` | WiFi backup SSID (AP fallback) |
-|| `wifi_pass_2` | string | `""` | WiFi backup password |
-|| `allow_ap_fallback` | bool | `true` | Allow fallback to AP mode when WiFi fails |
+| `wifi_ssid` | string | `""` | WiFi name, enters AP mode if empty |
+| `wifi_pass` | string | `""` | WiFi password |
+| `wifi_ssid_2` | string | `""` | WiFi backup SSID (AP fallback) |
+| `wifi_pass_2` | string | `""` | WiFi backup password |
+| `allow_ap_fallback` | bool | `true` | Allow fallback to AP mode when WiFi fails |
 #### Device Configuration
 
 | Parameter | Type | Default | Description |
-|| `device_name` | string | `"MiBeeHomeCam"` | Device name |
-|| `web_password` | string | `"admin"` | Web management password |
+| `device_name` | string | `"MiBeeHomeCam"` | Device name |
+| `web_password` | string | `"admin"` | Web management password |
 
 #### Upload Method Configuration
 
-|| `upload_method` | uint8 | `0` | Upload method: 0=Disabled, 1=WebDAV, 2=HTTP(S) |
-|| `upload_base_path` | string | `"/MiBeeHomeCam"` | Upload base path |
-|| `webdav_url` | string | `""` | WebDAV server URL |
-|| `webdav_user` | string | `""` | WebDAV username |
-|| `webdav_pass` | string | `""` | WebDAV password (returns `****` on GET) |
-|| `webdav_enabled` | bool | `false` | Enable WebDAV upload |
-|| `http_upload_url` | string | `""` | HTTP(S) upload full URL |
-|| `http_upload_user` | string | `""` | HTTP(S) username |
-|| `http_upload_pass` | string | `""` | HTTP(S) password (returns `****` on GET) |
-|| `http_upload_skip_cert_verify` | bool | `false` | Skip HTTPS certificate verification |
+| `upload_method` | uint8 | `0` | Upload method: 0=Disabled, 1=WebDAV, 2=HTTP(S) |
+| `upload_base_path` | string | `"/MiBeeHomeCam"` | Upload base path |
+| `webdav_url` | string | `""` | WebDAV server URL |
+| `webdav_user` | string | `""` | WebDAV username |
+| `webdav_pass` | string | `""` | WebDAV password (returns `****` on GET) |
+| `webdav_enabled` | bool | `false` | Enable WebDAV upload |
+| `http_upload_url` | string | `""` | HTTP(S) upload full URL |
+| `http_upload_user` | string | `""` | HTTP(S) username |
+| `http_upload_pass` | string | `""` | HTTP(S) password (returns `****` on GET) |
+| `http_upload_skip_cert_verify` | bool | `false` | Skip HTTPS certificate verification |
 
 #### Camera Configuration
 
 | Parameter | Type | Default | Description |
-|| `vflip` | bool | `false` | Vertical flip |
-|| `hmirror` | bool | `false` | Horizontal mirror |
+| `vflip` | bool | `false` | Vertical flip |
+| `hmirror` | bool | `false` | Horizontal mirror |
 #### Video Configuration
 
 | Parameter | Type | Default | Description |
@@ -126,25 +127,60 @@ curl -X POST http://192.168.4.1/api/config \
 | `jpeg_quality` | uint8 | `12` | JPEG quality, 1-63, lower value means better quality |
 #### Recording Configuration
 
-ST|| Parameter | Type | Default | Description |
-ST||-----------|------|---------|-------------|
-ST|| `timelapse_interval_sec` | uint16 | `0` | Timelapse interval (0=continuous, >0=timelapse in seconds) |
-ST|| `frame_drop_enabled` | bool | `false` | Enable frame dropping under resource pressure |
+##### Recording Modes
 
+The device supports three recording modes controlled by `timelapse_mode`:
+
+| Mode | Description | File Prefix | Playback |
+|------|-------------|-------------|----------|
+| **0 = Continuous recording** | Standard AVI segmented recording as before | `REC_` | Standard |
+| **1 = Normal timelapse** | Fixed interval capture, plays at 15fps | `TLM_` | 15fps AVI |
+| **2 = Dynamic timelapse** | Motion-adaptive capture, saves storage | `DYN_` | 15fps AVI |
+
+**Normal timelapse**: Uses `timelapse_interval_sec` (5-300s) for fixed interval captures.
+**Dynamic timelapse**: Automatically switches between `motion_active_interval_sec` (1-30s) when motion detected and `motion_idle_interval_sec` (5-300s) when idle.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `timelapse_mode` | uint8 | `0` | Recording mode: 0=continuous, 1=normal timelapse, 2=dynamic timelapse |
+| `timelapse_interval_sec` | uint16 | `0` | Timelapse interval (0=continuous, >0=seconds between captures) |
+| `frame_drop_enabled` | bool | `false` | Enable frame dropping under resource pressure |
+
+##### Motion Detection Settings
+
+Available in dynamic timelapse mode (mode 2):
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `motion_sensitivity` | uint8 | `30` | Motion sensitivity 0-100 (higher=more sensitive) |
+| `motion_active_interval_sec` | uint8 | `2` | Dynamic mode: capture interval when motion active (seconds) |
+| `motion_idle_interval_sec` | uint16 | `60` | Dynamic mode: capture interval when idle (seconds) |
 #### Storage Configuration
 
-ST|| Parameter | Type | Default | Description |
-ST||-----------|------|---------|-------------|
-ST|| `cleanup_low_pct` | uint8 | `20` | Auto-cleanup when free space < this % |
-ST|| `cleanup_high_pct` | uint8 | `30` | Stop cleanup when free space > this % |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `cleanup_low_pct` | uint8 | `20` | Auto-cleanup when free space < this % |
+| `cleanup_high_pct` | uint8 | `30` | Stop cleanup when free space > this % |
 
 #### Alert Configuration
 
-ST|| Parameter | Type | Default | Description |
-ST||-----------|------|---------|-------------|
-ST|| `alert_webhook_url` | string | `""` | Alert webhook URL |
-ST|| `alert_webhook_enabled` | bool | `false` | Enable alert webhook notifications |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `alert_webhook_url` | string | `""` | Alert webhook URL for HTTP POST callbacks |
+| `alert_webhook_enabled` | bool | `false` | Enable alert webhook notifications |
 
+##### Webhook Notifications
+
+When enabled, the device sends HTTP POST callbacks to the configured URL for these events:
+
+- **motion_detected**: Motion detected in dynamic timelapse mode
+- **recording_error**: SD card write failure or recording errors
+- **system_startup**: Device boot completed
+
+Each webhook sends JSON payload:
+```json
+{"event_type": "motion_detected", "message": "Motion detected at 2026-06-05 14:30:15", "timestamp": "2026-06-05T14:30:15Z"}
+```
 ## LED Indicator
 ## LED Indicator
 
