@@ -1,4 +1,4 @@
-# Configuration Interface
+﻿# Configuration Interface
 
 > [← Status Query](status.md) | [File Management →](files.md)
 
@@ -37,16 +37,16 @@ Get all current configuration items of the device. Password fields are masked.
     "hmirror": false,
     "web_password": "****",
     "timezone": "CST-8",
-#WX|    "timelapse_interval_sec": 0,
-#VT|    "cleanup_low_pct": 20,
-#MV|    "cleanup_high_pct": 30,
-#HM|    "frame_drop_enabled": true,
-#PB|    "alert_webhook_url": "",
-#SM|    "alert_webhook_enabled": false,
-#WN|    "wifi_ssid_2": "",
-#MK|    "wifi_pass_2": "****",
-#SH|    "allow_ap_fallback": false
-#MK|
+    "timelapse_interval_sec": 0,
+    "cleanup_low_pct": 20,
+    "cleanup_high_pct": 30,
+    "frame_drop_enabled": true,
+    "alert_webhook_url": "",
+    "alert_webhook_enabled": false,
+    "wifi_ssid_2": "",
+    "wifi_pass_2": "****",
+    "allow_ap_fallback": false
+
 }
 }
 ```
@@ -74,18 +74,18 @@ Get all current configuration items of the device. Password fields are masked.
 | `vflip` | bool | Vertical flip |
 | `hmirror` | bool | Horizontal mirror |
 | `web_password` | string | Web management password, shows `"****"` if set, `""` if not set |
-#TH|
-#MV|| `web_password` | string | Web management password, shows `"****"` if set, `""` if not set |
-#TH|| `timelapse_interval_sec` | number | Timelapse interval in seconds (default `0` = continuous recording). When > 0, captures one frame every N seconds |
-#MV|| `cleanup_low_pct` | number | Storage cleanup trigger threshold percentage (default `20`) |
-#SX|| `cleanup_high_pct` | number | Storage cleanup target percentage (default `30`) |
-#TH|| `alert_webhook_url` | string | Webhook URL for alert notifications |
-#MV|| `alert_webhook_enabled` | bool | Enable webhook alert notifications |
-#SX|| `wifi_ssid_2` | string | Backup WiFi SSID |
-#TH|| `wifi_pass_2` | string | Backup WiFi password, shows `"****"` if set |
-#MV|| `allow_ap_fallback` | bool | Allow fallback to AP mode when both WiFi networks fail |
-#MV|> **Important**: `webdav_pass` is **NOT** returned by this endpoint (completely excluded from response). This is a security design consideration.
-#MV|> Only `wifi_pass`, `http_upload_pass`, `web_password` and `wifi_pass_2` are returned in masked form (`"****"`).
+
+| `web_password` | string | Web management password, shows `"****"` if set, `""` if not set |
+| `timelapse_interval_sec` | number | Timelapse interval in seconds (default `0` = continuous recording). When > 0, captures one frame every N seconds |
+| `cleanup_low_pct` | number | Storage cleanup trigger threshold percentage (default `20`) |
+| `cleanup_high_pct` | number | Storage cleanup target percentage (default `30`) |
+| `alert_webhook_url` | string | Webhook URL for alert notifications |
+| `alert_webhook_enabled` | bool | Enable webhook alert notifications |
+| `wifi_ssid_2` | string | Backup WiFi SSID |
+| `wifi_pass_2` | string | Backup WiFi password, shows `"****"` if set |
+| `allow_ap_fallback` | bool | Allow fallback to AP mode when both WiFi networks fail |
+> **Important**: `webdav_pass` is **NOT** returned by this endpoint (completely excluded from response). This is a security design consideration.
+> Only `wifi_pass`, `http_upload_pass`, `web_password` and `wifi_pass_2` are returned in masked form (`"****"`).
 > Only `wifi_pass`, `http_upload_pass` and `web_password` are returned in masked form (`"****"`).
 
 **cURL Example**:
@@ -133,16 +133,16 @@ Update device configuration. Request body is JSON format, only need to include f
   "vflip": true,
   "hmirror": false,
   "web_password": "newpass",
-#JN|  "timelapse_interval_sec": 0,
-#XT|  "cleanup_low_pct": 20,
-#JM|  "cleanup_high_pct": 30,
-#RQ|  "timezone": "CST-8",
-#JN|  "alert_webhook_url": "",
-#RQ|  "alert_webhook_enabled": false,
-#NX|  "wifi_ssid_2": "",
-#NQ|  "wifi_pass_2": "",
-#HM|  "allow_ap_fallback": false
-#HQ|
+  "timelapse_interval_sec": 0,
+  "cleanup_low_pct": 20,
+  "cleanup_high_pct": 30,
+  "timezone": "CST-8",
+  "alert_webhook_url": "",
+  "alert_webhook_enabled": false,
+  "wifi_ssid_2": "",
+  "wifi_pass_2": "",
+  "allow_ap_fallback": false
+
 }
 ```
 
@@ -169,19 +169,19 @@ Update device configuration. Request body is JSON format, only need to include f
 | `jpeg_quality` | number | JPEG quality |
 | `vflip` | bool | Vertical flip |
 | `hmirror` | bool | Horizontal mirror |
-#PB|| `web_password` | string | Web management password |
-#RS|| `timelapse_interval_sec` | number | Timelapse interval in seconds (`0` = continuous) |
-#MW|| `cleanup_low_pct` | number | Cleanup trigger threshold (%) |
-#JN|| `cleanup_high_pct` | number | Cleanup target percentage (%) |
-#MW|| `timezone` | string | Timezone string (e.g., `"CST-8"`) |
-#VX|| `alert_webhook_url` | string | Alert webhook URL |
-#MW|| `alert_webhook_enabled` | bool | Enable alert webhook |
-#VX|| `wifi_ssid_2` | string | Backup WiFi SSID |
-#MW|| `wifi_pass_2` | string | Backup WiFi password |
-#VX|| `allow_ap_fallback` | bool | Allow AP fallback |
-#MV|
-#MW|**Password Field Special Behavior**:
-#VM|
+| `web_password` | string | Web management password |
+| `timelapse_interval_sec` | number | Timelapse interval in seconds (`0` = continuous) |
+| `cleanup_low_pct` | number | Cleanup trigger threshold (%) |
+| `cleanup_high_pct` | number | Cleanup target percentage (%) |
+| `timezone` | string | Timezone string (e.g., `"CST-8"`) |
+| `alert_webhook_url` | string | Alert webhook URL |
+| `alert_webhook_enabled` | bool | Enable alert webhook |
+| `wifi_ssid_2` | string | Backup WiFi SSID |
+| `wifi_pass_2` | string | Backup WiFi password |
+| `allow_ap_fallback` | bool | Allow AP fallback |
+
+**Password Field Special Behavior**:
+
 **Password Field Special Behavior**:
 
 The four password fields (`wifi_pass`, `webdav_pass`, `http_upload_pass`, `web_password`) have special handling logic:
@@ -342,14 +342,14 @@ await fetch('/api/config', {
 | `jpeg_quality` | number | `12` | JPEG quality |
 | `vflip` | bool | `false` | Vertical flip |
 | `hmirror` | bool | `false` | Horizontal mirror |
-#WN|| `web_password` | string | `"admin"` | Web management password |
-#MV|| `timelapse_interval_sec` | number | `0` | 0 = continuous recording, >0 = timelapse interval (seconds) |
-#NX|| `cleanup_low_pct` | number | `20` | Cleanup trigger threshold (%) |
-#SX|| `cleanup_high_pct` | number | `30` | Cleanup target (%) |
-#SX|| `timezone` | string | `"CST-8"` | Timezone |
-#SX|| `frame_drop_enabled` | bool | `true` | Enable smart frame dropping |
-#SX|| `alert_webhook_url` | string | `""` | Alert webhook URL |
-#SX|| `alert_webhook_enabled` | bool | `false` | Enable alert webhook |
-#SX|| `wifi_ssid_2` | string | `""` | Backup WiFi SSID |
-#SX|| `wifi_pass_2` | string | `""` | Backup WiFi password |
-#SX|| `allow_ap_fallback` | bool | `false` | Allow AP mode fallback |
+| `web_password` | string | `"admin"` | Web management password |
+| `timelapse_interval_sec` | number | `0` | 0 = continuous recording, >0 = timelapse interval (seconds) |
+| `cleanup_low_pct` | number | `20` | Cleanup trigger threshold (%) |
+| `cleanup_high_pct` | number | `30` | Cleanup target (%) |
+| `timezone` | string | `"CST-8"` | Timezone |
+| `frame_drop_enabled` | bool | `true` | Enable smart frame dropping |
+| `alert_webhook_url` | string | `""` | Alert webhook URL |
+| `alert_webhook_enabled` | bool | `false` | Enable alert webhook |
+| `wifi_ssid_2` | string | `""` | Backup WiFi SSID |
+| `wifi_pass_2` | string | `""` | Backup WiFi password |
+| `allow_ap_fallback` | bool | `false` | Allow AP mode fallback |
