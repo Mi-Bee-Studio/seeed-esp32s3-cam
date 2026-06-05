@@ -77,16 +77,25 @@ esp_err_t mjpeg_stream_handler(httpd_req_t *req)
         fps = config_get()->fps;
         frame_delay = (fps > 0) ? pdMS_TO_TICKS(1000 / fps) : pdMS_TO_TICKS(100);
 
-        /* Capture with retry — recording task may hold framebuffer briefly */
+        /* Capture with retry — recording task may hold framebuffer briefly.
+         * IMPORTANT: Must have a retry cap to avoid blocking httpd worker thread.
+         * Each camera_capture() call blocks up to 4s (esp_camera FB_GET_TIMEOUT).
+         * With 15 retries that's ~60s max before graceful disconnect.
+         */
         esp_err_t ret = camera_capture(&frame);
         if (ret != ESP_OK) {
             capture_fails++;
-            if (capture_fails >= 5) {
+            if (capture_fails >= 15) {
                 ESP_LOGW(TAG, "Capture failed %d times, ending stream", capture_fails);
-                break;
+                goto cleanup;
             }
-            /* Brief delay before retry — back off: 50ms, 100ms, 150ms... */
-            vTaskDelay(pdMS_TO_TICKS(50 * capture_fails));
+            if (capture_fails % 5 == 1) {
+                ESP_LOGW(TAG, "Capture retry %d (recorder contention?)", capture_fails);
+            }
+            /* Exponential backoff: 100ms, 200ms, 400ms, 800ms, capped at 2000ms */
+            uint32_t backoff_ms = 100 << (capture_fails < 5 ? capture_fails : 4);
+            if (backoff_ms > 2000) backoff_ms = 2000;
+            vTaskDelay(pdMS_TO_TICKS(backoff_ms));
             continue;
         }
         capture_fails = 0;
