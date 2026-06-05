@@ -215,7 +215,8 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <label>录制模式</label>
 <select id="recordMode" onchange="onRecordModeChange()">
 <option value="continuous">连续录制</option>
-<option value="timelapse">延时摄影</option>
+<option value="timelapse">延时摄影（固定间隔）</option>
+<option value="dynamic">延时摄影（动态检测）</option>
 </select>
 </div>
 <div class="field" id="intervalField" style="display:none;">
@@ -226,6 +227,34 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <option value="30">30 秒</option>
 <option value="60">60 秒</option>
 <option value="120">120 秒</option>
+<option value="300">300 秒</option>
+</select>
+</div>
+
+<div class="field" id="dynamicFields" style="display:none;">
+<label>运动灵敏度</label>
+<div class="range-row">
+<input type="range" id="motionSensitivity" min="1" max="100" value="50">
+<span id="motionSensitivityVal">50</span>
+</div>
+</div>
+<div class="field" id="dynamicActiveField" style="display:none;">
+<label>检测到运动时间隔</label>
+<select id="motionActiveInterval">
+<option value="1">1 秒</option>
+<option value="2">2 秒</option>
+<option value="3">3 秒</option>
+<option value="5">5 秒</option>
+<option value="10">10 秒</option>
+</select>
+</div>
+<div class="field" id="dynamicIdleField" style="display:none;">
+<label>无运动时间隔</label>
+<select id="motionIdleInterval">
+<option value="30">30 秒</option>
+<option value="60">60 秒</option>
+<option value="120">120 秒</option>
+<option value="180">180 秒</option>
 <option value="300">300 秒</option>
 </select>
 </div>
@@ -341,11 +370,6 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <option value="AEST-10">澳大利亚东部时间 (UTC+10)</option>
 </select>
 </div>
-<div class="btn-row">
-<button class="btn btn-save" onclick="saveConfig()">保存配置</button>
-<button class="btn btn-reboot" onclick="rebootDevice()">重启设备</button>
-<button class="btn btn-reset" onclick="factoryReset()">恢复出厂</button>
-</div>
 </div>
 </div>
 </div>
@@ -361,6 +385,11 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 配置加载后文件将被自动删除，适用于首次配置。</p>
 </div>
 </div>
+</div>
+<div class="btn-row" style="margin:16px 0 24px">
+<button class="btn btn-save" onclick="saveConfig()">保存配置</button>
+<button class="btn btn-reboot" onclick="rebootDevice()">重启设备</button>
+<button class="btn btn-reset" onclick="factoryReset()">恢复出厂</button>
 </div>
 
 </div>
@@ -474,15 +503,24 @@ function loadConfig(){
     tzSel.appendChild(opt);tzSel.value=tzVal;
   }
   /* Timelapse mode: detect from interval value */
-  var tlInterval = v.timelapse_interval_sec || 0;
-  if(tlInterval > 0){
-    $('recordMode').value = 'timelapse';
-    $('timelapseInterval').value = tlInterval;
-    $('intervalField').style.display = 'block';
-  }else{
-    $('recordMode').value = 'continuous';
-    $('intervalField').style.display = 'none';
-  }
+  var tlMode = v.timelapse_mode || 0;
+if(tlMode === 2){
+$('recordMode').value = 'dynamic';
+$('motionSensitivity').value = v.motion_sensitivity || 50;
+$('motionSensitivityVal').textContent = v.motion_sensitivity || 50;
+$('motionActiveInterval').value = v.motion_active_interval_sec || 1;
+$('motionIdleInterval').value = v.motion_idle_interval_sec || 30;
+$('dynamicFields').style.display = 'block';
+$('dynamicActiveField').style.display = 'block';
+$('dynamicIdleField').style.display = 'block';
+} else if(tlMode === 1){
+$('recordMode').value = 'timelapse';
+$('timelapseInterval').value = v.timelapse_interval_sec || 10;
+$('intervalField').style.display = 'block';
+} else {
+$('recordMode').value = 'continuous';
+$('intervalField').style.display = 'none';
+}
   onRecordModeChange();
  }).catch(function(e){console.error('Load config failed:',e)});
 }
@@ -518,8 +556,9 @@ function scanWiFi(){
 
 /* ---- Gather form data ---- */
 function gatherFormData(){
- var mode = $('recordMode').value;
- var interval = mode === 'timelapse' ? parseInt($('timelapseInterval').value) : 0;
+var mode = $('recordMode').value;
+var tlMode = mode === 'timelapse' ? 1 : mode === 'dynamic' ? 2 : 0;
+var interval = tlMode === 1 ? parseInt($('timelapseInterval').value) : 0;
  var cfg={
   wifi_ssid:$('wifi_ssid').value,
   wifi_pass:$('wifi_pass').value,
@@ -543,7 +582,11 @@ function gatherFormData(){
   vflip:$('vflip').checked,
   hmirror:$('hmirror').checked,
   timezone:$('timezone').value,
-  timelapse_interval_sec: interval,
+timelapse_interval_sec: interval,
+timelapse_mode: tlMode,
+motion_sensitivity: tlMode === 2 ? parseInt($('motionSensitivity').value) : 50,
+motion_active_interval_sec: tlMode === 2 ? parseInt($('motionActiveInterval').value) : 1,
+motion_idle_interval_sec: tlMode === 2 ? parseInt($('motionIdleInterval').value) : 30,
   cleanup_low_pct:parseInt($('cleanup_low_pct').value),
   cleanup_high_pct:parseInt($('cleanup_high_pct').value),
   alert_webhook_url:$('alert_webhook_url').value,
@@ -616,9 +659,16 @@ function onUploadMethodChange(){
 
 /* ---- Record mode visibility ---- */
 function onRecordModeChange(){
-  var mode = $('recordMode').value;
-  $('intervalField').style.display = mode === 'timelapse' ? 'block' : 'none';
+var mode = $('recordMode').value;
+$('intervalField').style.display = mode === 'timelapse' ? 'block' : 'none';
+$('dynamicFields').style.display = mode === 'dynamic' ? 'block' : 'none';
+$('dynamicActiveField').style.display = mode === 'dynamic' ? 'block' : 'none';
+$('dynamicIdleField').style.display = mode === 'dynamic' ? 'block' : 'none';
 }
+
+var msSlider=$('motionSensitivity');
+var msVal=$('motionSensitivityVal');
+if(msSlider)msSlider.oninput=function(){msVal.textContent=this.value};
 function toggleSection(header){
   var section=header.closest('.accordion-section');
   var content=section.querySelector('.accordion-content');
