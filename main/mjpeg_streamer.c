@@ -65,20 +65,31 @@ esp_err_t mjpeg_stream_handler(httpd_req_t *req)
     httpd_resp_set_type(req, "multipart/x-mixed-replace; boundary=" MJPEG_BOUNDARY);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
 
-    const uint8_t fps = config_get()->fps;
-    const TickType_t frame_delay = (fps > 0) ? pdMS_TO_TICKS(1000 / fps)
-                                              : pdMS_TO_TICKS(100);
+    /* Read fps each iteration so runtime config changes take effect */
+    uint8_t fps;
+    TickType_t frame_delay;
 
     camera_frame_t frame;
     char part_hdr[128];
+    int capture_fails = 0;
 
     while (1) {
-        /* Capture */
+        fps = config_get()->fps;
+        frame_delay = (fps > 0) ? pdMS_TO_TICKS(1000 / fps) : pdMS_TO_TICKS(100);
+
+        /* Capture with retry — recording task may hold framebuffer briefly */
         esp_err_t ret = camera_capture(&frame);
         if (ret != ESP_OK) {
-            ESP_LOGW(TAG, "Capture failed, ending stream");
-            break;
+            capture_fails++;
+            if (capture_fails >= 5) {
+                ESP_LOGW(TAG, "Capture failed %d times, ending stream", capture_fails);
+                break;
+            }
+            /* Brief delay before retry — back off: 50ms, 100ms, 150ms... */
+            vTaskDelay(pdMS_TO_TICKS(50 * capture_fails));
+            continue;
         }
+        capture_fails = 0;
 
         /* Build multipart part header */
         int hdrlen = snprintf(part_hdr, sizeof(part_hdr),
@@ -120,8 +131,9 @@ cleanup:
     }
 
     /* --- Cleanup --- */
-    httpd_resp_send_chunk(req, NULL, 0);   /* end chunked response */
-
+    /* Send closing boundary, then end chunked response */
+    httpd_resp_send_chunk(req, "\r\n--" MJPEG_BOUNDARY "--\r\n", -1);
+    httpd_resp_send_chunk(req, NULL, 0);   /* signal response end */
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     s_client_count--;
     xSemaphoreGive(s_mutex);
@@ -163,12 +175,11 @@ esp_err_t mjpeg_streamer_register(httpd_handle_t server)
     if (server == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-
     httpd_uri_t stream_uri = {
-        .uri      = "/stream",
-        .method   = HTTP_GET,
-        .handler  = mjpeg_stream_handler,
-        .user_ctx = NULL,
+.uri      = "/stream",
+.method   = HTTP_GET,
+.handler  = mjpeg_stream_handler,
+.user_ctx = NULL,
     };
     return httpd_register_uri_handler(server, &stream_uri);
 }
