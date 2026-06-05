@@ -87,37 +87,35 @@ curl -X POST http://192.168.4.1/api/config \
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `wifi_ssid` | string | `""` | WiFi name, enters AP mode if empty |
-| `wifi_pass` | string | `""` | WiFi password |
-
+|| `wifi_ssid` | string | `""` | WiFi name, enters AP mode if empty |
+|| `wifi_pass` | string | `""` | WiFi password |
+|| `wifi_ssid_2` | string | `""` | WiFi backup SSID (AP fallback) |
+|| `wifi_pass_2` | string | `""` | WiFi backup password |
+|| `allow_ap_fallback` | bool | `true` | Allow fallback to AP mode when WiFi fails |
 #### Device Configuration
 
 | Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `device_name` | string | `"MiBeeHomeCam"` | Device name |
-| `web_password` | string | `"admin"` | Web management password |
+|| `device_name` | string | `"MiBeeHomeCam"` | Device name |
+|| `web_password` | string | `"admin"` | Web management password |
 
 #### Upload Method Configuration
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `upload_method` | uint8 | `0` | Upload method: 0=Disabled, 1=WebDAV, 2=HTTP(S) |
-| `upload_base_path` | string | `"/MiBeeHomeCam"` | Upload base path |
-| `webdav_url` | string | `""` | WebDAV server URL |
-| `webdav_user` | string | `""` | WebDAV username |
-| `webdav_pass` | string | `""` | WebDAV password (returns `****` on GET) |
-| `webdav_enabled` | bool | `false` | Enable WebDAV upload |
-| `http_upload_url` | string | `""` | HTTP(S) upload full URL |
-| `http_upload_user` | string | `""` | HTTP(S) username |
-| `http_upload_pass` | string | `""` | HTTP(S) password (returns `****` on GET) |
-| `http_upload_skip_cert_verify` | bool | `false` | Skip HTTPS certificate verification |
+|| `upload_method` | uint8 | `0` | Upload method: 0=Disabled, 1=WebDAV, 2=HTTP(S) |
+|| `upload_base_path` | string | `"/MiBeeHomeCam"` | Upload base path |
+|| `webdav_url` | string | `""` | WebDAV server URL |
+|| `webdav_user` | string | `""` | WebDAV username |
+|| `webdav_pass` | string | `""` | WebDAV password (returns `****` on GET) |
+|| `webdav_enabled` | bool | `false` | Enable WebDAV upload |
+|| `http_upload_url` | string | `""` | HTTP(S) upload full URL |
+|| `http_upload_user` | string | `""` | HTTP(S) username |
+|| `http_upload_pass` | string | `""` | HTTP(S) password (returns `****` on GET) |
+|| `http_upload_skip_cert_verify` | bool | `false` | Skip HTTPS certificate verification |
 
 #### Camera Configuration
 
 | Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `vflip` | bool | `false` | Vertical flip |
-| `hmirror` | bool | `false` | Horizontal mirror |
+|| `vflip` | bool | `false` | Vertical flip |
+|| `hmirror` | bool | `false` | Horizontal mirror |
 #### Video Configuration
 
 | Parameter | Type | Default | Description |
@@ -126,7 +124,28 @@ curl -X POST http://192.168.4.1/api/config \
 | `fps` | uint8 | `10` | Frame rate, range 1-30 |
 | `segment_sec` | uint16 | `300` | Recording segment duration (seconds) |
 | `jpeg_quality` | uint8 | `12` | JPEG quality, 1-63, lower value means better quality |
+#### Recording Configuration
 
+ST|| Parameter | Type | Default | Description |
+ST||-----------|------|---------|-------------|
+ST|| `timelapse_interval_sec` | uint16 | `0` | Timelapse interval (0=continuous, >0=timelapse in seconds) |
+ST|| `frame_drop_enabled` | bool | `false` | Enable frame dropping under resource pressure |
+
+#### Storage Configuration
+
+ST|| Parameter | Type | Default | Description |
+ST||-----------|------|---------|-------------|
+ST|| `cleanup_low_pct` | uint8 | `20` | Auto-cleanup when free space < this % |
+ST|| `cleanup_high_pct` | uint8 | `30` | Stop cleanup when free space > this % |
+
+#### Alert Configuration
+
+ST|| Parameter | Type | Default | Description |
+ST||-----------|------|---------|-------------|
+ST|| `alert_webhook_url` | string | `""` | Alert webhook URL |
+ST|| `alert_webhook_enabled` | bool | `false` | Enable alert webhook notifications |
+
+## LED Indicator
 ## LED Indicator
 
 The onboard LED (GPIO21, active-low) reflects the device's current status through different blinking patterns:
@@ -188,10 +207,13 @@ curl -X POST "http://192.168.4.1/api/record?action=stop" \
 
 ### Recording Format
 
+### Recording Format
+
 - **Format**: AVI (MJPEG encoding)
 - **Segmentation**: Auto-segmented by `segment_sec` (default 300 seconds = 5 minutes)
 - **File naming**: `REC_YYYYMMDD_HHMMSS.avi` (e.g., `REC_20260424_143000.avi`)
 - **Storage path**: `/sdcard/recordings/YYYY-MM/DD/` (organized by date)
+- **Timelapse Mode**: When `timelapse_interval_sec > 0`, files use `TLM_` prefix and play at 15fps
 
 After each segment completes: NAS upload → Storage cleanup → Start next segment.
 
@@ -212,12 +234,14 @@ After each segment completes: NAS upload → Storage cleanup → Start next segm
 
 ### Circular Storage
 
+### Circular Storage
+
 Automatic cleanup when SD card free space is insufficient:
 
-- **Below 20%**: Start deleting oldest recording files
-- **Continue cleanup until 30%**: Check after each segment recording completes
-- Safety limit: Max 100 files deleted per single cleanup
-
+- **Below `cleanup_low_pct` (default 20%)**: Start deleting oldest recording files
+- **Continue cleanup until `cleanup_high_pct` (default 30%)**: Check after each segment recording completes
+- **Write failure recovery**: On write failure, recorder attempts cleanup+retry
+- **Safety limit**: Max 100 files deleted per single cleanup
 ### Startup Cleanup
 
 On device startup, automatically scans `/sdcard/recordings/` directory and deletes incomplete AVI files with RIFF header size of 0 (usually caused by abnormal power-off).
@@ -443,3 +467,38 @@ When upgrading from an older version (with FTP support), the device automaticall
 - Old `ftp_enabled=true` → `upload_method=1` (WebDAV)
 - Old `webdav_enabled=true` → `upload_method=1` (WebDAV)
 - Old FTP-related NVS keys are automatically deleted
+
+## Prometheus Monitoring
+
+The device provides a `/metrics` endpoint with 15 system metrics in text exposition format for external monitoring systems.
+
+### Access Metrics
+
+```bash
+curl http://192.168.4.1/metrics
+```
+
+### Available Metrics
+
+- `system_uptime_seconds`: Device uptime
+- `recording_status`: Current recording state (0=stopped, 1=recording)
+- `wifi_strength_dbm`: WiFi signal strength
+- `sdcard_used_bytes`: SD card used space
+- `sdcard_free_bytes`: SD card free space
+- `chip_temp_celsius`: ESP32-S3 chip temperature
+- `upload_queue_size`: Files pending upload
+- `total_recorded_files`: Total recording files
+- `fps_current`: Current frames per second
+- `memory_free_bytes`: Free heap memory
+- `memory_psram_free_bytes`: Free PSRAM memory
+- `heap_watermark_bytes`: Heap watermark (lowest free)
+- `stack_watermark_bytes`: Stack watermark (lowest free)
+- `rtsp_clients`: Current RTSP client count
+- `http_clients`: Current HTTP stream client count
+
+### Temperature Monitoring
+
+ESP32-S3 chip temperature is available via `/api/status` with color-coded dashboard indicators:
+- **< 40°C**: Green (normal)
+- **40-60°C**: Yellow (warm)
+- **> 60°C**: Red (hot)

@@ -26,7 +26,10 @@
     "time_synced": true,
     "uptime": 3600,
     "last_upload": "20260424_120000.avi",
-    "upload_queue": 2
+    "upload_queue": 2,
+    "upload_queue": 2,
+    "timelapse_mode": false,
+    "timelapse_interval_sec": 0
   }
 }
 ```
@@ -42,7 +45,13 @@
 | `wifi_state` | string | WiFi 状态：`"AP"` 热点模式、`"STA"` 已连接路由器、`"disconnected"` 未连接 |
 | `ip` | string | 当前 IP 地址字符串 |
 | `camera` | string | 摄像头传感器型号：`"OV2640"`、`"OV3660"`、`"unknown"` |
-| `resolution` | string | 当前分辨率名称：`"VGA"`、`"SVGA"`、`"XGA"` |
+    `resolution` | string | 当前分辨率名称：`"VGA"`、`"SVGA"`、`"XGA"` |
+    `time_synced` | bool | NTP 时间是否已同步 |
+    `uptime` | number | 自开机以来的运行秒数 |
+    `last_upload` | string | 最近一次上传的文件名，无上传记录时为空字符串 |
+    `upload_queue` | number | 等待上传的文件数量 |
+    `timelapse_mode` | bool | 是否启用延时摄影模式 |
+    `timelapse_interval_sec` | number | 延时摄影模式下的间隔时间（秒）
 | `time_synced` | bool | NTP 时间是否已同步 |
 | `uptime` | number | 自开机以来的运行秒数 |
 | `last_upload` | string | 最近一次上传的文件名，无上传记录时为空字符串 |

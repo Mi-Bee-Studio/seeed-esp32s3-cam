@@ -87,30 +87,29 @@ curl -X POST http://192.168.4.1/api/config \
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `wifi_ssid` | string | `""` | WiFi 名称，为空则进入 AP 模式 |
-| `wifi_pass` | string | `""` | WiFi 密码 |
-
+|| `wifi_ssid` | string | `""` | WiFi 名称，为空则进入 AP 模式 |
+|| `wifi_pass` | string | `""` | WiFi 密码 |
+|| `wifi_ssid_2` | string | `""` | WiFi 备份 SSID（AP 回退） |
+|| `wifi_pass_2` | string | `""` | WiFi 备份密码 |
+|| `allow_ap_fallback` | bool | `true` | WiFi 失败时允许回退到 AP 模式 |
 #### 设备配置
 
 | 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `device_name` | string | `"MiBeeHomeCam"` | 设备名称 |
-| `web_password` | string | `"admin"` | Web 管理密码 |
+|| `device_name` | string | `"MiBeeHomeCam"` | 设备名称 |
+|| `web_password` | string | `"admin"` | Web 管理密码 |
 
 #### 上传方式配置
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `upload_method` | uint8 | `0` | 上传方式：0=禁用, 1=WebDAV, 2=HTTP(S) |
-| `upload_base_path` | string | `"/MiBeeHomeCam"` | 上传基础路径 |
-| `webdav_url` | string | `""` | WebDAV 服务器 URL |
-| `webdav_user` | string | `""` | WebDAV 用户名 |
-| `webdav_pass` | string | `""` | WebDAV 密码（GET 请求返回 `****`） |
-| `webdav_enabled` | bool | `false` | 是否启用 WebDAV 上传 |
-| `http_upload_url` | string | `""` | HTTP(S) 上传完整 URL |
-| `http_upload_user` | string | `""` | HTTP(S) 用户名 |
-| `http_upload_pass` | string | `""` | HTTP(S) 密码（GET 请求返回 `****`） |
-| `http_upload_skip_cert_verify` | bool | `false` | 跳过 HTTPS 证书验证 |
+|| `upload_method` | uint8 | `0` | 上传方式：0=禁用, 1=WebDAV, 2=HTTP(S) |
+|| `upload_base_path` | string | `"/MiBeeHomeCam"` | 上传基础路径 |
+|| `webdav_url` | string | `""` | WebDAV 服务器 URL |
+|| `webdav_user` | string | `""` | WebDAV 用户名 |
+|| `webdav_pass` | string | `""` | WebDAV 密码（GET 请求返回 `****`） |
+|| `webdav_enabled` | bool | `false` | 是否启用 WebDAV 上传 |
+|| `http_upload_url` | string | `""` | HTTP(S) 上传完整 URL |
+|| `http_upload_user` | string | `""` | HTTP(S) 用户名 |
+|| `http_upload_pass` | string | `""` | HTTP(S) 密码（GET 请求返回 `****`） |
+|| `http_upload_skip_cert_verify` | bool | `false` | 跳过 HTTPS 证书验证 |
 
 #### 摄像头配置
 
@@ -126,7 +125,28 @@ curl -X POST http://192.168.4.1/api/config \
 | `fps` | uint8 | `10` | 帧率，范围 1-30 |
 | `segment_sec` | uint16 | `300` | 录像分段时长（秒） |
 | `jpeg_quality` | uint8 | `12` | JPEG 画质，1-63，数值越低画质越好 |
+#### 录像配置
 
+ZP|| 参数 | 类型 | 默认值 | 说明 |
+ZP||------|------|--------|------|
+ZP|| `timelapse_interval_sec` | uint16 | `0` | 延时摄影间隔（0=连续, >0=延时摄影秒数） |
+ZP|| `frame_drop_enabled` | bool | `false` | 资源压力下启用丢帧功能 |
+
+#### 存储配置
+
+ZP|| 参数 | 类型 | 默认值 | 说明 |
+ZP||------|------|--------|------|
+ZP|| `cleanup_low_pct` | uint8 | `20` | 自动清理时可用空间 < 此百分比时触发 |
+ZP|| `cleanup_high_pct` | uint8 | `30` | 可用空间 > 此百分比时停止清理 |
+
+#### 告警配置
+
+ZP|| 参数 | 类型 | 默认值 | 说明 |
+ZP||------|------|--------|------|
+ZP|| `alert_webhook_url` | string | `""` | 告警 webhook URL |
+ZP|| `alert_webhook_enabled` | bool | `false` | 启用告警 webhook 通知 |
+
+## LED 指示灯
 ## LED 指示灯
 
 板载 LED（GPIO21，低电平有效）通过不同闪烁模式反映设备当前状态：
@@ -188,10 +208,13 @@ curl -X POST "http://192.168.4.1/api/record?action=stop" \
 
 ### 录像格式
 
+### 录像格式
+
 - **格式**：AVI（MJPEG 编码）
 - **分段**：按 `segment_sec`（默认 300 秒 = 5 分钟）自动分段
 - **文件命名**：`REC_YYYYMMDD_HHMMSS.avi`（如 `REC_20260424_143000.avi`）
 - **存储路径**：`/sdcard/recordings/YYYY-MM/DD/`（按日期分目录）
+- **延时摄影模式**：当 `timelapse_interval_sec > 0` 时，文件使用 `TLM_` 前缀，15fps 播放
 
 每个分段完成后自动触发：NAS 上传 → 存储清理 → 开启下一段。
 
@@ -212,11 +235,14 @@ curl -X POST "http://192.168.4.1/api/record?action=stop" \
 
 ### 循环存储
 
+### 循环存储
+
 当 SD 卡剩余空间不足时自动清理：
 
-- **低于 20%**：开始删除最早的录像文件
-- **持续清理直到 30%**：每次分段录像完成后检查
-- 安全限制：单次清理最多删除 100 个文件
+- **低于 `cleanup_low_pct`（默认 20%）**：开始删除最早的录像文件
+- **持续清理直到 `cleanup_high_pct`（默认 30%）**：每次分段录像完成后检查
+- **写入失败恢复**：写入失败时，录像器尝试清理+重试
+- **安全限制**：单次清理最多删除 100 个文件
 
 ### 启动清理
 
@@ -441,5 +467,40 @@ vflip/hmirror 设置对**新采集的帧**立即生效，但：
 ### ⚠️ 上传方式从旧版本升级
 如果从旧版本（支持 FTP）升级，设备会自动迁移 NVS 配置：
 - 旧 `ftp_enabled=true` → `upload_method=1`（WebDAV）
+
+## Prometheus 监控
+
+设备提供 `/metrics` 端点，包含 15 个系统指标的文本 exposition 格式，供外部监控系统使用。
+
+### 访问指标
+
+```bash
+curl http://192.168.4.1/metrics
+```
+
+### 可用指标
+
+- `system_uptime_seconds`: 设备运行时间
+- `recording_status`: 当前录像状态（0=停止, 1=录像中）
+- `wifi_strength_dbm`: WiFi 信号强度
+- `sdcard_used_bytes`: SD 卡已用空间
+- `sdcard_free_bytes`: SD 卡可用空间
+- `chip_temp_celsius`: ESP32-S3 芯片温度
+- `upload_queue_size`: 待上传文件数
+- `total_recorded_files`: 总录像文件数
+- `fps_current`: 当前每秒帧数
+- `memory_free_bytes`: 可用堆内存
+- `memory_psram_free_bytes`: 可用 PSRAM 内存
+- `heap_watermark_bytes`: 堆水位线（最低可用）
+- `stack_watermark_bytes`: 栈水位线（最低可用）
+- `rtsp_clients`: 当前 RTSP 客户端数
+- `http_clients`: 当前 HTTP 流客户端数
+
+### 温度监控
+
+ESP32-S3 芯片温度可通过 `/api/status` 获取，Web 仪表板带有颜色编码指标：
+- **< 40°C**: 绿色（正常）
+- **40-60°C**: 黄色（较热）
+- **> 60°C**: 红色（过热）
 - 旧 `webdav_enabled=true` → `upload_method=1`（WebDAV）
 - 旧 FTP 相关 NVS 键值会被自动删除

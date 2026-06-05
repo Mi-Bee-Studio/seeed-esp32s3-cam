@@ -6,7 +6,7 @@
 
 ---
 
-本固件基于 `web_server.c`、`mjpeg_streamer.c`、`config_manager.c` 源码编写，最后更新：2026-04-24。
+本固件基于 `web_server.c`、`mjpeg_streamer.c`、`config_manager.c` 源码编写，最后更新：2026-06-05。
 
 ## 基础地址
 
@@ -140,7 +140,13 @@ Web 界面静态文件存储在 SPIFFS 分区（约 256KB），路径前缀 `/sp
     "camera_quality": 12,
     "chip_temp": 42.5,
     "free_heap": 185432,
-    "free_psram": 4194304
+    "free_psram": 4194304,
+    "timelapse_mode": false,
+    "timelapse_interval_sec": 0,
+    "firmware_version": "0.2.0",
+    "upload_queue": 0,
+    "last_upload": "",
+    "frames_dropped": 0
   }
 }
 ```

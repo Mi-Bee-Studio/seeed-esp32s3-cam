@@ -36,7 +36,17 @@
     "vflip": false,
     "hmirror": false,
     "web_password": "****",
-    "timezone": "CST-8"
+    "web_password": "****",
+    "timezone": "CST-8",
+    "timelapse_interval_sec": 0,
+    "cleanup_low_pct": 20,
+    "cleanup_high_pct": 30,
+    "frame_drop_enabled": true,
+    "alert_webhook_url": "",
+    "alert_webhook_enabled": false,
+    "wifi_ssid_2": "",
+    "wifi_pass_2": "****",
+    "allow_ap_fallback": false
   }
 }
 ```
@@ -61,7 +71,18 @@
 | `fps` | number | 录像帧率（默认 `10`） |
 | `segment_sec` | number | 视频分段时长，单位秒（默认 `300`，即 5 分钟） |
 | `jpeg_quality` | number | JPEG 图像质量（默认 `12`，数值越小质量越好） |
-| `vflip` | bool | 垂直翻转 |
+    `vflip` | bool | 垂直翻转 |
+    `hmirror` | bool | 水平镜像 |
+    `web_password` | string | Web 管理密码，已设置时显示 `"****"`，未设置时显示 `""` |
+    `timelapse_interval_sec` | number | 延时摄影间隔时间，单位秒（默认 `0` = 连续录制）。当 > 0 时，每隔 N 秒拍摄一帧 |
+    `cleanup_low_pct` | number | 存储清理触发阈值百分比（默认 `20`） |
+    `cleanup_high_pct` | number | 存储清理目标百分比（默认 `30`） |
+    `frame_drop_enabled` | bool | 启用智能帧丢弃 |
+    `alert_webhook_url` | string | 告警通知的 Webhook URL |
+    `alert_webhook_enabled` | bool | 启用 Webhook 告警通知 |
+    `wifi_ssid_2` | string | 备用 WiFi SSID |
+    `wifi_pass_2` | string | 备用 WiFi 密码，已设置时显示 `"****"` |
+    `allow_ap_fallback` | bool | 允许在两个 WiFi 网络均失败时回退到 AP 模式
 | `hmirror` | bool | 水平镜像 |
 | `web_password` | string | Web 管理密码，已设置时显示 `"****"`，未设置时显示 `""` |
 
@@ -112,7 +133,17 @@ console.log(`设备名: ${data.device_name}, 分辨率: ${data.resolution}`);
   "jpeg_quality": 8,
   "vflip": true,
   "hmirror": false,
-  "web_password": "newpass"
+  "hmirror": false,
+  "web_password": "newpass",
+  "timelapse_interval_sec": 0,
+  "cleanup_low_pct": 20,
+  "cleanup_high_pct": 30,
+  "timezone": "CST-8",
+  "alert_webhook_url": "",
+  "alert_webhook_enabled": false,
+  "wifi_ssid_2": "",
+  "wifi_pass_2": "",
+  "allow_ap_fallback": false
 }
 ```
 
@@ -139,7 +170,16 @@ console.log(`设备名: ${data.device_name}, 分辨率: ${data.resolution}`);
 | `jpeg_quality` | number | JPEG 质量 |
 | `vflip` | bool | 垂直翻转 |
 | `hmirror` | bool | 水平镜像 |
-| `web_password` | string | Web 管理密码 |
+    `web_password` | string | Web 管理密码 |
+    `timelapse_interval_sec` | number | 延时摄影间隔时间（秒）（`0` = 连续录制） |
+    `cleanup_low_pct` | number | 清理触发阈值（%） |
+    `cleanup_high_pct` | number | 清理目标百分比（%） |
+    `timezone` | string | 时区字符串（如 `"CST-8"`） |
+    `alert_webhook_url` | string | 告警 Webhook URL |
+    `alert_webhook_enabled` | bool | 启用告警 Webhook |
+    `wifi_ssid_2` | string | 备用 WiFi SSID |
+    `wifi_pass_2` | string | 备用 WiFi 密码 |
+    `allow_ap_fallback` | bool | 允许 AP 回退
 
 **密码字段特殊行为**：
 
@@ -301,4 +341,14 @@ await fetch('/api/config', {
 | `jpeg_quality` | number | `12` | JPEG 质量 |
 | `vflip` | bool | `false` | 垂直翻转 |
 | `hmirror` | bool | `false` | 水平镜像 |
-| `web_password` | string | `"admin"` | Web 管理密码 |
+    `web_password` | string | `"admin"` | Web 管理密码 |
+    `timelapse_interval_sec` | number | `0` | 0 = 连续录制，>0 = 延时摄影间隔（秒） |
+    `cleanup_low_pct` | number | `20` | 清理触发阈值（%） |
+    `cleanup_high_pct` | number | `30` | 清理目标（%） |
+    `timezone` | string | `"CST-8"` | 时区 |
+    `frame_drop_enabled` | bool | `true` | 启用智能帧丢弃 |
+    `alert_webhook_url` | string | `""` | 告警 Webhook URL |
+    `alert_webhook_enabled` | bool | `false` | 启用告警 Webhook |
+    `wifi_ssid_2` | string | `""` | 备用 WiFi SSID |
+    `wifi_pass_2` | string | `""` | 备用 WiFi 密码 |
+    `allow_ap_fallback` | bool | `false` | 允许 AP 模式回退

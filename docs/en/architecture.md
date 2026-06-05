@@ -81,26 +81,35 @@ The system has 16 modules, all located in the `main/` directory, each module wit
 
 ```c
 typedef struct {
-    char wifi_ssid[33];       // WiFi name
+char wifi_ssid[33];       // WiFi name
     char wifi_pass[64];       // WiFi password
-    uint8_t upload_method;    // 0=Disabled, 1=WebDAV, 2=HTTP/HTTPS
-    char upload_base_path[128]; // Upload base path
-    char webdav_url[128];      // WebDAV URL
-    char webdav_user[32];      // WebDAV username
-    char webdav_pass[32];      // WebDAV password
-    bool webdav_enabled;       // WebDAV upload switch
-    char http_upload_url[256]; // HTTP(S) upload URL
-    char http_upload_user[64]; // HTTP(S) username
-    char http_upload_pass[64]; // HTTP(S) password
-    bool http_upload_skip_cert_verify; // Skip HTTPS certificate verification
-    uint8_t resolution;       // 0=VGA, 1=SVGA, 2=XGA
-    uint8_t fps;              // 1-30
-    uint16_t segment_sec;     // Segment duration (seconds)
-    uint8_t jpeg_quality;     // 1-63
-    bool vflip;               // Vertical flip
-    bool hmirror;             // Horizontal mirror
-    char web_password[32];    // Web management password
+    char wifi_ssid_2[33];     // WiFi backup SSID
+    char wifi_pass_2[64];     // WiFi backup password
+uint8_t upload_method;    // 0=Disabled, 1=WebDAV, 2=HTTP/HTTPS
+char upload_base_path[128]; // Upload base path
+char webdav_url[128];      // WebDAV URL
+char webdav_user[32];      // WebDAV username
+char webdav_pass[32];      // WebDAV password
+bool webdav_enabled;       // WebDAV upload switch
+char http_upload_url[256]; // HTTP(S) upload URL
+char http_upload_user[64]; // HTTP(S) username
+char http_upload_pass[64]; // HTTP(S) password
+bool http_upload_skip_cert_verify; // Skip HTTPS certificate verification
+uint8_t resolution;       // 0=VGA, 1=SVGA, 2=XGA
+uint8_t fps;              // 1-30
+uint16_t segment_sec;     // Segment duration (seconds)
+uint8_t jpeg_quality;     // 1-63
+bool vflip;               // Vertical flip
+bool hmirror;             // Horizontal mirror
+char web_password[32];    // Web management password
     char device_name[32];     // Device name
+    bool allow_ap_fallback;   // Allow fallback to AP mode when WiFi fails
+    uint16_t timelapse_interval_sec; // Timelapse interval (0=continuous, >0=timelapse)
+    uint8_t cleanup_low_pct;  // Auto-cleanup when free < this %
+    uint8_t cleanup_high_pct; // Stop cleanup when free > this %
+    bool frame_drop_enabled;  // Enable frame dropping under resource pressure
+    char alert_webhook_url[256]; // Alert webhook URL
+    bool alert_webhook_enabled; // Enable alert webhook
 } cam_config_t;
 ```
 
@@ -112,12 +121,13 @@ typedef struct {
 
 JPEG frames captured by the camera are written to AVI files by the recorder, triggering a callback chain after segment completion:
 
+```c
 camera_capture()
     │
     ▼
     Video Recorder (recording_task, Core 0)
     │  ← Frame data written to AVI file
-    │  ← Segmented by segment_sec duration
+    │  ← Segmented by segment_sec duration (continuous vs timelapse mode)
     │  ← Writes AVI idx1 index
     │
     ▼  Segment complete
@@ -135,9 +145,13 @@ camera_capture()
     └──→ storage_cleanup()
             │
             ▼
-         Check free space < 20%?
-            ├── Yes → Delete oldest recording files until ≥ 30%
+         Check free space < cleanup_low_pct? (default 20%)
+            ├── Yes → Delete oldest recording files until ≥ cleanup_high_pct (default 30%)
+            │        Also attempts cleanup+retry on write failure
             └── No → No operation
+```
+
+**Timelapse Mode**: When `timelapse_interval_sec > 0`, frames are captured at the specified interval instead of continuous. Files use `TLM_` prefix and play at 15fps.
 ```
 
 ### MJPEG Real-time Stream Data Flow
@@ -183,15 +197,25 @@ RTSP Client → TCP connection (port 554)
 ## 5. FreeRTOS Task Table
 
 | Task Name | Function | Priority | Core | Stack Size | Period/Trigger | File |
+|
 |-----------|----------|----------|------|------------|----------------|------|
+|
 | `recorder` | `recording_task` | 5 (configMAX-2) | Core 0 | 4096 B | Continuous loop (frame capture) | video_recorder.c |
+|
 | `upload` | `upload_task` | 3 | Core 1 | 6144 B | Queue blocking wait | nas_uploader.c |
+|
 | `rtsp_listener` | `rtsp_server_listener` | 3 | Core 1 | 6144 B | Connection event-driven | rtsp_server.c |
+|
 | `rtsp_client_N` | `rtsp_client_task` | 3 | Core 1 | 6144 B | Frame capture loop | rtsp_server.c |
+|
 | `sd_monitor` | `sd_monitor_task` | 2 | Core 1 | 3072 B | 10-second polling | main.c |
+|
 | `boot_btn` | `boot_button_monitor` | 1 | Any | 2048 B | 200ms polling | main.c |
+|
 | `health_mon` | `health_monitor_task` | 1 | Core 1 | 3072 B | 60-second polling | main.c |
+|
 | `httpd` | ESP-IDF built-in | Default | — | 8192 B | Event-driven | web_server.c |
+|
 | `main` | `app_main` | 1 | Core 0 | 8192 B | Returns after initialization | main.c |
 
 ### Task Scheduling Strategy
@@ -222,22 +246,24 @@ From `partitions.csv`, using custom partition table:
 
 ## 7. Web API Endpoints
 
-Server runs on port 80, total 12 URI handlers:
+Server runs on port 80, total 14 URI handlers:
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/api/status` | No | Device status (recording, WiFi, storage, camera) |
-| GET | `/api/config` | No | Current config (password fields return `****`) |
-| POST | `/api/config` | Yes | Modify config |
-| GET | `/api/files` | No | Recording file list |
-| DELETE | `/api/files` | Yes | Delete specified file |
-| GET | `/api/download?name=xxx` | No | Download recording file |
-| GET | `/api/scan` | No | WiFi AP scan |
-| POST | `/api/time` | Yes | Manually set time |
-| POST | `/api/record?action=start\|stop` | Yes | Recording control |
-| POST | `/api/reset` | Yes | Factory reset |
-| OPTIONS | `/*` | No | CORS preflight |
-| GET | `/*` | No | Static files (Web UI) |
+|| GET | `/api/status` | No | Device status (recording, WiFi, storage, camera, temperature) |
+|| GET | `/api/config` | No | Current config (password fields return `****`) |
+|| POST | `/api/config` | Yes | Modify config |
+|| GET | `/api/files` | No | Recording file list |
+|| GET | `/api/files/batch` | No | Batch file operations metadata |
+|| POST | `/api/files/batch` | Yes | Batch delete files |
+|| DELETE | `/api/files` | Yes | Delete specified file |
+|| GET | `/api/download?name=xxx` | No | Download recording file |
+|| GET | `/api/scan` | No | WiFi AP scan |
+|| POST | `/api/time` | Yes | Manually set time |
+|| POST | `/api/record?action=start\|stop` | Yes | Recording control |
+|| POST | `/api/reset` | Yes | Factory reset |
+|| OPTIONS | `/*` | No | CORS preflight |
+|| GET | `/*` | No | Static files (Web UI) |
 
 Authentication: Pass management password via `X-Password` request header or `?password=xxx` query parameter.
 
@@ -247,9 +273,13 @@ Authentication: Pass management password via `X-Password` request header or `?pa
 
 4 HTML pages, flashed to SPIFFS partition, served by wildcard GET handler:
 
-| Page | File | Function |
-|------|------|----------|
-| Home | `index.html` | Status overview |
-| Config | `config.html` | WiFi / NAS / camera parameter configuration |
-| Files | `files.html` | Recording file browsing, downloading, deleting |
-| Preview | `preview.html` | MJPEG real-time stream preview |
+|| Page | File | Function |
+||------|------|----------|
+|| Home | `index.html` | Status overview |
+|| Config | `config.html` | WiFi / NAS / camera parameter configuration (accordion layout) |
+|| Files | `files.html` | Recording file browsing, downloading, batch operations with collapsible date groups |
+|| Preview | `preview.html` | MJPEG real-time stream preview with fullscreen and screenshot buttons |
+
+**Prometheus Integration**: `/metrics` endpoint provides 15 system metrics in text exposition format.
+
+**Temperature Monitoring**: ESP32-S3 chip temperature available via `/api/status` with color-coded dashboard indicators.

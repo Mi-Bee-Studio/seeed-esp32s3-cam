@@ -12,6 +12,7 @@ ESP32-S3 based monitoring camera firmware with MJPEG real-time streaming, AVI se
 - 📹 MJPEG real-time video streaming, view directly in browser
 - 🎬 AVI automatic segmented recording, circular storage without space concerns
 - ☁️ WebDAV / HTTP(S) auto-upload to NAS with dropdown selection
+- 📸 Timelapse mode with configurable interval (5s-300s), AVI 15fps playback
 - 📡 WiFi AP/STA dual mode, plug and play
 - 📡 RTSP streaming (MJPEG over RTP, VLC compatible)
 - 🔄 Camera flip/mirror controls via Web UI
@@ -33,7 +34,7 @@ ESP32-S3 based monitoring camera firmware with MJPEG real-time streaming, AVI se
 The built-in web interface provides full device management:
 
 - **📊 Dashboard** — Recording status, WiFi info, storage usage, chip temperature
-- **⚙ Config** — WiFi, video parameters, NAS upload settings
+- **⚙ Config** — Accordion-style WiFi, video, timelapse, NAS upload, alert settings
 - **📁 Files** — Browse, download, batch delete recordings with collapsible date groups
 - **📹 Preview** — Real-time MJPEG video stream in browser
 
