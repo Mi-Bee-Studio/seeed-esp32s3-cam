@@ -22,6 +22,7 @@
 #include "time_sync.h"
 #include "status_led.h"
 #include "logging.h"
+#include "motion_detector.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -520,9 +521,10 @@ static void recording_task(void *arg)
     uint16_t w, h;
     resolution_dims(cfg->resolution, &w, &h);
 uint8_t fps = cfg->fps > 0 ? cfg->fps : 10;
-bool timelapse = cfg->timelapse_interval_sec > 0;
+uint8_t tl_mode = cfg->timelapse_mode;
+bool timelapse = tl_mode > 0;
 uint8_t playback_fps = timelapse ? 15 : fps;
-const char *prefix = timelapse ? "TLM_" : "REC_";
+const char *prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
 
     bool segment_open = false;
     uint32_t total_bytes = 0;
@@ -530,9 +532,8 @@ const char *prefix = timelapse ? "TLM_" : "REC_";
     /* Register with task watchdog */
     esp_task_wdt_add(NULL);
 
-    ESP_LOGI(TAG, "Recording task started: %s %ux%u @ %u fps, segment=%u s, interval=%u s",
-      timelapse ? "timelapse" : "continuous",
-      w, h, playback_fps, cfg->segment_sec, cfg->timelapse_interval_sec);
+    ESP_LOGI(TAG, "Recording task started: mode=%d %ux%u @ %u fps, segment=%u s",
+    tl_mode, w, h, playback_fps, cfg->segment_sec);
 
     while (s_state == RECORDER_RECORDING || s_state == RECORDER_PAUSED) {
         /* Feed task watchdog each iteration */
@@ -546,9 +547,10 @@ const char *prefix = timelapse ? "TLM_" : "REC_";
         /* Re-read config in case it changed */
         cfg = config_get();
 fps = cfg->fps > 0 ? cfg->fps : 10;
-timelapse = cfg->timelapse_interval_sec > 0;
+tl_mode = cfg->timelapse_mode;
+timelapse = tl_mode > 0;
 playback_fps = timelapse ? 15 : fps;
-prefix = timelapse ? "TLM_" : "REC_";
+prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
 
         /* Open first segment */
         if (!segment_open) {
@@ -578,6 +580,23 @@ prefix = timelapse ? "TLM_" : "REC_";
             continue;
         }
 
+/* Dynamic timelapse: process motion detection */
+uint16_t dynamic_interval_sec = cfg->timelapse_interval_sec;
+if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
+    motion_result_t mr;
+    esp_err_t merr = motion_detector_process(
+        frame.buf, frame.len,
+        cfg->motion_sensitivity,
+        cfg->motion_active_interval_sec,
+        cfg->motion_idle_interval_sec,
+        &mr);
+    if (merr == ESP_OK) {
+        dynamic_interval_sec = mr.current_interval_sec;
+    } else {
+        dynamic_interval_sec = cfg->motion_idle_interval_sec;
+    }
+}
+
         /* Smart frame dropping: skip write if cycle exceeds 500ms backlog */
         int64_t cycle_elapsed_us = esp_timer_get_time() - cycle_start_us;
         if (cycle_elapsed_us > 500000 && cfg->frame_drop_enabled) {
@@ -593,7 +612,7 @@ prefix = timelapse ? "TLM_" : "REC_";
                          (unsigned long)s_frames_dropped);
                 s_last_drop_log_us = cycle_start_us;
             }
-            vTaskDelay(pdMS_TO_TICKS(1000 / fps));
+            vTaskDelay(pdMS_TO_TICKS(tl_mode == 2 ? dynamic_interval_sec * 1000 : 1000 / fps));
             continue;
         }
 
@@ -664,7 +683,9 @@ if (timelapse) {
         }
 
         /* Frame rate control */
-        if (timelapse) {
+        if (tl_mode == 2) {
+            vTaskDelay(pdMS_TO_TICKS(dynamic_interval_sec * 1000));
+        } else if (timelapse) {
             vTaskDelay(pdMS_TO_TICKS(cfg->timelapse_interval_sec * 1000));
         } else {
             vTaskDelay(pdMS_TO_TICKS(1000 / fps));
@@ -691,6 +712,7 @@ if (timelapse) {
     s_task_handle = NULL;
     vTaskDelete(NULL);
 }
+
 
 /* ------------------------------------------------------------------ */
 /*  Public API                                                        */
@@ -733,10 +755,15 @@ esp_err_t recorder_start(void)
     }
     s_state = RECORDER_RECORDING;  /* Set state BEFORE creating task to avoid race */
 
+/* Initialize motion detector if dynamic timelapse mode */
+if (config_get()->timelapse_mode == 2) {
+    motion_detector_init();
+}
+
     BaseType_t ret = xTaskCreatePinnedToCore(
         recording_task,
         "recorder",
-        8192,
+        10240,   /* increased for motion detection JPEG decode */
         NULL,
         configMAX_PRIORITIES - 2,   /* priority 5 on ESP-IDF default */
         &s_task_handle,
@@ -779,6 +806,9 @@ esp_err_t recorder_stop(void)
         vTaskDelay(pdMS_TO_TICKS(50));
         waited += 50;
     }
+
+/* Cleanup motion detector */
+motion_detector_deinit();
 
     if (s_task_handle != NULL) {
         vTaskDelete(s_task_handle);
