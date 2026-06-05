@@ -40,6 +40,9 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 #include "sha256.h"
 
 static const char *TAG = "web";
@@ -197,6 +200,9 @@ static esp_err_t api_status_handler(httpd_req_t *req)
     /* Uptime (seconds since boot) */
     int64_t uptime = esp_timer_get_time() / 1000000;
     cJSON_AddNumberToObject(data, "uptime", (double)uptime);
+    cJSON_AddNumberToObject(data, "reset_reason", (double)esp_reset_reason());
+    cJSON_AddNumberToObject(data, "free_heap", (double)esp_get_free_heap_size());
+    cJSON_AddNumberToObject(data, "free_psram", (double)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
     /* NAS upload status */
     char last_upload[32] = "";
@@ -632,10 +638,12 @@ static esp_err_t api_files_batch_handler(httpd_req_t *req)
 /** @brief 处理GET /api/download请求，以AVI格式流式下载指定录像文件（含路径遍历防护） */
 static esp_err_t api_download_handler(httpd_req_t *req)
 {
+    ESP_LOGI(TAG, "DL step 1: enter");
     char query[256] = {0};
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK)
         return json_error(req, "Missing query", HTTPD_400_BAD_REQUEST);
 
+    ESP_LOGI(TAG, "DL step 2: query=%s", query);
     char name[128] = {0};
     if (httpd_query_key_value(query, "name", name, sizeof(name)) != ESP_OK)
         return json_error(req, "Missing name parameter", HTTPD_400_BAD_REQUEST);
@@ -644,10 +652,18 @@ static esp_err_t api_download_handler(httpd_req_t *req)
     if (strstr(name, ".."))
         return json_error(req, "Invalid name", HTTPD_400_BAD_REQUEST);
     
+    ESP_LOGI(TAG, "DL step 3: name=%s", name);
+    
+    /* Block download while recording is active */
+    recorder_state_t state = recorder_get_state();
+    if (state == RECORDER_RECORDING || state == RECORDER_PAUSED) {
+        ESP_LOGW(TAG, "DL: recording active, must stop first");
+        httpd_resp_set_status(req, "409 Conflict");
+        return json_error(req, "Please stop recording before downloading files", 0);
+    }
     /* Check if file is currently being recorded */
     const char *current_file = recorder_get_current_file();
     if (current_file && current_file[0] != '\0') {
-        /* Get relative path from current_file */
         const char *relpath = current_file;
         const char *prefix = "/sdcard/recordings/";
         if (strncmp(current_file, prefix, strlen(prefix)) == 0) {
@@ -709,20 +725,60 @@ static esp_err_t api_download_handler(httpd_req_t *req)
     }
 
     
+
     char path[256];
     snprintf(path, sizeof(path), "/sdcard/recordings/%s", name);
-    FILE *f = fopen(path, "rb");
-    if (!f)
-        return json_error(req, "File not found", HTTPD_404_NOT_FOUND);
+    ESP_LOGI(TAG, "DL step 4: open %s, free_heap=%u", path, (unsigned)esp_get_free_heap_size());
 
-    /* Get file size for Content-Length (skip if 0 - file is being written) */
+    /* Read entire file into PSRAM to minimize SD card interactions
+     * then serve from memory. This avoids repeated small reads that
+     * trigger FatFS internal allocations on corrupted heap. */
     struct stat st;
-    if (stat(path, &st) == 0 && st.st_size > 0) {
-        char hdr[32];
-        snprintf(hdr, sizeof(hdr), "%ld", (long)st.st_size);
-        httpd_resp_set_hdr(req, "Content-Length", hdr);
+    if (stat(path, &st) != 0 || st.st_size <= 0) {
+        ESP_LOGE(TAG, "DL step 4a: stat failed");
+        return json_error(req, "File not found", HTTPD_404_NOT_FOUND);
+    }
+    size_t file_size = (size_t)st.st_size;
+    ESP_LOGI(TAG, "DL step 5: file_size=%zu", file_size);
+
+    /* Cap at 4MB to prevent PSRAM exhaustion */
+    if (file_size > 4 * 1024 * 1024) {
+        return json_error(req, "File too large for download", HTTPD_400_BAD_REQUEST);
     }
 
+    uint8_t *file_buf = heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
+    if (!file_buf) {
+        ESP_LOGE(TAG, "DL: PSRAM alloc %zu failed", file_size);
+        return json_error(req, "Out of memory", HTTPD_500_INTERNAL_SERVER_ERROR);
+    }
+
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        ESP_LOGE(TAG, "DL: open failed errno=%d", errno);
+        free(file_buf);
+        return json_error(req, "File not found", HTTPD_404_NOT_FOUND);
+    }
+
+    /* Read entire file in one shot */
+    ssize_t total_read = 0;
+    while ((size_t)total_read < file_size) {
+        ssize_t n = read(fd, file_buf + total_read, file_size - total_read);
+        if (n <= 0) break;
+        total_read += n;
+    }
+    close(fd);
+    ESP_LOGI(TAG, "DL step 6: read %zd/%zu bytes from SD", total_read, file_size);
+
+    if ((size_t)total_read != file_size) {
+        ESP_LOGE(TAG, "DL: incomplete read");
+        free(file_buf);
+        return json_error(req, "Failed to read file", HTTPD_500_INTERNAL_SERVER_ERROR);
+    }
+
+    /* Serve from PSRAM buffer */
+    char hdr[32];
+    snprintf(hdr, sizeof(hdr), "%zu", file_size);
+    httpd_resp_set_hdr(req, "Content-Length", hdr);
     httpd_resp_set_type(req, "video/avi");
     const char *basename = strrchr(name, '/');
     basename = basename ? basename + 1 : name;
@@ -731,16 +787,22 @@ static esp_err_t api_download_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Content-Disposition", disp);
     set_cors_headers(req);
 
-    char buf[4096];
-    size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
-        if (httpd_resp_send_chunk(req, buf, n) != ESP_OK) {
-            fclose(f);
+    /* Send in 8KB chunks from PSRAM */
+    size_t offset = 0;
+    int chunks = 0;
+    while (offset < file_size) {
+        size_t chunk_size = file_size - offset;
+        if (chunk_size > 8192) chunk_size = 8192;
+        if (httpd_resp_send_chunk(req, (const char *)(file_buf + offset), chunk_size) != ESP_OK) {
+            free(file_buf);
             return ESP_FAIL;
         }
+        offset += chunk_size;
+        chunks++;
     }
-    fclose(f);
+    free(file_buf);
     httpd_resp_send_chunk(req, NULL, 0);
+    ESP_LOGI(TAG, "DL step 10: done, %d chunks", chunks);
     return ESP_OK;
 }
 
@@ -1173,8 +1235,7 @@ esp_err_t web_server_start(uint16_t port)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 20;
-    config.stack_size = 8192;
-    config.stack_size = 8192;
+    config.stack_size = 16384;   /* 16KB: download handler has ~6KB locals + nested calls */
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.recv_wait_timeout = 300;
     config.send_wait_timeout = 300;
