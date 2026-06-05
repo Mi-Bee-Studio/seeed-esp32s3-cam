@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <time.h>
+#include "esp_task_wdt.h"
 #include "status_led.h"
 
 #include "esp_log.h"
@@ -482,7 +483,8 @@ static bool find_oldest_recursive(const char *dirpath, char *oldest_name, size_t
  */
 esp_err_t storage_delete_oldest(void)
 {
-    if (!s_sd_available) return ESP_ERR_INVALID_STATE;
+    /* Don't check s_sd_available — FAT may still be mounted. */
+    if (!s_card) return ESP_ERR_INVALID_STATE;
 
     xSemaphoreTake(s_sd_mutex, portMAX_DELAY);
 
@@ -527,7 +529,9 @@ esp_err_t storage_delete_oldest(void)
  */
 esp_err_t storage_cleanup(void)
 {
-    if (!s_sd_available) return ESP_ERR_INVALID_STATE;
+    /* Don't check s_sd_available here — FAT may still be mounted even if recorder
+     * marked it unavailable. Cleanup should always run when called to free space. */
+    if (!s_card) return ESP_ERR_INVALID_STATE;
 
     xSemaphoreTake(s_sd_mutex, portMAX_DELAY);
 
@@ -548,6 +552,8 @@ esp_err_t storage_cleanup(void)
         esp_err_t err = storage_delete_oldest();
         if (err != ESP_OK) break;
         deleted++;
+        /* Feed watchdog during long cleanup to avoid TWDT panic */
+        esp_task_wdt_reset();
         if (deleted > 100) break;   // safety limit
     }
 
