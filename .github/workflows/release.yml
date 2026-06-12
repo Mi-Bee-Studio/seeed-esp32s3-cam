@@ -24,10 +24,10 @@ jobs:
       - name: Package firmware
         run: |
           mkdir -p release
-          cp build/mibee_homecam.bin release/
+          cp build/mibee_cam.bin release/
           cp build/bootloader/bootloader.bin release/
           cp build/partition_table/partition-table.bin release/
-          echo "esptool.py --chip esp32s3 -b 460800 write_flash 0x0 bootloader.bin 0x8000 partition-table.bin 0x10000 mibee_homecam.bin" > release/flash_command.txt
+          echo "esptool.py --chip esp32s3 -b 460800 write_flash 0x0 bootloader.bin 0x8000 partition-table.bin 0x10000 mibee_cam.bin" > release/flash_command.txt
       
       - name: Create Release
         uses: softprops/action-gh-release@v2
