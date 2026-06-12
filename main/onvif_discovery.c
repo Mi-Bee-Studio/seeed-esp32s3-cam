@@ -43,7 +43,7 @@ static const char *TAG = "onvif_disc";
 #define ONVIF_MULTICAST_GROUP "239.255.255.250"
 #define PROBE_BUF_SIZE 4096
 #define RESP_BUF_SIZE 2048
-#define TASK_STACK_SIZE 4096
+#define TASK_STACK_SIZE 6144
 #define TASK_PRIORITY 2
 #define TASK_CORE 1
 
@@ -148,8 +148,9 @@ static void build_probe_matches(const char *relates_to,
         "<wsa:Action>"
         "http://schemas.xmlsoap.org/ws/2005/04/discovery/ProbeMatches"
         "</wsa:Action>"
+        "<wsa:MessageID>urn:uuid:%s</wsa:MessageID>"
         "<wsa:RelatesTo>%s</wsa:RelatesTo>"
-        "<wsa:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</wsa:To>"
+        "<wsa:To>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</wsa:To>"
         "</soap:Header>"
         "<soap:Body>"
         "<wsd:ProbeMatches>"
@@ -158,13 +159,60 @@ static void build_probe_matches(const char *relates_to,
         "<wsa:Address>urn:uuid:%s</wsa:Address>"
         "</wsa:EndpointReference>"
         "<wsd:Types>tns:NetworkVideoTransmitter</wsd:Types>"
+        "<wsd:Scopes>onvif://www.onvif.org/type/video_encoder "
+        "onvif://www.onvif.org/type/NetworkVideoTransmitter "
+        "onvif://www.onvif.org/hardware/MiBeeCam "
+        "onvif://www.onvif.org/name/MiBeeCam "
+        "onvif://www.onvif.org/Profile/Streaming</wsd:Scopes>"
         "<wsd:XAddrs>http://%s:80/onvif/device_service</wsd:XAddrs>"
         "<wsd:MetadataVersion>2</wsd:MetadataVersion>"
         "</wsd:ProbeMatch>"
         "</wsd:ProbeMatches>"
         "</soap:Body>"
         "</soap:Envelope>",
+        device_uuid,
         relates_to ? relates_to : "",
+        device_uuid,
+        ip_str);
+}
+
+/**
+ * @brief Build a WS-Discovery Hello message for multicast announcement.
+ * Sent once on startup so NVRs can discover the device without waiting for Probe.
+ */
+static void build_hello_message(const char *device_uuid,
+                                const char *ip_str,
+                                char *out, size_t out_size)
+{
+    snprintf(out, out_size,
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        "<soap:Envelope "
+        "xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\" "
+        "xmlns:wsa=\"http://schemas.xmlsoap.org/ws/2004/08/addressing\" "
+        "xmlns:wsd=\"http://schemas.xmlsoap.org/ws/2005/04/discovery\" "
+        "xmlns:tns=\"http://www.onvif.org/ver10/network/wsdl\">"
+        "<soap:Header>"
+        "<wsa:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/Hello</wsa:Action>"
+        "<wsa:MessageID>urn:uuid:%s</wsa:MessageID>"
+        "<wsa:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</wsa:To>"
+        "</soap:Header>"
+        "<soap:Body>"
+        "<wsd:Hello>"
+        "<wsa:EndpointReference>"
+        "<wsa:Address>urn:uuid:%s</wsa:Address>"
+        "</wsa:EndpointReference>"
+        "<wsd:Types>tns:NetworkVideoTransmitter</wsd:Types>"
+        "<wsd:Scopes>onvif://www.onvif.org/type/video_encoder "
+        "onvif://www.onvif.org/type/NetworkVideoTransmitter "
+        "onvif://www.onvif.org/hardware/MiBeeCam "
+        "onvif://www.onvif.org/name/MiBeeCam "
+        "onvif://www.onvif.org/Profile/Streaming</wsd:Scopes>"
+        "<wsd:XAddrs>http://%s:80/onvif/device_service</wsd:XAddrs>"
+        "<wsd:MetadataVersion>2</wsd:MetadataVersion>"
+        "</wsd:Hello>"
+        "</soap:Body>"
+        "</soap:Envelope>",
+        device_uuid,
         device_uuid,
         ip_str);
 }
@@ -228,19 +276,29 @@ static void onvif_discovery_task(void *arg)
             continue;
         }
 
-        /* Join multicast group */
-        struct ip_mreq imreq;
-        memset(&imreq, 0, sizeof(imreq));
-        imreq.imr_interface.s_addr = htonl(INADDR_ANY);
-        imreq.imr_multiaddr.s_addr = inet_addr(ONVIF_MULTICAST_GROUP);
-        if (setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP,
-                       &imreq, sizeof(imreq)) < 0) {
-            ESP_LOGW(TAG, "Failed to join multicast group, retrying in 10s");
+        /* Join multicast group — use actual STA IP (INADDR_ANY fails on ESP32/LWIP) */
+        char *local_ip = wifi_get_ip_str();
+        if (!local_ip || strcmp(local_ip, "0.0.0.0") == 0) {
+            ESP_LOGW(TAG, "No IP yet, retrying in 10s");
             close(sock);
             sock = -1;
             vTaskDelay(pdMS_TO_TICKS(10000));
             continue;
         }
+
+        struct ip_mreq imreq;
+        memset(&imreq, 0, sizeof(imreq));
+        imreq.imr_interface.s_addr = inet_addr(local_ip);
+        imreq.imr_multiaddr.s_addr = inet_addr(ONVIF_MULTICAST_GROUP);
+        if (setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP,
+                       &imreq, sizeof(imreq)) < 0) {
+            ESP_LOGW(TAG, "Failed to join multicast group on %s, retrying in 10s", local_ip);
+            close(sock);
+            sock = -1;
+            vTaskDelay(pdMS_TO_TICKS(10000));
+            continue;
+        }
+        ESP_LOGI(TAG, "Joined multicast %s on interface %s", ONVIF_MULTICAST_GROUP, local_ip);
 
         /* Set receive timeout so we can periodically check WiFi state */
         struct timeval tv;
@@ -251,6 +309,35 @@ static void onvif_discovery_task(void *arg)
         ESP_LOGI(TAG, "Listening for ONVIF Probe on UDP %s:%d",
                  ONVIF_MULTICAST_GROUP, ONVIF_DISCOVERY_PORT);
 
+        /* Send multicast Hello to announce ourselves to NVRs */
+        {
+            char *ip_str = wifi_get_ip_str();
+            if (ip_str && strcmp(ip_str, "0.0.0.0") != 0) {
+                /* Set outgoing multicast interface */
+                struct in_addr local_addr;
+                local_addr.s_addr = inet_addr(ip_str);
+                setsockopt(sock, IPPROTO_IP, IP_MULTICAST_IF,
+                           &local_addr, sizeof(local_addr));
+
+                /* Set multicast TTL to 2 (reach local subnet + one hop) */
+                int ttl = 2;
+                setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
+
+                char hello_buf[RESP_BUF_SIZE];
+                build_hello_message(device_uuid, ip_str,
+                                    hello_buf, sizeof(hello_buf));
+                struct sockaddr_in dest;
+                memset(&dest, 0, sizeof(dest));
+                dest.sin_family = AF_INET;
+                dest.sin_port = htons(ONVIF_DISCOVERY_PORT);
+                dest.sin_addr.s_addr = inet_addr(ONVIF_MULTICAST_GROUP);
+                sendto(sock, hello_buf, strlen(hello_buf), 0,
+                       (struct sockaddr *)&dest, sizeof(dest));
+                ESP_LOGI(TAG, "Sent WS-Discovery Hello to %s:%d",
+                         ONVIF_MULTICAST_GROUP, ONVIF_DISCOVERY_PORT);
+            }
+        }
+        int hello_counter = 0;
         /* Main receive loop */
         while (1) {
             struct sockaddr_in sender_addr;
@@ -260,7 +347,30 @@ static void onvif_discovery_task(void *arg)
             int recv_len = recvfrom(sock, recv_buf, PROBE_BUF_SIZE - 1, 0,
                                     (struct sockaddr *)&sender_addr, &addr_len);
             if (recv_len <= 0) {
-                /* Timeout — check if WiFi is still available */
+                /* Timeout (~5s) — periodically resend Hello for NVR discovery */
+                hello_counter++;
+                if (hello_counter >= 6) {
+                    /* Every ~30s resend multicast Hello */
+                    hello_counter = 0;
+                    char *ip_str = wifi_get_ip_str();
+                    if (ip_str && strcmp(ip_str, "0.0.0.0") != 0) {
+                        char hello_buf[RESP_BUF_SIZE];
+                        build_hello_message(device_uuid, ip_str,
+                                            hello_buf, sizeof(hello_buf));
+                        struct sockaddr_in dest;
+                        memset(&dest, 0, sizeof(dest));
+                        dest.sin_family = AF_INET;
+                        dest.sin_port = htons(ONVIF_DISCOVERY_PORT);
+                        dest.sin_addr.s_addr = inet_addr(ONVIF_MULTICAST_GROUP);
+                        struct in_addr local_addr;
+                        local_addr.s_addr = inet_addr(ip_str);
+                        setsockopt(sock, IPPROTO_IP, IP_MULTICAST_IF,
+                                   &local_addr, sizeof(local_addr));
+                        sendto(sock, hello_buf, strlen(hello_buf), 0,
+                               (struct sockaddr *)&dest, sizeof(dest));
+                        ESP_LOGI(TAG, "Resent Hello (periodic)");
+                    }
+                }
                 continue;
             }
 
@@ -294,9 +404,18 @@ static void onvif_discovery_task(void *arg)
             build_probe_matches(relates_to, device_uuid, ip_str,
                                 resp_buf, sizeof(resp_buf));
 
-            /* Send unicast back to the sender */
-            sendto(sock, resp_buf, strlen(resp_buf), 0,
-                   (struct sockaddr *)&sender_addr, sizeof(sender_addr));
+            /* Send unicast response using the same socket */
+            /* Reset IP_MULTICAST_IF to ensure unicast routing works */
+            struct in_addr if_addr;
+            if_addr.s_addr = inet_addr(ip_str);
+            setsockopt(sock, IPPROTO_IP, IP_MULTICAST_IF,
+                       &if_addr, sizeof(if_addr));
+            int sent = sendto(sock, resp_buf, strlen(resp_buf), 0,
+                               (struct sockaddr *)&sender_addr, sizeof(sender_addr));
+            ESP_LOGI(TAG, "ProbeMatches sent to %s:%d, result=%d, errno=%d",
+                     inet_ntoa(sender_addr.sin_addr),
+                     ntohs(sender_addr.sin_port),
+                     sent, errno);
         }
     }
 

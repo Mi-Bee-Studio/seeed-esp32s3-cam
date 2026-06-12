@@ -35,6 +35,7 @@
 #include "esp_mac.h"
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 
 static const char *TAG = "onvif_svc";
 
@@ -123,6 +124,50 @@ static esp_err_t send_soap_fault(httpd_req_t *req)
 }
 
 /* ------------------------------------------------------------------ */
+
+/**
+ * @brief Handle GetSystemDateAndTime SOAP action.
+ * Returns current system date and time. Required by most NVRs during discovery.
+ */
+static esp_err_t handle_get_system_date_and_time(httpd_req_t *req)
+{
+    time_t now = time(NULL);
+    struct tm utc_tm;
+    gmtime_r(&now, &utc_tm);
+
+    char resp[ONVIF_RESP_MAX];
+    int len = snprintf(resp, sizeof(resp),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\">"
+        "<s:Body>"
+        "<tcr:GetSystemDateAndTimeResponse "
+        "xmlns:tcr=\"" NS_DEV "\">"
+        "<tcr:SystemDateAndTime>"
+        "<tcr:DateTimeType>NTP</tcr:DateTimeType>"
+        "<tcr:DaylightSavings>false</tcr:DaylightSavings>"
+        "<tcr:UTCDateTime>"
+        "<tcr:Time>"
+        "<tcr:Hour>%d</tcr:Hour>"
+        "<tcr:Minute>%d</tcr:Minute>"
+        "<tcr:Second>%d</tcr:Second>"
+        "</tcr:Time>"
+        "<tcr:Date>"
+        "<tcr:Year>%d</tcr:Year>"
+        "<tcr:Month>%d</tcr:Month>"
+        "<tcr:Day>%d</tcr:Day>"
+        "</tcr:Date>"
+        "</tcr:UTCDateTime>"
+        "</tcr:SystemDateAndTime>"
+        "</tcr:GetSystemDateAndTimeResponse>"
+        "</s:Body>"
+        "</s:Envelope>",
+        utc_tm.tm_hour, utc_tm.tm_min, utc_tm.tm_sec,
+        utc_tm.tm_year + 1900, utc_tm.tm_mon + 1, utc_tm.tm_mday);
+
+    httpd_resp_set_type(req, "application/soap+xml");
+    httpd_resp_send(req, resp, len);
+    return ESP_OK;
+}
 /*  Device Service Actions                                            */
 /* ------------------------------------------------------------------ */
 
@@ -333,7 +378,93 @@ static esp_err_t handle_get_stream_uri(httpd_req_t *req)
 /*  SOAP Action Dispatch                                              */
 /* ------------------------------------------------------------------ */
 
+
 /**
+ * @brief Handle WS-Discovery Probe received over HTTP (directed discovery).
+ * NVRs that know the device IP send Probe via HTTP POST instead of multicast.
+ * We must respond with ProbeMatches containing the same info as our UDP response.
+ */
+static esp_err_t handle_http_probe(httpd_req_t *req, const char *body)
+{
+    char *ip_str = wifi_get_ip_str();
+    if (!ip_str || strcmp(ip_str, "0.0.0.0") == 0) {
+        return send_soap_fault(req);
+    }
+
+    /* Generate device UUID from MAC */
+    uint8_t mac[6] = {0};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    char device_uuid[64];
+    snprintf(device_uuid, sizeof(device_uuid),
+             "f472b01e-0000-1000-8000-%02x%02x%02x%02x%02x%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    /* Extract MessageID from incoming Probe for RelatesTo */
+    char relates_to[256] = "";
+    const char *mid_tag = strstr(body, "MessageID");
+    if (mid_tag) {
+        const char *gt = strchr(mid_tag, '>');
+        if (gt) {
+            gt++;
+            const char *lt = strchr(gt, '<');
+            if (lt) {
+                size_t len = lt - gt;
+                if (len > 0 && len < sizeof(relates_to)) {
+                    memcpy(relates_to, gt, len);
+                    relates_to[len] = '\0';
+                }
+            }
+        }
+    }
+
+    char resp[ONVIF_RESP_MAX];
+    int len = snprintf(resp, sizeof(resp),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        "<soap:Envelope "
+        "xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\" "
+        "xmlns:wsa=\"http://schemas.xmlsoap.org/ws/2004/08/addressing\" "
+        "xmlns:wsd=\"http://schemas.xmlsoap.org/ws/2005/04/discovery\" "
+        "xmlns:tns=\"http://www.onvif.org/ver10/network/wsdl\">"
+        "<soap:Header>"
+        "<wsa:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/ProbeMatches</wsa:Action>"
+        "<wsa:MessageID>urn:uuid:%s</wsa:MessageID>"
+        "<wsa:RelatesTo>%s</wsa:RelatesTo>"
+        "<wsa:To>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</wsa:To>"
+        "</soap:Header>"
+        "<soap:Body>"
+        "<wsd:ProbeMatches>"
+        "<wsd:ProbeMatch>"
+        "<wsa:EndpointReference>"
+        "<wsa:Address>urn:uuid:%s</wsa:Address>"
+        "</wsa:EndpointReference>"
+        "<wsd:Types>tns:NetworkVideoTransmitter</wsd:Types>"
+        "<wsd:Scopes>onvif://www.onvif.org/type/video_encoder "
+        "onvif://www.onvif.org/type/NetworkVideoTransmitter "
+        "onvif://www.onvif.org/hardware/MiBeeCam "
+        "onvif://www.onvif.org/name/MiBeeCam "
+        "onvif://www.onvif.org/Profile/Streaming</wsd:Scopes>"
+        "<wsd:XAddrs>http://%s:80/onvif/device_service</wsd:XAddrs>"
+        "<wsd:MetadataVersion>2</wsd:MetadataVersion>"
+        "</wsd:ProbeMatch>"
+        "</wsd:ProbeMatches>"
+        "</soap:Body>"
+        "</soap:Envelope>",
+        device_uuid,
+        relates_to,
+        device_uuid,
+        ip_str);
+
+    if (len <= 0 || (size_t)len >= sizeof(resp)) {
+        return send_soap_fault(req);
+    }
+
+    ESP_LOGI(TAG, "HTTP Probe -> ProbeMatches (%d bytes)", len);
+    httpd_resp_set_type(req, "application/soap+xml");
+    httpd_resp_send(req, resp, len);
+    return ESP_OK;
+}
+
+ /**
  * @brief Route a SOAP POST to the appropriate handler based on action name.
  *
  * @param req HTTP request
@@ -345,6 +476,12 @@ static esp_err_t dispatch_device_action(httpd_req_t *req, const char *body)
         return send_soap_fault(req);
     }
 
+    /* Handle WS-Discovery Probe over HTTP (directed discovery) */
+    /* NVR sends SOAP with Action header containing .../discovery/Probe */
+    if (strstr(body, "/Probe") && !strstr(body, "ProbeMatches")) {
+        return handle_http_probe(req, body);
+    }
+
     if (strstr(body, "GetDeviceInformation")) {
         return handle_get_device_information(req);
     }
@@ -354,9 +491,30 @@ static esp_err_t dispatch_device_action(httpd_req_t *req, const char *body)
     if (strstr(body, "GetServices")) {
         return handle_get_services(req);
     }
+    if (strstr(body, "GetSystemDateAndTime")) {
+        return handle_get_system_date_and_time(req);
+    }
 
-    /* Unrecognized action — return SOAP fault */
-    ESP_LOGW(TAG, "Unsupported device action in SOAP body");
+    /* Unrecognized action — log and return SOAP fault */
+    {
+        /* Extract action name from SOAP body for debugging */
+        const char *act_start = strstr(body, ":Body>");
+        if (act_start) {
+            act_start = strchr(act_start + 6, '<');
+            if (act_start) {
+                act_start++;
+                const char *act_end = strchr(act_start, ' ');
+                if (!act_end) act_end = strchr(act_start, '>');
+                if (act_end) {
+                    char action[64] = {0};
+                    int len = act_end - act_start;
+                    if (len > 63) len = 63;
+                    memcpy(action, act_start, len);
+                    ESP_LOGW(TAG, "Unsupported device action: %s", action);
+                }
+            }
+        }
+    }
     return send_soap_fault(req);
 }
 
@@ -373,8 +531,25 @@ static esp_err_t dispatch_media_action(httpd_req_t *req, const char *body)
         return handle_get_stream_uri(req);
     }
 
-    /* Unrecognized action — return SOAP fault */
-    ESP_LOGW(TAG, "Unsupported media action in SOAP body");
+    /* Unrecognized action — log and return SOAP fault */
+    {
+        const char *act_start = strstr(body, ":Body>");
+        if (act_start) {
+            act_start = strchr(act_start + 6, '<');
+            if (act_start) {
+                act_start++;
+                const char *act_end = strchr(act_start, ' ');
+                if (!act_end) act_end = strchr(act_start, '>');
+                if (act_end) {
+                    char action[64] = {0};
+                    int len = act_end - act_start;
+                    if (len > 63) len = 63;
+                    memcpy(action, act_start, len);
+                    ESP_LOGW(TAG, "Unsupported media action: %s", action);
+                }
+            }
+        }
+    }
     return send_soap_fault(req);
 }
 
@@ -388,6 +563,9 @@ static esp_err_t dispatch_media_action(httpd_req_t *req, const char *body)
 static esp_err_t device_service_handler(httpd_req_t *req)
 {
     char *body = onvif_read_body(req);
+    if (body) {
+        ESP_LOGI(TAG, "DEV REQ [first 300]: %.300s", body);
+    }
     esp_err_t ret = dispatch_device_action(req, body);
     free(body);
     return ret;
@@ -399,6 +577,9 @@ static esp_err_t device_service_handler(httpd_req_t *req)
 static esp_err_t media_service_handler(httpd_req_t *req)
 {
     char *body = onvif_read_body(req);
+    if (body) {
+        ESP_LOGI(TAG, "MEDIA REQ [first 300]: %.300s", body);
+    }
     esp_err_t ret = dispatch_media_action(req, body);
     free(body);
     return ret;
