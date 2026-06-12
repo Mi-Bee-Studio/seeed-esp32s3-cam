@@ -109,22 +109,6 @@ static void parse_line(char *line, const char *key, char *dest, size_t dest_len)
 }
 
 /** @brief 解析 KEY=VALUE 格式的文本行，提取 uint8 数值 */
-static void parse_uint8(char *line, const char *key, uint8_t *dest)
-{
-    size_t klen = strlen(key);
-    if (strncmp(line, key, klen) != 0) return;
-    if (line[klen] != '=') return;
-    *dest = (uint8_t)atoi(line + klen + 1);
-}
-
-/** @brief 解析 KEY=VALUE 格式的文本行，提取 uint16 数值 */
-static void parse_uint16(char *line, const char *key, uint16_t *dest)
-{
-    size_t klen = strlen(key);
-    if (strncmp(line, key, klen) != 0) return;
-    if (line[klen] != '=') return;
-    *dest = (uint16_t)atoi(line + klen + 1);
-}
 
 /** @brief 解析 KEY=VALUE 格式的文本行，提取布尔值 */
 static void parse_bool(char *line, const char *key, bool *dest)
@@ -328,9 +312,66 @@ cam_config_t* config_get(void)
     return &s_config;
 }
 
+/** @brief 线程安全复制当前配置（在互斥锁保护下拷贝完整配置） */
+esp_err_t config_get_copy(cam_config_t *out)
+{
+    if (!out) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    config_lock();
+    memcpy(out, &s_config, sizeof(cam_config_t));
+    config_unlock();
+    return ESP_OK;
+}
+
+/** @brief 验证配置结构体关键字段是否在合法范围内
+ *
+ * Only validates hard constraints — mode-specific fields are checked
+ * when the corresponding mode is active, not at save time.
+ */
+bool config_validate(const cam_config_t *cfg)
+{
+    if (!cfg) return false;
+
+    /* ---- core numeric ranges ---- */
+    if (cfg->resolution > 2)         { ESP_LOGW(TAG, "validate: resolution=%d > 2", cfg->resolution); return false; }
+    if (cfg->fps < 1 || cfg->fps > 30) { ESP_LOGW(TAG, "validate: fps=%d out of 1-30", cfg->fps); return false; }
+    if (cfg->jpeg_quality < 1 || cfg->jpeg_quality > 63)
+                                       { ESP_LOGW(TAG, "validate: jpeg_quality=%d out of 1-63", cfg->jpeg_quality); return false; }
+    if (cfg->segment_sec < 5 || cfg->segment_sec > 3600)
+                                       { ESP_LOGW(TAG, "validate: segment_sec=%d out of 5-3600", cfg->segment_sec); return false; }
+    if (cfg->timelapse_mode > 2)       { ESP_LOGW(TAG, "validate: timelapse_mode=%d > 2", cfg->timelapse_mode); return false; }
+    if (cfg->motion_sensitivity > 100) { ESP_LOGW(TAG, "validate: motion_sensitivity=%d > 100", cfg->motion_sensitivity); return false; }
+    if (cfg->cleanup_low_pct < 5 || cfg->cleanup_low_pct > 50)
+                                       { ESP_LOGW(TAG, "validate: cleanup_low_pct=%d out of 5-50", cfg->cleanup_low_pct); return false; }
+    if (cfg->cleanup_high_pct > 80 ||
+        cfg->cleanup_high_pct < cfg->cleanup_low_pct + 5)
+                                       { ESP_LOGW(TAG, "validate: cleanup_high_pct=%d invalid vs low=%d", cfg->cleanup_high_pct, cfg->cleanup_low_pct); return false; }
+
+    /* timelapse_interval_sec: 0 means "use recorder default" — always valid */
+
+    /* motion fields: validated at usage time, not at save time */
+
+    /* ---- string fields — only check buffer overflow ---- */
+    if (strnlen(cfg->timezone, sizeof(cfg->timezone)) >= sizeof(cfg->timezone))  { ESP_LOGW(TAG, "validate: timezone overflow"); return false; }
+    if (strnlen(cfg->device_name, sizeof(cfg->device_name)) >= sizeof(cfg->device_name)) { ESP_LOGW(TAG, "validate: device_name overflow"); return false; }
+    if (strnlen(cfg->wifi_ssid, sizeof(cfg->wifi_ssid)) >= sizeof(cfg->wifi_ssid)) { ESP_LOGW(TAG, "validate: wifi_ssid overflow"); return false; }
+    if (strnlen(cfg->wifi_pass, sizeof(cfg->wifi_pass)) >= sizeof(cfg->wifi_pass)) { ESP_LOGW(TAG, "validate: wifi_pass overflow"); return false; }
+    if (strnlen(cfg->webdav_url, sizeof(cfg->webdav_url)) >= sizeof(cfg->webdav_url)) { ESP_LOGW(TAG, "validate: webdav_url overflow"); return false; }
+    if (strnlen(cfg->webdav_user, sizeof(cfg->webdav_user)) >= sizeof(cfg->webdav_user)) { ESP_LOGW(TAG, "validate: webdav_user overflow"); return false; }
+    if (strnlen(cfg->webdav_pass, sizeof(cfg->webdav_pass)) >= sizeof(cfg->webdav_pass)) { ESP_LOGW(TAG, "validate: webdav_pass overflow"); return false; }
+
+    return true;
+}
+
 /** @brief 将当前配置保存到 NVS 闪存持久化 */
 esp_err_t config_save(void)
 {
+    if (!config_validate(&s_config)) {
+        ESP_LOGW(TAG, "Config validation failed, not saving");
+        return ESP_ERR_INVALID_ARG;
+    }
+
     nvs_handle_t h;
     esp_err_t err = nvs_open("cam_config", NVS_READWRITE, &h);
     if (err != ESP_OK) return err;

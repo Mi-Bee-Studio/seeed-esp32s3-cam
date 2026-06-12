@@ -83,3 +83,8 @@ esp_err_t config_load_from_sd(void); // Read config/wifi.txt + config/nas.txt fr
 void config_lock(void);
 /** @brief 解锁配置互斥体（在修改配置完成后使用） */
 void config_unlock(void);
+
+/** @brief 线程安全复制当前配置到 caller 提供的缓冲区 */
+esp_err_t config_get_copy(cam_config_t *out);
+/** @brief 验证配置结构体所有字段是否在合法范围内 */
+bool config_validate(const cam_config_t *cfg);
