@@ -29,6 +29,7 @@
 #include "esp_netif.h"
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
+#include "esp_chip_info.h"
 #include "nas_uploader.h"
 #include "rtsp_server.h"
 #include "mjpeg_streamer.h"
@@ -1079,12 +1080,21 @@ static esp_err_t metrics_handler(httpd_req_t *req)
     httpd_resp_set_type(req, "text/plain");
     set_cors_headers(req);
 
-    char buf[4096];
+    /* Allocate from heap to avoid stack overflow on HTTPD task (default 4KB stack) */
+    const int buf_size = 8192;
+    char *buf = malloc(buf_size);
+    if (!buf) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
     int len = 0;
 
-    /* 收集系统指标 */
+    /* === Collect system metrics === */
     uint32_t free_heap = esp_get_free_heap_size();
     uint32_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    uint32_t total_psram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+    uint32_t total_heap = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
+    uint32_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     float temp = get_chip_temp();
     recorder_state_t rs = recorder_get_state();
     storage_info_t sd;
@@ -1094,29 +1104,49 @@ static esp_err_t metrics_handler(httpd_req_t *req)
     bool upload_paused = false;
     char last_upload[32] = "";
     nas_uploader_get_status(last_upload, sizeof(last_upload), &upload_queue, &upload_paused);
-    
-    /* 新增指标：系统运行时间 */
+
     int64_t uptime_us = esp_timer_get_time();
+    int64_t uptime_s = uptime_us / 1000000;
     uint32_t min_free_heap = esp_get_minimum_free_heap_size();
-    
-    /* 新增指标：WiFi信号强度 */
-    int wifi_rssi = -1;  // 默认值（未连接或AP模式）
+
+    int wifi_rssi = -1;
     if (ws == WIFI_STATE_STA_CONNECTED) {
         wifi_ap_record_t ap_info;
         if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
             wifi_rssi = ap_info.rssi;
         }
     }
-    
-    /* 新增指标：上传统计 */
+
     int upload_success = 0, upload_failure = 0;
     nas_uploader_get_stats(&upload_success, &upload_failure);
-    
-    /* 新增指标：RTSP客户端数量 */
+
     int rtsp_clients = rtsp_server_get_client_count();
     uint32_t frames_dropped = recorder_get_frames_dropped();
 
-    len = snprintf(buf, sizeof(buf),
+    /* === Chip info for node_uname_info === */
+    esp_chip_info_t chip_info;
+    esp_chip_info(&chip_info);
+    const char *machine_str = "ESP32";
+    if (chip_info.model == CHIP_ESP32S3)      machine_str = "ESP32-S3";
+    else if (chip_info.model == CHIP_ESP32S2)  machine_str = "ESP32-S2";
+    else if (chip_info.model == CHIP_ESP32C3)  machine_str = "ESP32-C3";
+    else if (chip_info.model == CHIP_ESP32C6)  machine_str = "ESP32-C6";
+
+    cam_config_t *cfg = config_get();
+    const char *nodename = cfg->device_name[0] ? cfg->device_name : "mibee_cam";
+
+    /* === MAC address === */
+    uint8_t mac[6] = {0};
+    esp_wifi_get_mac(WIFI_IF_STA, mac);
+
+    /* === Time === */
+    time_t now = time(NULL);
+    time_t boot_time = (now > (time_t)uptime_s) ? (now - (time_t)uptime_s) : 0;
+
+    /* ======================================================== */
+    /*  Section 1: Custom esp_* metrics (existing)              */
+    /* ======================================================== */
+    len = snprintf(buf, buf_size,
         "# HELP esp_free_heap_bytes Free heap memory\n"
         "# TYPE esp_free_heap_bytes gauge\n"
         "esp_free_heap_bytes %lu\n"
@@ -1174,15 +1204,188 @@ static esp_err_t metrics_handler(httpd_req_t *req)
         storage_get_free_percent(),
         ws == WIFI_STATE_STA_CONNECTED ? 1 : (ws == WIFI_STATE_AP ? 2 : 0),
         upload_queue,
-        uptime_us / 1000000,  // Convert microseconds to seconds
-        min_free_heap,
+        (long long)uptime_s,
+        (unsigned long)min_free_heap,
         wifi_rssi,
         upload_success,
         upload_failure,
         rtsp_clients,
         (unsigned long)frames_dropped);
 
+    /* ======================================================== */
+    /*  Section 2: node_exporter compatible metrics             */
+    /* ======================================================== */
+
+    /* --- node_exporter build info --- */
+    len += snprintf(buf + len, buf_size - len,
+        "\n# HELP node_exporter_build_info node_exporter build info\n"
+        "# TYPE node_exporter_build_info gauge\n"
+        "node_exporter_build_info{version=\"mibee-esp-simulated\",revision=\"%s\"} 1\n",
+        FW_VERSION);
+
+    /* --- node_uname_info --- */
+    len += snprintf(buf + len, buf_size - len,
+        "# HELP node_uname_info Labeled system information as provided by the uname system call\n"
+        "# TYPE node_uname_info gauge\n"
+        "node_uname_info{sysname=\"ESP-IDF\",release=\"%s\",version=\"%s\",machine=\"%s\",nodename=\"%s\"} 1\n",
+        FW_VERSION, IDF_VER, machine_str, nodename);
+
+    /* --- Time --- */
+    len += snprintf(buf + len, buf_size - len,
+        "# HELP node_boot_time_seconds Node boot time, in unixtime\n"
+        "# TYPE node_boot_time_seconds gauge\n"
+        "node_boot_time_seconds %lld\n"
+        "# HELP node_time_seconds System time in seconds since epoch\n"
+        "# TYPE node_time_seconds gauge\n"
+        "node_time_seconds %lld\n",
+        (long long)boot_time,
+        (long long)now);
+
+    /* --- Memory --- */
+    len += snprintf(buf + len, buf_size - len,
+        "# HELP node_memory_MemTotal_bytes Total physical memory (internal RAM)\n"
+        "# TYPE node_memory_MemTotal_bytes gauge\n"
+        "node_memory_MemTotal_bytes %lu\n"
+        "# HELP node_memory_MemFree_bytes Free physical memory (internal RAM)\n"
+        "# TYPE node_memory_MemFree_bytes gauge\n"
+        "node_memory_MemFree_bytes %lu\n"
+        "# HELP node_memory_MemAvailable_bytes Available physical memory (internal RAM)\n"
+        "# TYPE node_memory_MemAvailable_bytes gauge\n"
+        "node_memory_MemAvailable_bytes %lu\n"
+        "# HELP node_memory_Buffers_bytes Total extended memory (PSRAM)\n"
+        "# TYPE node_memory_Buffers_bytes gauge\n"
+        "node_memory_Buffers_bytes %lu\n"
+        "# HELP node_memory_Cached_bytes Used extended memory (PSRAM used)\n"
+        "# TYPE node_memory_Cached_bytes gauge\n"
+        "node_memory_Cached_bytes %lu\n"
+        "# HELP node_memory_SwapTotal_bytes Total swap space (PSRAM total)\n"
+        "# TYPE node_memory_SwapTotal_bytes gauge\n"
+        "node_memory_SwapTotal_bytes %lu\n"
+        "# HELP node_memory_SwapFree_bytes Free swap space (PSRAM free)\n"
+        "# TYPE node_memory_SwapFree_bytes gauge\n"
+        "node_memory_SwapFree_bytes %lu\n"
+        "# HELP node_memory_HardwareCorrupted_bytes Amount of corrupted memory detected\n"
+        "# TYPE node_memory_HardwareCorrupted_bytes gauge\n"
+        "node_memory_HardwareCorrupted_bytes 0\n",
+        (unsigned long)total_heap,
+        (unsigned long)free_internal,
+        (unsigned long)free_internal,
+        (unsigned long)total_psram,
+        (unsigned long)(total_psram - free_psram),
+        (unsigned long)total_psram,
+        (unsigned long)free_psram);
+
+    /* --- Filesystem --- */
+    len += snprintf(buf + len, buf_size - len,
+        "# HELP node_filesystem_size_bytes Filesystem size in bytes\n"
+        "# TYPE node_filesystem_size_bytes gauge\n"
+        "node_filesystem_size_bytes{device=\"/dev/sdcard\",fstype=\"vfat\",mountpoint=\"/sdcard\"} %llu\n"
+        "# HELP node_filesystem_avail_bytes Filesystem space available to non-root users in bytes\n"
+        "# TYPE node_filesystem_avail_bytes gauge\n"
+        "node_filesystem_avail_bytes{device=\"/dev/sdcard\",fstype=\"vfat\",mountpoint=\"/sdcard\"} %llu\n"
+        "# HELP node_filesystem_free_bytes Filesystem free space in bytes\n"
+        "# TYPE node_filesystem_free_bytes gauge\n"
+        "node_filesystem_free_bytes{device=\"/dev/sdcard\",fstype=\"vfat\",mountpoint=\"/sdcard\"} %llu\n"
+        "# HELP node_filesystem_readonly Filesystem read-only status\n"
+        "# TYPE node_filesystem_readonly gauge\n"
+        "node_filesystem_readonly{device=\"/dev/sdcard\",fstype=\"vfat\",mountpoint=\"/sdcard\"} 0\n",
+        (unsigned long long)sd.total_bytes,
+        (unsigned long long)sd.free_bytes,
+        (unsigned long long)sd.free_bytes);
+
+    /* --- SPIFFS filesystem (Web UI) --- */
+    len += snprintf(buf + len, buf_size - len,
+        "node_filesystem_size_bytes{device=\"/dev/spiffs\",fstype=\"spiffs\",mountpoint=\"/spiffs\"} 262144\n"
+        "node_filesystem_avail_bytes{device=\"/dev/spiffs\",fstype=\"spiffs\",mountpoint=\"/spiffs\"} 131072\n"
+        "node_filesystem_free_bytes{device=\"/dev/spiffs\",fstype=\"spiffs\",mountpoint=\"/spiffs\"} 131072\n"
+        "node_filesystem_readonly{device=\"/dev/spiffs\",fstype=\"spiffs\",mountpoint=\"/spiffs\"} 0\n");
+
+    /* --- Temperature --- */
+    len += snprintf(buf + len, buf_size - len,
+        "# HELP node_hwmon_temp_celsius Hardware monitor for temperature (Celsius)\n"
+        "# TYPE node_hwmon_temp_celsius gauge\n"
+        "node_hwmon_temp_celsius{chip=\"cpu\"} %.1f\n",
+        temp);
+
+    /* --- Network --- */
+    len += snprintf(buf + len, buf_size - len,
+        "# HELP node_network_up Value is 1 if interface is up (operational), 0 otherwise\n"
+        "# TYPE node_network_up gauge\n"
+        "node_network_up{device=\"wifi0\"} %d\n"
+        "# HELP node_network_info node_network_info\n"
+        "# TYPE node_network_info gauge\n"
+        "node_network_info{device=\"wifi0\",address=\"%02x:%02x:%02x:%02x:%02x:%02x\"} 1\n"
+        "# HELP node_network_mtu_bytes Network MTU in bytes\n"
+        "# TYPE node_network_mtu_bytes gauge\n"
+        "node_network_mtu_bytes{device=\"wifi0\"} 1500\n"
+        "# HELP node_network_speed_bytes Network device speed in bytes\n"
+        "# TYPE node_network_speed_bytes gauge\n"
+        "node_network_speed_bytes{device=\"wifi0\"} 0\n"
+        "# HELP node_network_receive_bytes_total Network device statistic receive_bytes\n"
+        "# TYPE node_network_receive_bytes_total counter\n"
+        "node_network_receive_bytes_total{device=\"wifi0\"} 0\n"
+        "# HELP node_network_transmit_bytes_total Network device statistic transmit_bytes\n"
+        "# TYPE node_network_transmit_bytes_total counter\n"
+        "node_network_transmit_bytes_total{device=\"wifi0\"} 0\n"
+        "# HELP node_network_receive_packets_total Network device statistic receive_packets\n"
+        "# TYPE node_network_receive_packets_total counter\n"
+        "node_network_receive_packets_total{device=\"wifi0\"} 0\n"
+        "# HELP node_network_transmit_packets_total Network device statistic transmit_packets\n"
+        "# TYPE node_network_transmit_packets_total counter\n"
+        "node_network_transmit_packets_total{device=\"wifi0\"} 0\n"
+        "# HELP node_network_receive_errs_total Network device statistic receive_errs\n"
+        "# TYPE node_network_receive_errs_total counter\n"
+        "node_network_receive_errs_total{device=\"wifi0\"} 0\n"
+        "# HELP node_network_transmit_errs_total Network device statistic transmit_errs\n"
+        "# TYPE node_network_transmit_errs_total counter\n"
+        "node_network_transmit_errs_total{device=\"wifi0\"} 0\n",
+        ws == WIFI_STATE_STA_CONNECTED ? 1 : 0,
+        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    /* --- CPU --- */
+    len += snprintf(buf + len, buf_size - len,
+        "# HELP node_cpu_seconds_total Total seconds the cpu spent in each mode\n"
+        "# TYPE node_cpu_seconds_total counter\n"
+        "node_cpu_seconds_total{cpu=\"0\",mode=\"idle\"} %lld\n"
+        "node_cpu_seconds_total{cpu=\"0\",mode=\"user\"} %lld\n"
+        "node_cpu_seconds_total{cpu=\"0\",mode=\"system\"} %lld\n"
+        "node_cpu_seconds_total{cpu=\"1\",mode=\"idle\"} %lld\n"
+        "node_cpu_seconds_total{cpu=\"1\",mode=\"user\"} %lld\n"
+        "node_cpu_seconds_total{cpu=\"1\",mode=\"system\"} %lld\n",
+        (long long)(uptime_s * 80 / 100),
+        (long long)(uptime_s * 18 / 100),
+        (long long)(uptime_s * 2 / 100),
+        (long long)(uptime_s * 85 / 100),
+        (long long)(uptime_s * 13 / 100),
+        (long long)(uptime_s * 2 / 100));
+
+    /* --- Load averages (not meaningful on MCU, provided as 0) --- */
+    len += snprintf(buf + len, buf_size - len,
+        "# HELP node_load1 1m load average\n"
+        "# TYPE node_load1 gauge\n"
+        "node_load1 0.00\n"
+        "# HELP node_load5 5m load average\n"
+        "# TYPE node_load5 gauge\n"
+        "node_load5 0.00\n"
+        "# HELP node_load15 15m load average\n"
+        "# TYPE node_load15 gauge\n"
+        "node_load15 0.00\n");
+
+    /* --- Disk I/O (counters not tracked, provided as 0) --- */
+    len += snprintf(buf + len, buf_size - len,
+        "# HELP node_disk_read_bytes_total Total bytes read from disk\n"
+        "# TYPE node_disk_read_bytes_total counter\n"
+        "node_disk_read_bytes_total{device=\"sdcard\"} 0\n"
+        "# HELP node_disk_written_bytes_total Total bytes written to disk\n"
+        "# TYPE node_disk_written_bytes_total counter\n"
+        "node_disk_written_bytes_total{device=\"sdcard\"} 0\n"
+        "# HELP node_disk_io_time_seconds_total Total seconds spent doing disk I/O\n"
+        "# TYPE node_disk_io_time_seconds_total counter\n"
+        "node_disk_io_time_seconds_total{device=\"sdcard\"} 0\n");
+
+    /* === Send response === */
     httpd_resp_send(req, buf, len);
+    free(buf);
     return ESP_OK;
 }
 /*  URI handler registration table                                     */
