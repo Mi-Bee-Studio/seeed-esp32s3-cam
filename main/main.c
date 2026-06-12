@@ -1,7 +1,7 @@
 /*
- * MiBeeHomeCam v0.1 — Main application entry point
+ * MiBee Cam v0.1 — Main application entry point
  *
- * Copyright (C) 2024 MiBeeHomeCam Authors
+ * Copyright (C) 2024 MiBee Cam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -311,7 +311,7 @@ static void health_monitor_task(void *arg)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "MiBeeHomeCam v" FW_VERSION " starting...");
+    ESP_LOGI(TAG, "MiBee Cam v" FW_VERSION " starting...");
     ESP_LOGI(TAG, "Free heap: %lu  Free PSRAM: %lu",
              (unsigned long)esp_get_free_heap_size(),
              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
@@ -483,7 +483,7 @@ void app_main(void)
 
     /* ---- Done -------------------------------------------------------- */
     /* 初始化完成，打印摄像头型号、分辨率和WiFi连接信息 */
-    ESP_LOGI(TAG, "MiBeeHomeCam v" FW_VERSION " initialized successfully");
+    ESP_LOGI(TAG, "MiBee Cam v" FW_VERSION " initialized successfully");
     if (s_camera_ok) {
         ESP_LOGI(TAG, "Camera: %s @ %s",
             camera_get_sensor() == CAMERA_SENSOR_OV2640 ? "OV2640" :

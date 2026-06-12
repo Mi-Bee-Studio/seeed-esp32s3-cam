@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 MiBeeHomeCam Authors
+ * Copyright (C) 2024 MiBee Cam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -137,17 +137,17 @@ static void reconnect_timer_cb(TimerHandle_t timer)
 }
 
 /* ---- MAC helper for AP SSID ---- */
-/** @brief 根据设备 MAC 地址生成 AP 热点 SSID（格式：MiBeeHomeCam-XXXX） */
+/** @brief 根据设备 MAC 地址生成 AP 热点 SSID（格式：MiBee Cam-XXXX） */
 static void get_ap_ssid(char *buf, size_t len)
 {
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
     uint16_t suffix = ((uint16_t)mac[4] << 8) | mac[5];
-    snprintf(buf, len, "MiBeeHomeCam-%04X", suffix);
+    snprintf(buf, len, "MiBee Cam-%04X", suffix);
 }
 
 /* ---- mDNS helper ---- */
-/** @brief Start mDNS service with hostname mibee_homecam-XXXX,
+/** @brief Start mDNS service with hostname mibee_cam-XXXX,
  *         advertising _http._tcp (port 80) and _rtsp._tcp (port 554).
  *         Idempotent - only initializes once. */
 static void start_mdns_service(void)
@@ -161,7 +161,7 @@ static void start_mdns_service(void)
     uint16_t suffix = ((uint16_t)mac[4] << 8) | mac[5];
 
     char hostname[32];
-    snprintf(hostname, sizeof(hostname), "mibee_homecam-%04X", suffix);
+    snprintf(hostname, sizeof(hostname), "mibee_cam-%04X", suffix);
 
     esp_err_t err = mdns_init();
     if (err != ESP_OK) {
@@ -175,7 +175,7 @@ static void start_mdns_service(void)
 
     /* Register _http._tcp on port 80 */
     mdns_txt_item_t http_txt[] = { { (char *)"path", (char *)"/" } };
-    err = mdns_service_add("MiBeeHomeCam Web Server", "_http", "_tcp", 80,
+    err = mdns_service_add("MiBee Cam Web Server", "_http", "_tcp", 80,
                              http_txt, sizeof(http_txt) / sizeof(http_txt[0]));
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "mDNS _http service add failed: %s", esp_err_to_name(err));
@@ -183,7 +183,7 @@ static void start_mdns_service(void)
 
     /* Register _rtsp._tcp on port 554 */
     mdns_txt_item_t rtsp_txt[] = { { (char *)"path", (char *)"/stream" } };
-    err = mdns_service_add("MiBeeHomeCam RTSP Stream", "_rtsp", "_tcp", 554,
+    err = mdns_service_add("MiBee Cam RTSP Stream", "_rtsp", "_tcp", 554,
                              rtsp_txt, sizeof(rtsp_txt) / sizeof(rtsp_txt[0]));
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "mDNS _rtsp service add failed: %s", esp_err_to_name(err));
@@ -376,7 +376,7 @@ esp_err_t wifi_start_sta(void)
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     char hostname[32];
-    snprintf(hostname, sizeof(hostname), "mibee_homecam-%04X", ((uint16_t)mac[4] << 8) | mac[5]);
+    snprintf(hostname, sizeof(hostname), "mibee_cam-%04X", ((uint16_t)mac[4] << 8) | mac[5]);
     esp_netif_set_hostname(s_netif_sta, hostname);
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -473,7 +473,7 @@ const char *wifi_get_current_ssid(void)
     return s_current_ssid;
 }
 
-/** @brief 获取 mDNS 主机名（mibee_homecam-XXXX 格式） */
+/** @brief 获取 mDNS 主机名（mibee_cam-XXXX 格式） */
 const char *wifi_get_mdns_hostname(void)
 {
     return s_mdns_hostname;

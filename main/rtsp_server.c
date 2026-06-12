@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 MiBeeHomeCam Authors
+ * Copyright (C) 2024 MiBee Cam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -297,7 +297,7 @@ static void handle_describe(int sock)
     int slen = snprintf(sdp, sizeof(sdp),
         "v=0\r\n"
         "o=- 0 0 IN IP4 %s\r\n"
-        "s=MiBeeHomeCam\r\n"
+        "s=MiBee Cam\r\n"
         "c=IN IP4 0.0.0.0\r\n"
         "t=0 0\r\n"
         "m=video 0 RTP/AVP 96\r\n"
