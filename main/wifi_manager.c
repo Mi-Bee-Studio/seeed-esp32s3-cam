@@ -47,6 +47,7 @@ static char s_current_ssid[33] = "";  // track current connected SSID
 static char s_ip_str[16] = "0.0.0.0";
 static bool s_mdns_initialized = false;
 static char s_mdns_hostname[32] = "";
+static bool s_stopping_sta = false;
 
 /* ---- event group bits ---- */
 #define CONNECTED_BIT   BIT0
@@ -64,6 +65,19 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
                                int32_t id, void *event_data);
 static void start_mdns_service(void);
 
+/** @brief 填充 STA 配置，认证方式自动适配路由器（OPEN ~ WPA3 均可） */
+static void fill_sta_config(wifi_config_t *cfg, const char *ssid, const char *pass)
+{
+    memset(cfg, 0, sizeof(*cfg));
+    strlcpy((char *)cfg->sta.ssid, ssid, sizeof(cfg->sta.ssid));
+    strlcpy((char *)cfg->sta.password, pass, sizeof(cfg->sta.password));
+    cfg->sta.threshold.authmode = WIFI_AUTH_OPEN;  // auto-negotiate: WPA2/WPA3/mixed/WPA/WEP/OPEN
+    cfg->sta.pmf_cfg.capable = true;               // advertise PMF capability
+    cfg->sta.pmf_cfg.required = false;              // don't require PMF (compat with older APs)
+    cfg->sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;      // WPA3: try both H2E and hunting-and-pecking
+    cfg->sta.listen_interval = 10;                  // listen every 10 beacons (~1s)
+}
+
 /** @brief WiFi 重连定时器回调函数，实现主备 WiFi 自动切换 */
 static void reconnect_timer_cb(TimerHandle_t timer)
 {
@@ -73,7 +87,9 @@ static void reconnect_timer_cb(TimerHandle_t timer)
     ESP_LOGI(TAG, "Retry %d (network failures: %d, interval %lu ms)",
              s_retry_count, s_network_failures, (unsigned long)s_retry_interval_ms);
     
-    cam_config_t *cfg = config_get();
+    cam_config_t cfg_copy;
+    config_get_copy(&cfg_copy);
+    cam_config_t *cfg = &cfg_copy;
     
     /* Failover logic: 3 failures on current network → try backup */
     if (s_network_failures >= 3) {
@@ -84,14 +100,8 @@ static void reconnect_timer_cb(TimerHandle_t timer)
             /* Switch to backup WiFi */
             s_using_backup_wifi = true;
             ESP_LOGI(TAG, "Switching to backup WiFi: %s", cfg->wifi_ssid_2);
-            wifi_config_t sta_config = {0};
-            strlcpy((char *)sta_config.sta.ssid, cfg->wifi_ssid_2, sizeof(sta_config.sta.ssid));
-            strlcpy((char *)sta_config.sta.password, cfg->wifi_pass_2, sizeof(sta_config.sta.password));
-            sta_config.sta.threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
-            sta_config.sta.pmf_cfg.capable = true;
-            sta_config.sta.pmf_cfg.required = false;
-            sta_config.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
-            sta_config.sta.listen_interval = 10;
+            wifi_config_t sta_config;
+            fill_sta_config(&sta_config, cfg->wifi_ssid_2, cfg->wifi_pass_2);
             esp_wifi_set_config(WIFI_IF_STA, &sta_config);
         } else if (s_using_backup_wifi) {
             /* Backup WiFi also failed */
@@ -101,6 +111,7 @@ static void reconnect_timer_cb(TimerHandle_t timer)
                 if (s_reconnect_timer) {
                     xTimerStop(s_reconnect_timer, 0);
                 }
+                s_stopping_sta = true;
                 esp_wifi_stop();
                 wifi_start_ap();
                 return;
@@ -108,14 +119,8 @@ static void reconnect_timer_cb(TimerHandle_t timer)
                 /* Never AP fallback - retry from primary */
                 ESP_LOGW(TAG, "Both WiFi networks failed, AP fallback disabled, retrying primary");
                 s_using_backup_wifi = false;
-                wifi_config_t sta_config = {0};
-                strlcpy((char *)sta_config.sta.ssid, cfg->wifi_ssid, sizeof(sta_config.sta.ssid));
-                strlcpy((char *)sta_config.sta.password, cfg->wifi_pass, sizeof(sta_config.sta.password));
-                sta_config.sta.threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
-                sta_config.sta.pmf_cfg.capable = true;
-                sta_config.sta.pmf_cfg.required = false;
-                sta_config.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
-                sta_config.sta.listen_interval = 10;
+                wifi_config_t sta_config;
+                fill_sta_config(&sta_config, cfg->wifi_ssid, cfg->wifi_pass);
                 esp_wifi_set_config(WIFI_IF_STA, &sta_config);
             }
         }
@@ -198,6 +203,10 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
         case WIFI_EVENT_STA_DISCONNECTED: {
             s_state = WIFI_STATE_STA_DISCONNECTED;
             xEventGroupClearBits(s_event_group, CONNECTED_BIT);
+            if (s_stopping_sta) {
+                s_stopping_sta = false;
+                return;
+            }
             ESP_LOGW(TAG, "WiFi disconnected, retrying in 5 s");
             LOG_EVENT(LOG_EVENT_WIFI_DISCONNECTED, "retry_count=%d", s_retry_count);
             if (s_reconnect_timer) {
@@ -363,6 +372,13 @@ esp_err_t wifi_start_sta(void)
 {
     s_netif_sta = esp_netif_create_default_wifi_sta();
 
+    /* Set DHCP hostname (displayed on router client list) to match mDNS format */
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    char hostname[32];
+    snprintf(hostname, sizeof(hostname), "mibee_homecam-%04X", ((uint16_t)mac[4] << 8) | mac[5]);
+    esp_netif_set_hostname(s_netif_sta, hostname);
+
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
@@ -377,14 +393,8 @@ esp_err_t wifi_start_sta(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 
     cam_config_t *config = config_get();
-    wifi_config_t sta_config = {0};
-    strlcpy((char *)sta_config.sta.ssid, config->wifi_ssid, sizeof(sta_config.sta.ssid));
-    strlcpy((char *)sta_config.sta.password, config->wifi_pass, sizeof(sta_config.sta.password));
-    sta_config.sta.threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
-    sta_config.sta.pmf_cfg.capable = true;
-    sta_config.sta.pmf_cfg.required = false;
-    sta_config.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
-    sta_config.sta.listen_interval = 10;  // Listen every 10 beacons (~1s) for better reliability
+    wifi_config_t sta_config;
+    fill_sta_config(&sta_config, config->wifi_ssid, config->wifi_pass);
 
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_config));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -398,8 +408,6 @@ esp_err_t wifi_start_sta(void)
         ESP_LOGW(TAG, "Failed to set WiFi TX power: %s", esp_err_to_name(pwr_err));
     }
 
-    s_state = WIFI_STATE_STA_CONNECTING;
-    ESP_LOGI(TAG, "STA mode connecting to SSID=%s", config->wifi_ssid);
     s_state = WIFI_STATE_STA_CONNECTING;
     strlcpy(s_current_ssid, config->wifi_ssid, sizeof(s_current_ssid));
     ESP_LOGI(TAG, "STA mode connecting to SSID=%s", config->wifi_ssid);
@@ -464,8 +472,6 @@ const char *wifi_get_current_ssid(void)
     }
     return s_current_ssid;
 }
-
-/** @brief 获取 mDNS 主机名（mibee_homecam-XXXX 格式） */
 
 /** @brief 获取 mDNS 主机名（mibee_homecam-XXXX 格式） */
 const char *wifi_get_mdns_hostname(void)
