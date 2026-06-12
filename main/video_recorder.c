@@ -18,6 +18,7 @@
 #include "video_recorder.h"
 #include "camera_driver.h"
 #include "storage_manager.h"
+#include "frame_broadcaster.h"
 #include "config_manager.h"
 #include "time_sync.h"
 #include "status_led.h"
@@ -38,6 +39,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <dirent.h>
 #include "sha256.h"
 
@@ -354,19 +356,28 @@ static esp_err_t open_segment(uint16_t w, uint16_t h, uint8_t playback_fps, cons
     /* Write RIFF header (placeholder size) */
     uint8_t hdr[AVI_RIFF_HDR_SIZE];
     write_riff_hdr(hdr);
-    fwrite(hdr, 1, AVI_RIFF_HDR_SIZE, s_seg.fp);
+    if (fwrite(hdr, 1, AVI_RIFF_HDR_SIZE, s_seg.fp) != AVI_RIFF_HDR_SIZE) {
+        ESP_LOGE(TAG, "Failed to write RIFF header to %s", s_current_file);
+        goto fail_open;
+    }
 
     /* Write hdrl LIST */
     uint8_t hdrl[AVI_HDRL_TOTAL];
     write_hdrl(hdrl, w, h, playback_fps);
-    fwrite(hdrl, 1, AVI_HDRL_TOTAL, s_seg.fp);
+    if (fwrite(hdrl, 1, AVI_HDRL_TOTAL, s_seg.fp) != AVI_HDRL_TOTAL) {
+        ESP_LOGE(TAG, "Failed to write hdrl to %s", s_current_file);
+        goto fail_open;
+    }
 
     /* Write movi LIST header — 'LIST' + size(placeholder) + 'movi' = 12 bytes */
     uint8_t movi_hdr[12];
     memcpy(movi_hdr, "LIST", 4);
     put_u32(movi_hdr + 4, 0);   /* patched at close */
     memcpy(movi_hdr + 8, "movi", 4);
-    fwrite(movi_hdr, 1, 12, s_seg.fp);
+    if (fwrite(movi_hdr, 1, 12, s_seg.fp) != 12) {
+        ESP_LOGE(TAG, "Failed to write movi header to %s", s_current_file);
+        goto fail_open;
+    }
 
     /* Reset counters */
     idx1_init(&s_seg.idx);
@@ -377,6 +388,14 @@ static esp_err_t open_segment(uint16_t w, uint16_t h, uint8_t playback_fps, cons
     ESP_LOGI(TAG, "Started %s", s_current_file);
     LOG_EVENT(LOG_EVENT_REC_STARTED, "file=%s", s_current_file);
     return ESP_OK;
+
+fail_open:
+    fclose(s_seg.fp);
+    s_seg.fp = NULL;
+    remove(s_current_file);
+    s_current_file[0] = '\0';
+    ESP_LOGE(TAG, "Removing failed segment file");
+    return ESP_FAIL;
 }
 
 /**
@@ -472,7 +491,9 @@ static void close_segment(void)
     /* Delete zero-frame segments to prevent 0B file accumulation */
     if (s_seg.frame_count == 0 && s_current_file[0] != '\0') {
         ESP_LOGW(TAG, "Deleting zero-frame segment: %s", s_current_file);
-        remove(s_current_file);
+        if (remove(s_current_file) != 0) {
+            ESP_LOGE(TAG, "Failed to delete zero-frame file: %s (errno=%d)", s_current_file, errno);
+        }
         /* Also remove SHA256 file if it exists */
         char sha_path[160];
         snprintf(sha_path, sizeof(sha_path), "%s.sha256", s_current_file);
@@ -611,6 +632,9 @@ prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
             ESP_LOGW(TAG, "PSRAM alloc %zu failed, holding camera fb", frame.len);
             jpeg_data = frame.buf;
         }
+
+        /* Publish frame to streamer subscribers (RTSP, MJPEG) */
+        fbroadcast_publish(jpeg_data, jpeg_data_len);
 
 /* Dynamic timelapse: process motion detection */
 uint16_t dynamic_interval_sec = cfg->timelapse_interval_sec;
@@ -987,14 +1011,27 @@ static int cleanup_dir_recursive(const char *dirpath, int depth)
         size_t n = fread(hdr, 1, 8, fp);
         fclose(fp);
 
-        /* Check RIFF header and size=0 (incomplete) */
-        if (n == 8 && memcmp(hdr, "RIFF", 4) == 0) {
+        /* Check for incomplete/empty AVI files */
+        bool should_delete = false;
+
+        /* File too small to be a valid AVI (min 260 bytes = RIFF + hdrl + movi headers) */
+        if (st.st_size > 0 && (size_t)st.st_size < (AVI_RIFF_HDR_SIZE + AVI_HDRL_TOTAL + 12)) {
+            should_delete = true;
+            ESP_LOGI(TAG, "Found undersized AVI (%ld bytes): %s", (long)st.st_size, fullpath);
+        }
+
+        /* Check RIFF header and size=0 (incomplete write) */
+        if (!should_delete && n == 8 && memcmp(hdr, "RIFF", 4) == 0) {
             uint32_t riff_size = hdr[4] | (hdr[5] << 8) | (hdr[6] << 16) | (hdr[7] << 24);
             if (riff_size == 0) {
-                remove(fullpath);
-                deleted++;
-                ESP_LOGI(TAG, "Cleaned incomplete: %s", fullpath);
+                should_delete = true;
             }
+        }
+
+        if (should_delete) {
+            remove(fullpath);
+            deleted++;
+            ESP_LOGI(TAG, "Cleaned incomplete: %s", fullpath);
         }
     }
     closedir(dir);

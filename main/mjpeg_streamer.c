@@ -18,7 +18,7 @@
 #include "mjpeg_streamer.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
-#include "camera_driver.h"
+#include "frame_broadcaster.h"
 #include "config_manager.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -69,33 +69,29 @@ esp_err_t mjpeg_stream_handler(httpd_req_t *req)
     uint8_t fps;
     TickType_t frame_delay;
 
-    camera_frame_t frame;
+    frame_sub_t *sub = NULL;
     char part_hdr[128];
     int capture_fails = 0;
+
+    /* Subscribe to frame broadcaster */
+    sub = fbroadcast_subscribe(FRAMESUB_MJPEG);
+    if (!sub) {
+        ESP_LOGE(TAG, "Failed to subscribe to frame broadcaster");
+        goto cleanup_no_sub;
+    }
 
     while (1) {
         fps = config_get()->fps;
         frame_delay = (fps > 0) ? pdMS_TO_TICKS(1000 / fps) : pdMS_TO_TICKS(100);
 
-        /* Capture with retry — recording task may hold framebuffer briefly.
-         * IMPORTANT: Must have a retry cap to avoid blocking httpd worker thread.
-         * Each camera_capture() call blocks up to 4s (esp_camera FB_GET_TIMEOUT).
-         * With 15 retries that's ~60s max before graceful disconnect.
-         */
-        esp_err_t ret = camera_capture(&frame);
-        if (ret != ESP_OK) {
+        /* Receive frame from broadcaster (produced by recorder task) */
+        frame_msg_t fmsg;
+        if (!fbroadcast_receive(sub, &fmsg, 3000)) {
             capture_fails++;
-            if (capture_fails >= 15) {
-                ESP_LOGW(TAG, "Capture failed %d times, ending stream", capture_fails);
-                goto cleanup;
+            if (capture_fails >= 30) {
+                ESP_LOGW(TAG, "No frames for %d tries, ending stream", capture_fails);
+                break;
             }
-            if (capture_fails % 5 == 1) {
-                ESP_LOGW(TAG, "Capture retry %d (recorder contention?)", capture_fails);
-            }
-            /* Exponential backoff: 100ms, 200ms, 400ms, 800ms, capped at 2000ms */
-            uint32_t backoff_ms = 100 << (capture_fails < 5 ? capture_fails : 4);
-            if (backoff_ms > 2000) backoff_ms = 2000;
-            vTaskDelay(pdMS_TO_TICKS(backoff_ms));
             continue;
         }
         capture_fails = 0;
@@ -105,18 +101,20 @@ esp_err_t mjpeg_stream_handler(httpd_req_t *req)
             "\r\n--" MJPEG_BOUNDARY "\r\n"
             "Content-Type: image/jpeg\r\n"
             "Content-Length: %zu\r\n"
-            "\r\n", frame.len);
+            "\r\n", fmsg.len);
         /* Send part header */
         if (httpd_resp_send_chunk(req, part_hdr, hdrlen) != ESP_OK) {
-            goto cleanup;
+            fbroadcast_release(&fmsg);
+            break;
         }
 
         /* Send JPEG body in CHUNK_SIZE pieces */
-        size_t remaining = frame.len;
-        const uint8_t *ptr = frame.buf;
+        size_t remaining = fmsg.len;
+        const uint8_t *ptr = fmsg.data;
         while (remaining > 0) {
             size_t chunk = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : remaining;
             if (httpd_resp_send_chunk(req, (const char *)ptr, chunk) != ESP_OK) {
+                fbroadcast_release(&fmsg);
                 goto cleanup;
             }
             ptr      += chunk;
@@ -125,20 +123,21 @@ esp_err_t mjpeg_stream_handler(httpd_req_t *req)
 
         /* Trailing CRLF */
         if (httpd_resp_send_chunk(req, "\r\n", 2) != ESP_OK) {
-            goto cleanup;
+            fbroadcast_release(&fmsg);
+            break;
         }
 
-        camera_return_fb(&frame);
+        fbroadcast_release(&fmsg);
 
         /* Frame-rate throttle */
         vTaskDelay(frame_delay);
-        continue;
-
-cleanup:
-        camera_return_fb(&frame);
-        break;
     }
 
+cleanup:
+    fbroadcast_unsubscribe(sub);
+
+
+cleanup_no_sub:
     /* --- Cleanup --- */
     /* Send closing boundary, then end chunked response */
     httpd_resp_send_chunk(req, "\r\n--" MJPEG_BOUNDARY "--\r\n", -1);
