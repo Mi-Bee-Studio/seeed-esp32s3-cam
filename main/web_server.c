@@ -44,6 +44,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include "sha256.h"
+#include "onvif_service.h"
 
 static const char *TAG = "web";
 
@@ -1234,7 +1235,7 @@ esp_err_t web_server_start(uint16_t port)
     }
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 20;
+    config.max_uri_handlers = 22;   /* 20 static + 2 ONVIF */
     config.stack_size = 16384;   /* 16KB: download handler has ~6KB locals + nested calls */
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.recv_wait_timeout = 300;
@@ -1260,6 +1261,12 @@ esp_err_t web_server_start(uint16_t port)
     }
 
     ws_server_init(s_server);
+
+    /* Register ONVIF SOAP service handlers */
+    esp_err_t onvif_ret = onvif_register_handlers(s_server);
+    if (onvif_ret != ESP_OK) {
+        ESP_LOGW(TAG, "ONVIF handler registration: %s", esp_err_to_name(onvif_ret));
+    }
 
     s_port = port;
     ESP_LOGI(TAG, "Web server started on port %d", port);
