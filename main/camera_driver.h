@@ -118,3 +118,8 @@ camera_res_t camera_get_resolution(void);
  */
 /** Human-readable resolution name. */
 const char *camera_res_to_str(camera_res_t res);
+
+/** @brief 检查摄像头是否初始化成功
+ * @return true 摄像头可用，false 初始化失败
+ */
+bool camera_is_available(void);
