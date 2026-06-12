@@ -18,6 +18,7 @@
 #include "nas_uploader.h"
 #include "webdav_client.h"
 #include "config_manager.h"
+#include "wifi_manager.h"
 #include "time_sync.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
@@ -261,6 +262,13 @@ static void upload_task(void *arg)
         /* Check global pause */
         if (esp_timer_get_time() / 1000 < s_paused_until_ms) {
             vTaskDelay(pdMS_TO_TICKS(5000));
+            continue;
+        }
+
+        /* Check WiFi connectivity — avoid wasting TCP attempts when disconnected */
+        if (wifi_get_state() != WIFI_STATE_STA_CONNECTED) {
+            ESP_LOGW(TAG, "WiFi not connected, pausing upload for 10s");
+            vTaskDelay(pdMS_TO_TICKS(10000));
             continue;
         }
 

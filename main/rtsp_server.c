@@ -605,8 +605,12 @@ static void rtsp_listener_task(void *arg)
                 /* Spawn per-client receive task */
                 char task_name[20];
                 snprintf(task_name, sizeof(task_name), "rtsp_cli%d", idx);
-                xTaskCreate(rtsp_client_task, task_name, 4096,
+                BaseType_t task_created = xTaskCreate(rtsp_client_task, task_name, 4096,
                             (void *)(intptr_t)idx, 2, &s_clients[idx].task);
+                if (task_created != pdPASS) {
+                    ESP_LOGE(TAG, "Failed to create client %d task", idx);
+                    close_client(idx);
+                }
             } else {
                 ESP_LOGW(TAG, "Max clients reached, rejecting connection");
                 const char *msg = "RTSP/1.0 503 Service Unavailable\r\n\r\n";

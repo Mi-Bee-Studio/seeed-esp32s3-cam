@@ -95,6 +95,10 @@ static esp_err_t ws_handler(httpd_req_t *req)
 
 esp_err_t ws_server_init(httpd_handle_t server)
 {
+    static bool s_initialized = false;
+    if (s_initialized) return ESP_OK;
+    s_initialized = true;
+
     httpd_uri_t ws_uri = {
         .uri          = "/ws",
         .method       = HTTP_GET,
@@ -103,12 +107,16 @@ esp_err_t ws_server_init(httpd_handle_t server)
         .is_websocket = true,
     };
     esp_err_t ret = httpd_register_uri_handler(server, &ws_uri);
+    if (ret == ESP_ERR_HTTPD_HANDLER_EXISTS) {
+        ESP_LOGD(TAG, "/ws already registered — idempotent");
+        return ESP_OK;
+    }
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to register /ws: %s", esp_err_to_name(ret));
-    } else {
-        ESP_LOGI(TAG, "WebSocket handler registered at /ws");
+        return ret;
     }
-    return ret;
+    ESP_LOGI(TAG, "WebSocket handler registered at /ws");
+    return ESP_OK;
 }
 
 void ws_broadcast(const char *type, const char *data)
