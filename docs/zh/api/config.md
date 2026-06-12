@@ -19,9 +19,9 @@
   "data": {
     "wifi_ssid": "MickeyMiRoute",
     "wifi_pass": "****",
-    "device_name": "MiBeeHomeCam",
+    "device_name": "MiBee Cam",
     "upload_method": 1,
-    "upload_base_path": "/MiBeeHomeCam",
+    "upload_base_path": "/MiBee Cam",
     "webdav_url": "http://192.168.63.31:9090/dav",
     "webdav_user": "admin",
     "webdav_enabled": true,
@@ -57,9 +57,9 @@
 |------|------|------|
 | `wifi_ssid` | string | WiFi 网络名称，空字符串表示 AP 模式 |
 | `wifi_pass` | string | WiFi 密码，已设置时显示 `"****"`，未设置时显示 `""` |
-| `device_name` | string | 设备名称（默认 `"MiBeeHomeCam"`） |
+| `device_name` | string | 设备名称（默认 `"MiBee Cam"`） |
 | `upload_method` | uint8 | 上传方式：`0`=禁用、`1`=WebDAV、`2`=HTTP(S) |
-| `upload_base_path` | string | 上传基础路径（默认 `"/MiBeeHomeCam"`） |
+| `upload_base_path` | string | 上传基础路径（默认 `"/MiBee Cam"`） |
 | `webdav_url` | string | WebDAV 服务器地址 |
 | `webdav_user` | string | WebDAV 用户名 |
 | `webdav_enabled` | bool | 是否启用 WebDAV 上传（仅 `upload_method=1` 时有效） |
@@ -118,7 +118,7 @@ console.log(`设备名: ${data.device_name}, 分辨率: ${data.resolution}`);
   "wifi_pass": "newpassword",
   "device_name": "MyCamera",
   "upload_method": 1,
-  "upload_base_path": "/MiBeeHomeCam",
+  "upload_base_path": "/MiBee Cam",
   "webdav_url": "https://dav.example.com",
   "webdav_user": "davuser",
   "webdav_pass": "davpassword",
@@ -324,9 +324,9 @@ await fetch('/api/config', {
 |--------|------|--------|------|
 | `wifi_ssid` | string | `""` | 空表示 AP 模式 |
 | `wifi_pass` | string | `""` | WiFi 密码 |
-| `device_name` | string | `"MiBeeHomeCam"` | 设备名称 |
+| `device_name` | string | `"MiBee Cam"` | 设备名称 |
 | `upload_method` | uint8 | `0` | 上传方式：0=禁用, 1=WebDAV, 2=HTTP(S) |
-| `upload_base_path` | string | `"/MiBeeHomeCam"` | 上传基础路径 |
+| `upload_base_path` | string | `"/MiBee Cam"` | 上传基础路径 |
 | `webdav_url` | string | `""` | WebDAV 地址 |
 | `webdav_user` | string | `""` | WebDAV 用户名 |
 | `webdav_pass` | string | `""` | WebDAV 密码 |

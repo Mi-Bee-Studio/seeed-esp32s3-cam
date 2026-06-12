@@ -19,9 +19,9 @@ Get all current configuration items of the device. Password fields are masked.
   "data": {
     "wifi_ssid": "MickeyMiRoute",
     "wifi_pass": "****",
-    "device_name": "MiBeeHomeCam",
+    "device_name": "MiBee Cam",
     "upload_method": 1,
-    "upload_base_path": "/MiBeeHomeCam",
+    "upload_base_path": "/MiBee Cam",
     "webdav_url": "http://192.168.63.31:9090/dav",
     "webdav_user": "admin",
     "webdav_enabled": true,
@@ -57,9 +57,9 @@ Get all current configuration items of the device. Password fields are masked.
 |-------|------|-------------|
 | `wifi_ssid` | string | WiFi network name, empty string indicates AP mode |
 | `wifi_pass` | string | WiFi password, shows `"****"` if set, `""` if not set |
-| `device_name` | string | Device name (default `"MiBeeHomeCam"`) |
+| `device_name` | string | Device name (default `"MiBee Cam"`) |
 | `upload_method` | uint8 | Upload method: `0`=Disabled, `1`=WebDAV, `2`=HTTP(S) |
-| `upload_base_path` | string | Upload base path (default `"/MiBeeHomeCam"`) |
+| `upload_base_path` | string | Upload base path (default `"/MiBee Cam"`) |
 | `webdav_url` | string | WebDAV server address |
 | `webdav_user` | string | WebDAV username |
 | `webdav_enabled` | bool | Enable WebDAV upload (only effective when `upload_method=1`) |
@@ -117,7 +117,7 @@ Update device configuration. Request body is JSON format, only need to include f
   "wifi_pass": "newpassword",
   "device_name": "MyCamera",
   "upload_method": 1,
-  "upload_base_path": "/MiBeeHomeCam",
+  "upload_base_path": "/MiBee Cam",
   "webdav_url": "https://dav.example.com",
   "webdav_user": "davuser",
   "webdav_pass": "davpassword",
@@ -325,9 +325,9 @@ await fetch('/api/config', {
 |-------------|------|---------|-------------|
 | `wifi_ssid` | string | `""` | Empty means AP mode |
 | `wifi_pass` | string | `""` | WiFi password |
-| `device_name` | string | `"MiBeeHomeCam"` | Device name |
+| `device_name` | string | `"MiBee Cam"` | Device name |
 | `upload_method` | uint8 | `0` | Upload method: 0=Disabled, 1=WebDAV, 2=HTTP(S) |
-| `upload_base_path` | string | `"/MiBeeHomeCam"` | Upload base path |
+| `upload_base_path` | string | `"/MiBee Cam"` | Upload base path |
 | `webdav_url` | string | `""` | WebDAV address |
 | `webdav_user` | string | `""` | WebDAV username |
 | `webdav_pass` | string | `""` | WebDAV password |

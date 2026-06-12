@@ -7,7 +7,7 @@
 ## JavaScript API Client封装
 
 ```javascript
-class MiBeeHomeCam API {
+class MiBee Cam API {
   constructor(baseURL = '', password = 'admin') {
     this.base = baseURL;
     this.password = password;
@@ -113,7 +113,7 @@ class MiBeeHomeCam API {
 ## JavaScript Usage Examples
 
 ```javascript
-const cam = new MiBeeHomeCamAPI('http://192.168.4.1', 'admin');
+const cam = new MiBee CamAPI('http://192.168.4.1', 'admin');
 
 // Get and display status
 async function showStatus() {
@@ -215,7 +215,7 @@ curl -X POST http://192.168.4.1/api/config \
   -H "X-Password: admin" \
   -d '{
     "upload_method": 1,
-    "webdav_url": "https://dav.example.com/MiBeeHomeCam",
+    "webdav_url": "https://dav.example.com/MiBee Cam",
     "webdav_user": "davuser",
     "webdav_pass": "davsecret",
     "webdav_enabled": true
