@@ -391,6 +391,10 @@ esp_err_t wifi_start_sta(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
+    /* Disable WiFi power save for reliable DHCP and streaming */
+    esp_wifi_set_ps(WIFI_PS_NONE);
+
+
     /* Boost TX power to 15 dBm (Seeed XIAO ESP32-S3 hardware fix for weak signal) */
     int8_t power_param = (int8_t)(15 / 0.25);  // 15 dBm → 60 quarter-dBm units
     esp_err_t pwr_err = esp_wifi_set_max_tx_power(power_param);
