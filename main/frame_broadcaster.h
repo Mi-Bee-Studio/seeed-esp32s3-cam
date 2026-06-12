@@ -22,12 +22,11 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#define FBROADCAST_MAX_SUBSCRIBERS  4   /* 2 MJPEG + 2 RTSP */
+#define FBROADCAST_MAX_SUBSCRIBERS  2   /* MJPEG only */
 
 /** Subscriber type for logging and diagnostics. */
 typedef enum {
     FRAMESUB_MJPEG,
-    FRAMESUB_RTSP,
 } frame_sub_type_t;
 
 /** Owned JPEG buffer — subscriber must call fbroadcast_release() when done. */

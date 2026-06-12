@@ -181,16 +181,9 @@ static void start_mdns_service(void)
         ESP_LOGW(TAG, "mDNS _http service add failed: %s", esp_err_to_name(err));
     }
 
-    /* Register _rtsp._tcp on port 554 */
-    mdns_txt_item_t rtsp_txt[] = { { (char *)"path", (char *)"/stream" } };
-    err = mdns_service_add("MiBee Cam RTSP Stream", "_rtsp", "_tcp", 554,
-                             rtsp_txt, sizeof(rtsp_txt) / sizeof(rtsp_txt[0]));
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "mDNS _rtsp service add failed: %s", esp_err_to_name(err));
-    }
 
     s_mdns_initialized = true;
-    ESP_LOGI(TAG, "mDNS services started (http:80, rtsp:554)");
+    ESP_LOGI(TAG, "mDNS services started (http:80)");
 }
 
 /* ---- event handler ---- */

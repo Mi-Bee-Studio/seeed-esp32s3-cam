@@ -345,7 +345,7 @@ static esp_err_t handle_get_profiles(httpd_req_t *req)
 
 /**
  * @brief Handle GetStreamUri SOAP action.
- * Returns the RTSP stream URI for the camera.
+ * Returns the HTTP MJPEG stream URI for the camera.
  */
 static esp_err_t handle_get_stream_uri(httpd_req_t *req)
 {
@@ -362,7 +362,7 @@ static esp_err_t handle_get_stream_uri(httpd_req_t *req)
         "<trt:GetStreamUriResponse "
         "xmlns:trt=\"" NS_MED "\">"
         "<trt:MediaUri>"
-        "<trt:Uri>rtsp://%s:554/stream</trt:Uri>"
+        "<trt:Uri>http://%s/stream</trt:Uri>"
         "</trt:MediaUri>"
         "</trt:GetStreamUriResponse>"
         "</s:Body>"

@@ -31,7 +31,6 @@
 #include "esp_heap_caps.h"
 #include "esp_chip_info.h"
 #include "nas_uploader.h"
-#include "rtsp_server.h"
 #include "mjpeg_streamer.h"
 #include "ws_server.h"
 #include "motion_detector.h"
@@ -1120,7 +1119,7 @@ static esp_err_t metrics_handler(httpd_req_t *req)
     int upload_success = 0, upload_failure = 0;
     nas_uploader_get_stats(&upload_success, &upload_failure);
 
-    int rtsp_clients = rtsp_server_get_client_count();
+    int rtsp_clients = 0;  /* RTSP removed */
     uint32_t frames_dropped = recorder_get_frames_dropped();
 
     /* === Chip info for node_uname_info === */
@@ -1191,7 +1190,7 @@ static esp_err_t metrics_handler(httpd_req_t *req)
         "esp_upload_failure_total %d\n"
         "# HELP esp_rtsp_clients Number of connected RTSP clients\n"
         "# TYPE esp_rtsp_clients gauge\n"
-        "esp_rtsp_clients %d\n"
+        "esp_rtsp_clients 0\n"
         "# HELP esp_frames_dropped_total Total frames dropped due to write backlog\n"
         "# TYPE esp_frames_dropped_total counter\n"
         "esp_frames_dropped_total %lu\n",
@@ -1209,7 +1208,6 @@ static esp_err_t metrics_handler(httpd_req_t *req)
         wifi_rssi,
         upload_success,
         upload_failure,
-        rtsp_clients,
         (unsigned long)frames_dropped);
 
     /* ======================================================== */
