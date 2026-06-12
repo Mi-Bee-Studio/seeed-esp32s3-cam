@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 MiBeeHomeCam Authors
+ * Copyright (C) 2024 MiBee Cam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -148,7 +148,7 @@ static esp_err_t handle_get_device_information(httpd_req_t *req)
         "<tcr:GetDeviceInformationResponse "
         "xmlns:tcr=\"" NS_DEV "\">"
         "<tcr:Manufacturer>MiBee</tcr:Manufacturer>"
-        "<tcr:Model>MiBeeHomeCam</tcr:Model>"
+        "<tcr:Model>MiBee Cam</tcr:Model>"
         "<tcr:FirmwareVersion>%s</tcr:FirmwareVersion>"
         "<tcr:SerialNumber>%s</tcr:SerialNumber>"
         "<tcr:HardwareId>ESP32-S3</tcr:HardwareId>"

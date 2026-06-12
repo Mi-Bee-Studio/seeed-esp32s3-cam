@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 MiBeeHomeCam Authors
+ * Copyright (C) 2024 MiBee Cam Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,7 +36,7 @@ static const cam_config_t s_defaults = {
     .wifi_ssid_2    = "",
     .wifi_pass_2    = "",
     .allow_ap_fallback = false,
-    .upload_base_path = "/MiBeeHomeCam",
+    .upload_base_path = "/MiBee Cam",
     .webdav_url     = "",
     .webdav_user    = "",
     .webdav_pass    = "",
@@ -47,7 +47,7 @@ static const cam_config_t s_defaults = {
     .jpeg_quality   = 12,
     .vflip          = false,
     .hmirror         = false,
-    .device_name    = "MiBeeHomeCam",
+    .device_name    = "MiBee Cam",
     .timezone       = "CST-8",
     .cleanup_low_pct  = 20,
     .cleanup_high_pct = 30,
