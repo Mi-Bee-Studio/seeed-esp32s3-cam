@@ -28,6 +28,7 @@
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "camera_driver.h"
+#include "frame_broadcaster.h"
 #include "wifi_manager.h"
 #include "config_manager.h"
 
@@ -586,6 +587,12 @@ static void rtsp_listener_task(void *arg)
         case CAMERA_RES_XGA:  width = 1024; height = 768; break;
         default: break;
     }
+    /* Subscribe to frame broadcaster */
+    frame_sub_t *rtsp_sub = fbroadcast_subscribe(FRAMESUB_RTSP);
+    if (!rtsp_sub) {
+        ESP_LOGE(TAG, "Failed to subscribe to frame broadcaster");
+    }
+
 
     while (s_running) {
         esp_task_wdt_reset();
@@ -631,11 +638,16 @@ static void rtsp_listener_task(void *arg)
         }
 
         /* ---- Stream frames to playing clients ---- */
-        if (count_playing_clients() > 0) {
-            camera_frame_t frame;
-            if (camera_capture(&frame) == ESP_OK) {
+        if (count_playing_clients() > 0 && rtsp_sub) {
+            frame_msg_t fmsg;
+            if (fbroadcast_receive(rtsp_sub, &fmsg, 100)) {
+                /* Wrap broadcaster frame as camera_frame_t for stream_frame_to_clients */
+                camera_frame_t frame;
+                frame.buf = fmsg.data;
+                frame.len = fmsg.len;
+                frame._fb = NULL;
                 stream_frame_to_clients(&frame, width, height);
-                camera_return_fb(&frame);
+                fbroadcast_release(&fmsg);
             }
             const uint8_t fps = config_get()->fps;
             vTaskDelay(pdMS_TO_TICKS(1000 / (fps > 0 ? fps : 15)));
@@ -655,6 +667,7 @@ static void rtsp_listener_task(void *arg)
         }
     }
 
+    fbroadcast_unsubscribe(rtsp_sub);
     esp_task_wdt_delete(NULL);
 
     /* Cleanup all clients */

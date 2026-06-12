@@ -66,6 +66,7 @@
 #include "rtsp_server.h"
 #include "ota_updater.h"
 #include "onvif_discovery.h"
+#include "frame_broadcaster.h"
 #include "driver/temperature_sensor.h"
 
 static const char *TAG = "main";
@@ -395,7 +396,13 @@ void app_main(void)
     /* 第10步：初始化NAS上传调度器，准备WebDAV/HTTP上传队列 */
     nas_uploader_init();
 
-    /* ---- 10a. RTSP server -------------------------------------------- */
+    /* ---- 10a. Frame broadcaster ---------------------------------------- */
+    /* 第10a步：初始化帧广播器，统一分发camera帧给recorder/RTSP/MJPEG */
+    if (s_camera_ok) {
+        fbroadcast_init();
+    }
+
+    /* ---- 10b. RTSP server -------------------------------------------- */
     /* 第10a步：初始化RTSP流媒体服务器 */
     if (s_camera_ok) {
         rtsp_server_init();
@@ -404,6 +411,7 @@ void app_main(void)
     }
 
     /* ---- 10b. ONVIF WS-Discovery deferred to step 15 (needs WiFi) --- */
+
 
     /* ---- 11. Video recorder ------------------------------------------ */
     /* 第11步：初始化视频录像引擎，注册分段完成回调 */

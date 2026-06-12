@@ -107,7 +107,7 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
         .pixel_format  = PIXFORMAT_JPEG,
         .frame_size    = res_to_framesize(res),
         .jpeg_quality  = quality,
-    .fb_count      = 2,                /* double buffer in PSRAM */
+    .fb_count      = 2,                /* double buffer — broadcaster eliminates contention */
         .fb_location   = CAMERA_FB_IN_PSRAM,
         .grab_mode     = CAMERA_GRAB_LATEST,
     };
