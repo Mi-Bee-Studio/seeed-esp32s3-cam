@@ -31,7 +31,6 @@
 #include "esp_heap_caps.h"
 #include "esp_chip_info.h"
 #include "nas_uploader.h"
-#include "mjpeg_streamer.h"
 #include "ws_server.h"
 #include "motion_detector.h"
 
@@ -1413,8 +1412,6 @@ static const uri_entry_t s_uris[] = {
     { "/api/format",   HTTP_POST,   api_format_handler        },
     { "/api/ota",     HTTP_POST,   api_ota_handler           },
     { "/metrics",      HTTP_GET,    metrics_handler           },
-/* MJPEG stream — before wildcard to avoid conflict */
-    { "/stream",       HTTP_GET,    mjpeg_stream_handler      },
     /* CORS preflight — wildcard */
     { "/*",            HTTP_OPTIONS, options_handler           },
     /* Static files — catch-all (lowest priority) */
