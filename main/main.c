@@ -65,13 +65,17 @@
 #include "nas_uploader.h"
 #include "rtsp_server.h"
 #include "ota_updater.h"
+#include "onvif_discovery.h"
 #include "driver/temperature_sensor.h"
 
 static const char *TAG = "main";
 
 static float s_chip_temp = 0.0f;
+static bool s_camera_ok = false;
 
 float get_chip_temp(void) { return s_chip_temp; }
+
+bool camera_is_available(void) { return s_camera_ok; }
 
 /* Factory-reset: hold BOOT button (GPIO0) for 5 seconds */
 #define BOOT_BTN_GPIO    0
@@ -347,11 +351,18 @@ void app_main(void)
             case 2:  res = CAMERA_RES_XGA;  break;
             default: res = CAMERA_RES_VGA; break;
         }
-        camera_init(res, cfg->fps, quality);
+        esp_err_t cam_err = camera_init(res, cfg->fps, quality);
+        if (cam_err == ESP_OK) {
+            s_camera_ok = true;
+        } else {
+            ESP_LOGE(TAG, "Camera init failed: %s \xe2\x80\x94 continuing without camera", esp_err_to_name(cam_err));
+        }
     }
 
     /* Apply camera flip/mirror from config */
-    camera_set_flip(cfg->vflip, cfg->hmirror);
+    if (s_camera_ok) {
+        camera_set_flip(cfg->vflip, cfg->hmirror);
+    }
 
     /* ---- 6. SD card storage (SPI mode: CS=21, SCK=7, MOSI=9, MISO=8) --- */
     /* 第6步：初始化SD卡存储管理器（在摄像头之后，避免GDMA通道冲突） */
@@ -386,16 +397,33 @@ void app_main(void)
 
     /* ---- 10a. RTSP server -------------------------------------------- */
     /* 第10a步：初始化RTSP流媒体服务器 */
-    rtsp_server_init();
+    if (s_camera_ok) {
+        rtsp_server_init();
+    } else {
+        ESP_LOGW(TAG, "Skipping rtsp_server_init \xe2\x80\x94 camera not available");
+    }
+
+    /* ---- 10b. ONVIF WS-Discovery (NVR auto-discovery) -------------- */
+    if (wifi_get_state() == WIFI_STATE_STA_CONNECTED) {
+        onvif_discovery_init();
+    }
 
     /* ---- 11. Video recorder ------------------------------------------ */
     /* 第11步：初始化视频录像引擎，注册分段完成回调 */
-    recorder_init();
-    recorder_set_segment_cb(on_segment_complete);
+    if (s_camera_ok) {
+        recorder_init();
+        recorder_set_segment_cb(on_segment_complete);
+    } else {
+        ESP_LOGW(TAG, "Skipping recorder_init \xe2\x80\x94 camera not available");
+    }
 
     /* ---- 12. MJPEG streamer ------------------------------------------ */
     /* 第12步：初始化MJPEG实时视频流服务 */
-    mjpeg_streamer_init();
+    if (s_camera_ok) {
+        mjpeg_streamer_init();
+    } else {
+        ESP_LOGW(TAG, "Skipping mjpeg_streamer_init \xe2\x80\x94 camera not available");
+    }
 
     /* ---- 13. Web server + MJPEG registration ------------------------- */
     /* 第13步：启动Web服务器(端口80)并注册MJPEG流端点 */
@@ -426,7 +454,7 @@ void app_main(void)
         }
     }
 
-    if (storage_is_available()) {
+    if (s_camera_ok && storage_is_available()) {
         recorder_start();
         ESP_LOGI(TAG, "Recording started");
     }
@@ -456,10 +484,12 @@ void app_main(void)
     /* ---- Done -------------------------------------------------------- */
     /* 初始化完成，打印摄像头型号、分辨率和WiFi连接信息 */
     ESP_LOGI(TAG, "MiBeeHomeCam v" FW_VERSION " initialized successfully");
-    ESP_LOGI(TAG, "Camera: %s @ %s",
-        camera_get_sensor() == CAMERA_SENSOR_OV2640 ? "OV2640" :
-        camera_get_sensor() == CAMERA_SENSOR_OV3660 ? "OV3660" : "unknown",
-        camera_res_to_str(camera_get_resolution()));
+    if (s_camera_ok) {
+        ESP_LOGI(TAG, "Camera: %s @ %s",
+            camera_get_sensor() == CAMERA_SENSOR_OV2640 ? "OV2640" :
+            camera_get_sensor() == CAMERA_SENSOR_OV3660 ? "OV3660" : "unknown",
+            camera_res_to_str(camera_get_resolution()));
+    }
     ESP_LOGI(TAG, "WiFi: %s, IP: %s",
         wifi_get_state() == WIFI_STATE_AP            ? "AP" :
         wifi_get_state() == WIFI_STATE_STA_CONNECTED ? "STA" : "disconnected",
