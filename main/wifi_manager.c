@@ -87,9 +87,8 @@ static void reconnect_timer_cb(TimerHandle_t timer)
     ESP_LOGI(TAG, "Retry %d (network failures: %d, interval %lu ms)",
              s_retry_count, s_network_failures, (unsigned long)s_retry_interval_ms);
     
-    cam_config_t cfg_copy;
-    config_get_copy(&cfg_copy);
-    cam_config_t *cfg = &cfg_copy;
+    /* Use read-only pointer instead of copying the full config struct */
+    cam_config_t *cfg = config_get();
     
     /* Failover logic: 3 failures on current network → try backup */
     if (s_network_failures >= 3) {
@@ -106,7 +105,7 @@ static void reconnect_timer_cb(TimerHandle_t timer)
         } else if (s_using_backup_wifi) {
             /* Backup WiFi also failed */
             if (cfg->allow_ap_fallback) {
-                /* Allow AP fallback */
+                /* Allow AP fallback — stop timer, signal AP switch */
                 ESP_LOGW(TAG, "Both WiFi networks failed, allowing AP fallback");
                 if (s_reconnect_timer) {
                     xTimerStop(s_reconnect_timer, 0);
