@@ -1439,12 +1439,10 @@ esp_err_t web_server_start(uint16_t port)
     config.max_uri_handlers = 22;   /* 20 static + 2 ONVIF */
     config.stack_size = 16384;   /* 16KB: download handler has ~6KB locals + nested calls */
     config.uri_match_fn = httpd_uri_match_wildcard;
-    config.recv_wait_timeout = 300;
-    config.send_wait_timeout = 300;
-    config.keep_alive_enable = true;
-    config.keep_alive_idle = 60;
-    config.keep_alive_interval = 5;
-    config.keep_alive_count = 3;
+    config.max_open_sockets = 4;
+    config.recv_wait_timeout = 10;
+    config.send_wait_timeout = 10;
+    config.keep_alive_enable = false;
     esp_err_t ret = httpd_start(&s_server, &config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start web server: %s", esp_err_to_name(ret));
