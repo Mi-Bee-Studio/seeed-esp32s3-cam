@@ -764,7 +764,7 @@ if (timelapse) {
             if (tl_mode == 2) {
                 delay_ms = dynamic_interval_sec * 1000;
             } else if (timelapse) {
-                delay_ms = cfg->timelapse_interval_sec * 1000;
+                delay_ms = (cfg->timelapse_interval_sec > 0) ? cfg->timelapse_interval_sec * 1000 : 30000;
             } else {
                 delay_ms = 1000 / fps;
             }
