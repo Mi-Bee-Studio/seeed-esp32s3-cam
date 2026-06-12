@@ -261,15 +261,17 @@ static int send_rtp_interleaved(int sock, uint8_t channel,
 }
 
 static int send_rtsp_response(int sock, int code, const char *status,
-                              const char *extra_headers, const char *body)
+                              const char *extra_headers, const char *body,
+                              int cseq)
 {
+    ESP_LOGI(TAG, "Sending RTSP %d %s CSeq=%d (%d+ bytes)", code, status, cseq, body ? (int)strlen(body) : 0);
     char hdr[512];
     int hlen = snprintf(hdr, sizeof(hdr),
         "RTSP/1.0 %d %s\r\n"
-        "CSeq: 0\r\n"
+        "CSeq: %d\r\n"
         "%s"
         "\r\n",
-        code, status, extra_headers ? extra_headers : "");
+        code, status, cseq, extra_headers ? extra_headers : "");
 
     if (tcp_send_all(sock, (const uint8_t *)hdr, hlen) < 0) return -1;
     if (body && body[0]) {
@@ -281,14 +283,14 @@ static int send_rtsp_response(int sock, int code, const char *status,
 
 /* ---- RTSP method handlers --------------------------------------------- */
 
-static void handle_options(int sock)
+static void handle_options(int sock, int cseq)
 {
     send_rtsp_response(sock, 200, "OK",
         "Public: OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN, GET_PARAMETER\r\n",
-        NULL);
+        NULL, cseq);
 }
 
-static void handle_describe(int sock)
+static void handle_describe(int sock, int cseq)
 {
     const char *ip = wifi_get_ip_str();
     if (!ip || ip[0] == '\0') ip = "0.0.0.0";
@@ -311,10 +313,10 @@ static void handle_describe(int sock)
         "Content-Length: %d\r\n",
         slen);
 
-    send_rtsp_response(sock, 200, "OK", hdr, sdp);
+    send_rtsp_response(sock, 200, "OK", hdr, sdp, cseq);
 }
 
-static void handle_setup(int sock, const char *request, int client_idx)
+static void handle_setup(int sock, const char *request, int client_idx, int cseq)
 {
     rtsp_client_t *c = &s_clients[client_idx];
     gen_session_id(c->session_id, sizeof(c->session_id));
@@ -330,15 +332,15 @@ static void handle_setup(int sock, const char *request, int client_idx)
         "Session: %s\r\n",
         c->session_id);
 
-    send_rtsp_response(sock, 200, "OK", transport, NULL);
+    send_rtsp_response(sock, 200, "OK", transport, NULL, cseq);
     ESP_LOGI(TAG, "Client %d SETUP session=%s", client_idx, c->session_id);
 }
 
-static void handle_play(int sock, int client_idx)
+static void handle_play(int sock, int client_idx, int cseq)
 {
     rtsp_client_t *c = &s_clients[client_idx];
     if (c->state != CLIENT_STATE_READY) {
-        send_rtsp_response(sock, 455, "Method Not Valid in This State", NULL, NULL);
+        send_rtsp_response(sock, 455, "Method Not Valid in This State", NULL, NULL, cseq);
         return;
     }
     c->state = CLIENT_STATE_PLAYING;
@@ -349,26 +351,26 @@ static void handle_play(int sock, int client_idx)
         "Range: npt=0.000-\r\n",
         c->session_id);
 
-    send_rtsp_response(sock, 200, "OK", hdr, NULL);
+    send_rtsp_response(sock, 200, "OK", hdr, NULL, cseq);
     ESP_LOGI(TAG, "Client %d PLAYING", client_idx);
 }
 
-static void handle_teardown(int sock, int client_idx)
+static void handle_teardown(int sock, int client_idx, int cseq)
 {
     rtsp_client_t *c = &s_clients[client_idx];
     char hdr[64];
     snprintf(hdr, sizeof(hdr), "Session: %s\r\n", c->session_id);
-    send_rtsp_response(sock, 200, "OK", hdr, NULL);
+    send_rtsp_response(sock, 200, "OK", hdr, NULL, cseq);
     ESP_LOGI(TAG, "Client %d TEARDOWN session=%s", client_idx, c->session_id);
     close_client(client_idx);
 }
 
-static void handle_get_parameter(int sock, int client_idx)
+static void handle_get_parameter(int sock, int client_idx, int cseq)
 {
     rtsp_client_t *c = &s_clients[client_idx];
     char hdr[64];
     snprintf(hdr, sizeof(hdr), "Session: %s\r\n", c->session_id);
-    send_rtsp_response(sock, 200, "OK", hdr, NULL);
+    send_rtsp_response(sock, 200, "OK", hdr, NULL, cseq);
 }
 
 /* ---- RTSP request parser ---------------------------------------------- */
@@ -380,26 +382,33 @@ static void parse_and_handle(int sock, char *buf, int len, int client_idx)
     /* Extract method */
     char method[32] = {0};
     if (sscanf(buf, "%31s", method) != 1) {
-        send_rtsp_response(sock, 400, "Bad Request", NULL, NULL);
+        send_rtsp_response(sock, 400, "Bad Request", NULL, NULL, 0);
         return;
     }
 
+    /* Extract CSeq from request */
+    int cseq = 0;
+    const char *cseq_hdr = strstr(buf, "CSeq:");
+    if (cseq_hdr) {
+        cseq = atoi(cseq_hdr + 5);
+    }
+
     if (strcmp(method, "OPTIONS") == 0) {
-        handle_options(sock);
+        handle_options(sock, cseq);
     } else if (strcmp(method, "DESCRIBE") == 0) {
-        handle_describe(sock);
+        handle_describe(sock, cseq);
     } else if (strcmp(method, "SETUP") == 0) {
-        handle_setup(sock, buf, client_idx);
+        handle_setup(sock, buf, client_idx, cseq);
     } else if (strcmp(method, "PLAY") == 0) {
-        handle_play(sock, client_idx);
+        handle_play(sock, client_idx, cseq);
     } else if (strcmp(method, "TEARDOWN") == 0) {
-        handle_teardown(sock, client_idx);
+        handle_teardown(sock, client_idx, cseq);
     } else if (strcmp(method, "GET_PARAMETER") == 0) {
-        handle_get_parameter(sock, client_idx);
+        handle_get_parameter(sock, client_idx, cseq);
     } else {
         send_rtsp_response(sock, 405, "Method Not Allowed",
             "Allow: OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN, GET_PARAMETER\r\n",
-            NULL);
+            NULL, cseq);
     }
 }
 
@@ -438,6 +447,7 @@ static void rtsp_client_task(void *arg)
 
             xSemaphoreTake(s_mutex, portMAX_DELAY);
             parse_and_handle(c->sock, rx_buf, n, idx);
+            ESP_LOGI(TAG, "Client %d received: %.60s", idx, rx_buf);
             xSemaphoreGive(s_mutex);
 
             /* Check if TEARDOWN closed the client */
