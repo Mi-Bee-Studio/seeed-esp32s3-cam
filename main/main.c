@@ -63,7 +63,6 @@
 #include "web_server.h"
 #include "mjpeg_streamer.h"
 #include "nas_uploader.h"
-#include "rtsp_server.h"
 #include "ota_updater.h"
 #include "onvif_discovery.h"
 #include "frame_broadcaster.h"
@@ -397,18 +396,11 @@ void app_main(void)
     nas_uploader_init();
 
     /* ---- 10a. Frame broadcaster ---------------------------------------- */
-    /* 第10a步：初始化帧广播器，统一分发camera帧给recorder/RTSP/MJPEG */
+    /* 第10a步：初始化帧广播器，统一分发camera帧给recorder/MJPEG */
     if (s_camera_ok) {
         fbroadcast_init();
     }
 
-    /* ---- 10b. RTSP server -------------------------------------------- */
-    /* 第10a步：初始化RTSP流媒体服务器 */
-    if (s_camera_ok) {
-        rtsp_server_init();
-    } else {
-        ESP_LOGW(TAG, "Skipping rtsp_server_init \xe2\x80\x94 camera not available");
-    }
 
     /* ---- 10b. ONVIF WS-Discovery deferred to step 15 (needs WiFi) --- */
 
