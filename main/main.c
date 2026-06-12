@@ -403,10 +403,7 @@ void app_main(void)
         ESP_LOGW(TAG, "Skipping rtsp_server_init \xe2\x80\x94 camera not available");
     }
 
-    /* ---- 10b. ONVIF WS-Discovery (NVR auto-discovery) -------------- */
-    if (wifi_get_state() == WIFI_STATE_STA_CONNECTED) {
-        onvif_discovery_init();
-    }
+    /* ---- 10b. ONVIF WS-Discovery deferred to step 15 (needs WiFi) --- */
 
     /* ---- 11. Video recorder ------------------------------------------ */
     /* 第11步：初始化视频录像引擎，注册分段完成回调 */
@@ -450,6 +447,7 @@ void app_main(void)
 
         if (wifi_get_state() == WIFI_STATE_STA_CONNECTED) {
             time_sync_init();   /* retry / ensure synced */
+            onvif_discovery_init();  /* start WS-Discovery after WiFi connected */
             led_set_status(LED_RUNNING);
         }
     }
