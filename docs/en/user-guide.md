@@ -17,7 +17,7 @@ The device has a built-in HTTP server providing Web management interface and RES
 | AP Mode | `http://192.168.4.1` |
 | STA Mode | `http://<deviceIP>` |
 
-- AP Mode: Connect to WiFi hotspot `MiBeeHomeCam-XXXX` (password `12345678`), then access `http://192.168.4.1`
+- AP Mode: Connect to WiFi hotspot `MiBee Cam-XXXX` (password `12345678`), then access `http://192.168.4.1`
 - STA Mode: After device connects to router, access via the IP assigned by router
 
 ### Login Password
@@ -96,13 +96,13 @@ curl -X POST http://192.168.4.1/api/config \
 #### Device Configuration
 
 | Parameter | Type | Default | Description |
-| `device_name` | string | `"MiBeeHomeCam"` | Device name |
+| `device_name` | string | `"MiBee Cam"` | Device name |
 | `web_password` | string | `"admin"` | Web management password |
 
 #### Upload Method Configuration
 
 | `upload_method` | uint8 | `0` | Upload method: 0=Disabled, 1=WebDAV, 2=HTTP(S) |
-| `upload_base_path` | string | `"/MiBeeHomeCam"` | Upload base path |
+| `upload_base_path` | string | `"/MiBee Cam"` | Upload base path |
 | `webdav_url` | string | `""` | WebDAV server URL |
 | `webdav_user` | string | `""` | WebDAV username |
 | `webdav_pass` | string | `""` | WebDAV password (returns `****` on GET) |
@@ -207,7 +207,7 @@ ON 200ms → OFF 200ms → ON 200ms → OFF 1000ms → Loop
 
 Device automatically enters AP mode on first boot or when WiFi is not configured:
 
-- SSID: `MiBeeHomeCam-XXXX` (XXXX is last 4 hex digits of MAC address)
+- SSID: `MiBee Cam-XXXX` (XXXX is last 4 hex digits of MAC address)
 - Password: `12345678`
 - IP Address: `192.168.4.1`
 - Encryption: WPA2-PSK
@@ -319,7 +319,7 @@ Select upload method via the `upload_method` field (mutually exclusive, only one
 | `http_upload_user` | HTTP(S) username |
 | `http_upload_pass` | HTTP(S) password |
 | `http_upload_skip_cert_verify` | Skip HTTPS certificate verification (set to `true` for self-signed certs) |
-| `upload_base_path` | Upload base path (default `/MiBeeHomeCam`) |
+| `upload_base_path` | Upload base path (default `/MiBee Cam`) |
 
 **Mutually exclusive**: Only one upload method can be active at a time. Previous upload configurations are preserved in NVS when switching methods but will not be used.
 
@@ -364,7 +364,7 @@ HTTP_UPLOAD_URL=
 HTTP_UPLOAD_USER=
 HTTP_UPLOAD_PASS=
 HTTP_UPLOAD_SKIP_CERT=true
-UPLOAD_BASE_PATH=/MiBeeHomeCam
+UPLOAD_BASE_PATH=/MiBee Cam
 ```
 
 Lines starting with `#` are ignored.

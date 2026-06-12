@@ -17,7 +17,7 @@
 | AP 模式 | `http://192.168.4.1` |
 | STA 模式 | `http://<设备IP>` |
 
-- AP 模式：连接 WiFi 热点 `MiBeeHomeCam-XXXX`（密码 `12345678`），然后访问 `http://192.168.4.1`
+- AP 模式：连接 WiFi 热点 `MiBee Cam-XXXX`（密码 `12345678`），然后访问 `http://192.168.4.1`
 - STA 模式：设备连接路由器后，通过路由器分配的 IP 访问
 
 ### 登录密码
@@ -97,13 +97,13 @@ curl -X POST http://192.168.4.1/api/config \
 #### 设备配置
 
 | 参数 | 类型 | 默认值 | 说明 |
-| `device_name` | string | `"MiBeeHomeCam"` | 设备名称 |
+| `device_name` | string | `"MiBee Cam"` | 设备名称 |
 | `web_password` | string | `"admin"` | Web 管理密码 |
 
 #### 上传方式配置
 
 | `upload_method` | uint8 | `0` | 上传方式：0=禁用, 1=WebDAV, 2=HTTP(S) |
-| `upload_base_path` | string | `"/MiBeeHomeCam"` | 上传基础路径 |
+| `upload_base_path` | string | `"/MiBee Cam"` | 上传基础路径 |
 | `webdav_url` | string | `""` | WebDAV 服务器 URL |
 | `webdav_user` | string | `""` | WebDAV 用户名 |
 | `webdav_pass` | string | `""` | WebDAV 密码（GET 请求返回 `****`） |
@@ -183,7 +183,7 @@ ON 200ms → OFF 200ms → ON 200ms → OFF 1000ms → 循环
 
 设备首次启动或未配置 WiFi 时自动进入 AP 模式：
 
-- SSID：`MiBeeHomeCam-XXXX`（XXXX 为 MAC 地址后 4 位十六进制）
+- SSID：`MiBee Cam-XXXX`（XXXX 为 MAC 地址后 4 位十六进制）
 - 密码：`12345678`
 - IP 地址：`192.168.4.1`
 - 加密方式：WPA2-PSK
@@ -310,7 +310,7 @@ curl -X POST "http://192.168.4.1/api/record?action=stop" \
 | `http_upload_user` | HTTP(S) 用户名 |
 | `http_upload_pass` | HTTP(S) 密码 |
 | `http_upload_skip_cert_verify` | 跳过 HTTPS 证书验证（自签名证书时设为 `true`） |
-| `upload_base_path` | 上传基础路径（默认 `/MiBeeHomeCam`） |
+| `upload_base_path` | 上传基础路径（默认 `/MiBee Cam`） |
 
 **互斥说明**：上传方式只能选一种，不能同时启用。切换方式后，之前的上传配置仍然保留在 NVS 中，但不会被使用。
 
@@ -343,7 +343,7 @@ curl http://192.168.4.1/api/status
 ### 通过 API
 
 ```bash
-curl -X POST http://192.168.4.1/api/ota -H "Content-Type: application/json" -H "X-Password: admin" -d '{"url":"https://example.com/firmware/mibee_homecam.bin"}'
+curl -X POST http://192.168.4.1/api/ota -H "Content-Type: application/json" -H "X-Password: admin" -d '{"url":"https://example.com/firmware/mibee_cam.bin"}'
 ```
 
 当前固件版本：v0.2.0，可在仪表盘页面查看。
@@ -394,7 +394,7 @@ HTTP_UPLOAD_URL=
 HTTP_UPLOAD_USER=
 HTTP_UPLOAD_PASS=
 HTTP_UPLOAD_SKIP_CERT=true
-UPLOAD_BASE_PATH=/MiBeeHomeCam
+UPLOAD_BASE_PATH=/MiBee Cam
 ```
 
 以 `#` 开头的行会被忽略。

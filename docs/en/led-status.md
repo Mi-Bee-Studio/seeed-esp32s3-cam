@@ -20,7 +20,7 @@ After power-on, LED stays solid indicating the system is executing initializatio
 
 ### Slow Blink — AP Hotspot Mode
 
-Device runs in AP mode, emitting WiFi hotspot (SSID: `MiBeeHomeCam-XXXX`), accessible via `192.168.4.1`.
+Device runs in AP mode, emitting WiFi hotspot (SSID: `MiBee Cam-XXXX`), accessible via `192.168.4.1`.
 
 Scenarios where this state appears:
 - First use, WiFi not yet configured
@@ -66,7 +66,7 @@ Power on → LED solid?
   ├─ Yes → Wait for initialization to complete
   └─ No →
        ├─ Off → Device running normally, access via router IP
-       ├─ Slow blink → AP mode, connect to MiBeeHomeCam-XXXX hotspot to configure WiFi
+       ├─ Slow blink → AP mode, connect to MiBee Cam-XXXX hotspot to configure WiFi
        ├─ Fast blink → Connecting to WiFi, wait or check password
        └─ Double blink → Device fault, check hardware or restart
 ```

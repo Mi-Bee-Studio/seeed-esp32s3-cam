@@ -89,7 +89,7 @@ First compilation requires downloading dependent components, taking 3-5 minutes.
 
 After successful compilation, the firmware is located at:
 ```
-build/mibee_homecam.bin
+build/mibee_cam.bin
 ```
 
 ---
@@ -131,7 +131,7 @@ Press `Ctrl+]` to exit serial monitoring.
 
 ```
 Power on → LED solid (booting) → LED slow blink (AP mode)
-    → Connect to WiFi "MiBeeHomeCam-XXXX"
+    → Connect to WiFi "MiBee Cam-XXXX"
     → Open browser at 192.168.4.1
     → Login with password admin
     → Fill WiFi information in config page
@@ -146,7 +146,7 @@ Power on → LED solid (booting) → LED slow blink (AP mode)
 After flashing, the device automatically restarts. Serial log shows:
 
 ```
-I (xxx) main: MiBeeHomeCam v0.1 starting...
+I (xxx) main: MiBee Cam v0.1 starting...
 I (xxx) main: Free heap: XXXXX  Free PSRAM: XXXXXXX
 ```
 
@@ -156,7 +156,7 @@ LED starts slow blinking (1-second cycle), indicating AP mode is active.
 
 #### 3. Connect to WiFi
 
-On your phone or computer, search for WiFi name: `MiBeeHomeCam-XXXX` (XXXX is last 4 hex digits of MAC address), and connect to this network.
+On your phone or computer, search for WiFi name: `MiBee Cam-XXXX` (XXXX is last 4 hex digits of MAC address), and connect to this network.
 
 #### 4. Open Management Page
 
@@ -218,7 +218,7 @@ I (xxx) storage: SD card mounted OK
 I (xxx) camera: Sensor: OV2640, Resolution: SVGA, Quality: 12
 I (xxx) web: Web server started on port 80
 I (xxx) main: Recording started
-I (xxx) main: MiBeeHomeCam v0.1 initialized successfully
+I (xxx) main: MiBee Cam v0.1 initialized successfully
 I (xxx) main: Camera: OV2640 @ SVGA
 I (xxx) main: WiFi: STA, IP: 192.168.1.xxx
 ```

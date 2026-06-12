@@ -184,7 +184,7 @@ Trigger firmware update from a URL.
 
 **Request:**
 ```json
-{"url": "https://example.com/firmware/mibee_homecam.bin"}
+{"url": "https://example.com/firmware/mibee_cam.bin"}
 ```
 
 **Response:** `{"ok": true, "data": {"message": "OTA update started, device will reboot..."}}`

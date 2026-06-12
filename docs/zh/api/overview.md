@@ -332,7 +332,7 @@ RTSP 服务器运行在端口 554（TCP-interleaved only），支持标准 RTSP 
 
 ```json
 
-{"url": "https://example.com/firmware/mibee_homecam.bin"}
+{"url": "https://example.com/firmware/mibee_cam.bin"}
 
 ```
 
