@@ -1,4 +1,4 @@
-# MiBeeHomeCam — ESP32-S3 Camera Monitor
+# MiBee Cam — ESP32-S3 Camera Monitor
 
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![ESP-IDF](https://img.shields.io/badge/ESP--IDF-v5.x%2Fv6.0-1C7C3D?logo=espressif)](https://idf.espressif.com/)
@@ -8,15 +8,15 @@
 [![Firmware](https://img.shields.io/badge/Firmware-v0.2.0-7C3AED)](https://github.com/Mi-Bee-Studio/esp32s3-cam/releases)
 
 > **Home-grade AI-powered surveillance camera firmware** — Tiny footprint, enterprise-class features.
-> MiBeeHomeCam transforms a $15 XIAO ESP32-S3 Sense board into a fully-featured network surveillance camera.
+> MiBee Cam transforms a $15 XIAO ESP32-S3 Sense board into a fully-featured network surveillance camera.
 
 [中文文档](README.zh.md) | English
 
 ---
 
-## Why MiBeeHomeCam?
+## Why MiBee Cam?
 
-Most ESP32 camera projects stop at "it streams video." MiBeeHomeCam goes **all the way** — segmented recording, smart timelapse with motion detection, dual-protocol NAS upload (WebDAV + HTTPS), RTSP streaming, OTA updates, and a polished purple-themed Web UI — all on a single-core-friendly dual-core RTOS architecture. No Linux required. No cloud dependency. **Your camera, your data, your network.**
+Most ESP32 camera projects stop at "it streams video." MiBee Cam goes **all the way** — segmented recording, smart timelapse with motion detection, dual-protocol NAS upload (WebDAV + HTTPS), RTSP streaming, OTA updates, and a polished purple-themed Web UI — all on a single-core-friendly dual-core RTOS architecture. No Linux required. No cloud dependency. **Your camera, your data, your network.**
 
 ---
 

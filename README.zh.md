@@ -1,4 +1,4 @@
-# MiBeeHomeCam — ESP32-S3 智能摄像头固件
+# MiBee Cam — ESP32-S3 智能摄像头固件
 
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![ESP-IDF](https://img.shields.io/badge/ESP--IDF-v5.x%2Fv6.0-1C7C3D?logo=espressif)](https://idf.espressif.com/)
@@ -14,9 +14,9 @@
 
 ---
 
-## 为什么选择 MiBeeHomeCam？
+## 为什么选择 MiBee Cam？
 
-大多数 ESP32 摄像头项目止步于「能看视频流」。MiBeeHomeCam 一路走到底——分段录像、智能延时摄影（运动检测自适应）、双协议 NAS 上传（WebDAV + HTTPS）、RTSP 推流、OTA 远程升级、紫色主题 Web 管理界面——全部跑在一个双核 FreeRTOS 上。无需 Linux、无需云服务。**你的摄像头、你的数据、你的网络。**
+大多数 ESP32 摄像头项目止步于「能看视频流」。MiBee Cam 一路走到底——分段录像、智能延时摄影（运动检测自适应）、双协议 NAS 上传（WebDAV + HTTPS）、RTSP 推流、OTA 远程升级、紫色主题 Web 管理界面——全部跑在一个双核 FreeRTOS 上。无需 Linux、无需云服务。**你的摄像头、你的数据、你的网络。**
 
 ---
 
