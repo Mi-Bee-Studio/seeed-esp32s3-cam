@@ -75,7 +75,7 @@ static void fill_sta_config(wifi_config_t *cfg, const char *ssid, const char *pa
     cfg->sta.pmf_cfg.capable = true;               // advertise PMF capability
     cfg->sta.pmf_cfg.required = false;              // don't require PMF (compat with older APs)
     cfg->sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;      // WPA3: try both H2E and hunting-and-pecking
-    cfg->sta.listen_interval = 10;                  // listen every 10 beacons (~1s)
+    cfg->sta.listen_interval = 3;                  // lower = better multicast reception (default 10)
 }
 
 /** @brief WiFi 重连定时器回调函数，实现主备 WiFi 自动切换 */
