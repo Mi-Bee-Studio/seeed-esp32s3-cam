@@ -69,7 +69,7 @@ EOF
 ---
 
 **Full Changelog:** https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam/commits/v0.3.0
-RELEASED
+          RELEASED
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
