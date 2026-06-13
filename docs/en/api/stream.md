@@ -6,6 +6,8 @@
 
 Get MJPEG real-time video stream from camera. Browsers can directly use this endpoint as `src` attribute of `<img>` tag.
 
+> Note: MJPEG stream runs on **port 81** (independent TCP server), while the web interface runs on port 80. The stream URL is `http://<deviceIP>:81/stream`.
+
 **Authentication**: None required
 
 **Source**: `mjpeg_stream_handler` (mjpeg_streamer.c)
@@ -37,13 +39,13 @@ Content-Length: <frame data bytes>\r\n
 **cURL Example**:
 ```bash
 # Save one frame as JPEG (auto disconnects after timeout)
-curl --max-time 1 http://192.168.4.1/stream > frame.jpg 2>/dev/null
+curl --max-time 1 http://192.168.4.1:81/stream > frame.jpg 2>/dev/null
 ```
 
 **HTML Embed Examples**:
 ```html
 <!-- Simplest usage: directly embed in img tag -->
-<img src="http://192.168.4.1/stream" style="width: 100%;" alt="Live feed">
+<img src="http://192.168.4.1:81/stream" style="width: 100%;" alt="Live feed">
 
 <!-- Complete page with auto-reconnect -->
 <!DOCTYPE html>
@@ -63,7 +65,7 @@ curl --max-time 1 http://192.168.4.1/stream > frame.jpg 2>/dev/null
 const img = document.getElementById('stream');
 
 function startStream() {
-  img.src = '/stream?t=' + Date.now();
+  img.src = 'http://<deviceIP>:81/stream?t=' + Date.now();
 }
 
 function stopStream() {
@@ -77,18 +79,3 @@ img.onerror = () => {
 ```
 
 ---
-
-## RTSP Real-time Stream
-
-In addition to the HTTP MJPEG stream, the device also provides an RTSP real-time stream service (MJPEG over RTP).
-
-**Protocol**: RTSP (TCP-interleaved mode, port 554)
-
-**Connection URL**: `rtsp://<deviceIP>:554/stream`
-
-**Max Concurrent Clients**: 2
-
-**VLC Playback**: Open VLC → Media → Open Network Stream → Enter `rtsp://<deviceIP>:554/stream`
-
-> ⚠️ RTSP stream shares the camera frame buffer pool (double buffer, 2 frames) with the HTTP MJPEG stream. Both can run simultaneously but frame contention may occur.
-> ⚠️ RTSP v1 does not support authentication.

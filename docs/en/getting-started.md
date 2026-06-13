@@ -57,7 +57,6 @@ esp32s3-camera/
 │   ├── status_led.c      # LED state machine
 │   ├── time_sync.c       # SNTP time synchronization
 │   ├── webdav_client.c   # WebDAV client
-│   ├── rtsp_server.c    # RTSP server
 │   ├── http_upload_client.c # HTTP/HTTPS upload client
 │   ├── motion_detector.c # Motion detection engine
 │   ├── ota_updater.c     # OTA firmware update

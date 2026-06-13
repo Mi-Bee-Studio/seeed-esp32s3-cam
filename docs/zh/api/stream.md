@@ -6,6 +6,8 @@
 
 获取摄像头的 MJPEG 实时视频流。浏览器可直接将此端点作为 `<img>` 标签的 `src` 使用。
 
+> 注意：MJPEG 流运行在 **端口 81**（独立TCP服务器），而Web界面运行在端口80。流URL为 `http://<设备IP>:81/stream`
+
 **认证**：无需认证
 
 **源码**：`mjpeg_stream_handler`（mjpeg_streamer.c）
@@ -37,13 +39,13 @@ Content-Length: <帧数据字节数>\r\n
 **cURL 示例**：
 ```bash
 # 将一帧保存为 JPEG（超时后自动断开）
-curl --max-time 1 http://192.168.4.1/stream > frame.jpg 2>/dev/null
+curl --max-time 1 http://192.168.4.1:81/stream > frame.jpg 2>/dev/null
 ```
 
 **HTML 嵌入示例**：
 ```html
 <!-- 最简用法：直接嵌入 img 标签 -->
-<img src="http://192.168.4.1/stream" style="width: 100%;" alt="实时画面">
+<img src="http://192.168.4.1:81/stream" style="width: 100%;" alt="实时画面">
 
 <!-- 带自动重连的完整页面 -->
 <!DOCTYPE html>
@@ -63,7 +65,7 @@ curl --max-time 1 http://192.168.4.1/stream > frame.jpg 2>/dev/null
 const img = document.getElementById('stream');
 
 function startStream() {
-  img.src = '/stream?t=' + Date.now();
+  img.src = 'http://<设备IP>:81/stream?t=' + Date.now();
 }
 
 function stopStream() {
@@ -78,17 +80,3 @@ img.onerror = () => {
 
 ---
 
-## RTSP 实时流
-
-除了 HTTP MJPEG 流外，设备还提供 RTSP 实时流服务（MJPEG over RTP）。
-
-**协议**：RTSP（TCP-interleaved 模式，端口 554）
-
-**连接地址**：`rtsp://<设备IP>:554/stream`
-
-**最大并发客户端**：2
-
-**VLC 播放**：打开 VLC → 媒体 → 打开网络串流 → 输入 `rtsp://<设备IP>:554/stream`
-
-> ⚠️ RTSP 流与 HTTP MJPEG 流共享摄像头帧缓冲池（双缓冲，2 帧），两者可同时运行但可能出现帧竞争。
-> ⚠️ RTSP v1 不支持认证。

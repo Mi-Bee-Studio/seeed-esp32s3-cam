@@ -66,44 +66,50 @@ Access-Control-Allow-Headers: Content-Type, X-Password
 
 
 
-| # | 方法 | 路径 | 认证 | 描述 |
-
-|---|------|------|------|------|
-
-| 1 | GET | `/api/status` | 否 | 获取设备状态 |
-
-| 2 | GET | `/api/config` | 否 | 获取当前配置 |
-
-| 3 | POST | `/api/config` | **是** | 更新配置 |
-
-| 4 | GET | `/api/files` | 否 | 获取录制文件列表 |
-
-| 5 | DELETE | `/api/files?name=xxx` | **是** | 删除指定文件 |
-
-| 6 | GET | `/api/download?name=xxx` | 否 | 下载指定文件 |
-
-| 7 | GET | `/api/scan` | 否 | 扫描 WiFi 网络 |
-
-| 8 | POST | `/api/time` | **是** | 手动设置系统时间 |
-
-| 9 | POST | `/api/record?action=start\|stop` | **是** | 控制录像 |
-
-| 10 | POST | `/api/reset` | **是** | 恢复出厂设置 |
-
-| 11 | GET | `/stream` | 否 | MJPEG 实时视频流 |
-
-| 12 | OPTIONS | `/*` | 否 | CORS 预检请求 |
-
-| 13 | GET | `/*` | 否 | 静态文件（SPIFFS） |
-
-| 14 | POST | `/api/ota` | **是** | OTA固件升级 |
-
-| 15 | POST | `/api/format` | **是** | 格式化SD卡 |
-
-| 16 | GET | `/setup` | 否 | 首次WiFi配置向导页面 |
-
-| 17 | GET | `/ota` | 否 | OTA固件升级页面 |
-
+#RJ|| # | 方法 | 路径 | 认证 | 描述 |
+#YY|
+#SR||---|------|------|------|------|
+#SV|
+#RM|| 1 | GET | `/api/status` | 否 | 获取设备状态 |
+#HQ|
+#NQ|| 2 | GET | `/api/config` | 否 | 获取当前配置 |
+#JW|
+#RV|| 3 | POST | `/api/config` | **是** | 更新配置 |
+#PX|
+#YB|| 4 | GET | `/api/files` | 否 | 获取录制文件列表 |
+#KB|
+#HZ|| 5 | DELETE | `/api/files?name=xxx` | **是** | 删除指定文件 |
+#YR|
+#WM|| 6 | POST | `/api/files/batch` | **是** | 批量删除文件 |
+#WR|
+#QN|| 7 | GET | `/api/download?name=xxx` | 否 | 下载指定文件 |
+#KR|
+#VY|| 8 | GET | `/api/scan` | 否 | 扫描 WiFi 网络 |
+#VS|
+#JS|| 9 | POST | `/api/time` | **是** | 手动设置系统时间 |
+#QT|
+#BM|| 10 | POST | `/api/record?action=start\|stop` | **是** | 控制录像 |
+#JZ|
+#HH|| 11 | POST | `/api/reset` | **是** | 恢复出厂设置 |
+#MS|
+#MZ|| 12 | POST | `/api/ota` | **是** | OTA固件升级 |
+#ZT|
+#RZ|| 13 | POST | `/api/format` | **是** | 格式化SD卡 |
+#BP|
+#QP|| 14 | GET | `/metrics` | 否 | Prometheus 监控指标（文本格式） |
+#SR|
+#YY|| 15 | GET | `/setup` | 否 | 首次WiFi配置向导页面 |
+#PJ|
+#SQ|| 16 | GET | `/ota` | 否 | OTA固件升级页面 |
+#HT|
+#TS|| 17 | GET | `/*` | 否 | 静态文件（Web UI） |
+#PV|
+#PS|| 18 | OPTIONS | `/*` | 否 | CORS 预检请求 |
+#NJ|
+#SQ|| 19 | POST | `/onvif/device_service` | 否 | ONVIF 设备服务（SOAP） |
+#BJ|| 20 | POST | `/onvif/media_service` | 否 | ONVIF 媒体服务（SOAP） |
+#PS|
+#TX|## HTTP 状态码
 
 ## HTTP 状态码
 
@@ -283,9 +289,6 @@ esp_upload_success_total 42
 # TYPE esp_upload_failure_total counter
 esp_upload_failure_total 3
 
-# HELP esp_rtsp_clients Current RTSP client count
-# TYPE esp_rtsp_clients gauge
-esp_rtsp_clients 0
 ```
 
 共 15 项指标（9 项原有 + 6 项新增）。
@@ -299,25 +302,6 @@ scrape_configs:
     static_configs:
       - targets: ['192.168.1.100:80']
 ```
-
-### RTSP 实时流
-
-RTSP 服务器运行在端口 554（TCP-interleaved only），支持标准 RTSP 协议。
-
-| 方法 | 说明 |
-|------|------|
-| OPTIONS | 返回支持的方法列表 |
-| DESCRIBE | 返回 SDP 会话描述 |
-| SETUP | 创建会话，设置传输参数 |
-| PLAY | 开始 RTP 数据传输 |
-| TEARDOWN | 关闭会话 |
-| GET_PARAMETER | 保活心跳 |
-
-**连接地址**：`rtsp://<设备IP>:554/stream`
-
-**最大并发客户端**：2
-
-**VLC 播放**：打开 VLC → 媒体 → 打开网络串流 → 输入 `rtsp://<设备IP>:554/stream`
 
 
 ### POST /api/ota - OTA 固件升级

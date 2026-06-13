@@ -70,7 +70,6 @@ esp32s3-camera/
 
 │   ├── webdav_client.c   # WebDAV 客户端
 
-│   ├── rtsp_server.c    # RTSP 服务器
 
 │   ├── http_upload_client.c # HTTP/HTTPS 上传客户端
 
