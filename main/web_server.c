@@ -33,6 +33,7 @@
 #include "nas_uploader.h"
 #include "ws_server.h"
 #include "motion_detector.h"
+#include "esp_task_wdt.h"
 
 #include "ota_updater.h"
 #include <string.h>
@@ -599,8 +600,12 @@ static esp_err_t api_files_batch_handler(httpd_req_t *req)
 
     const char *current = recorder_get_current_file();
     int deleted = 0, failed = 0;
+    int total = cJSON_GetArraySize(names_arr);
 
-    for (int i = 0; i < cJSON_GetArraySize(names_arr); i++) {
+    for (int i = 0; i < total; i++) {
+        /* Feed watchdog — SPI SD card remove() can take long on many files */
+        esp_task_wdt_reset();
+
         cJSON *item = cJSON_GetArrayItem(names_arr, i);
         const char *name = cJSON_GetStringValue(item);
         if (!name) { failed++; continue; }
@@ -609,7 +614,13 @@ static esp_err_t api_files_batch_handler(httpd_req_t *req)
         if (strstr(name, "..")) { failed++; continue; }
 
         /* Do not delete currently recording file */
-        if (current && strcmp(name, current) == 0) { failed++; continue; }
+        /* NOTE: s_current_file is absolute path (/sdcard/...), name is relative —
+         * compare the relative portion by skipping the recordings prefix */
+        if (current) {
+            const char *rel = strstr(current, "/recordings/");
+            rel = rel ? rel + 12 : current;
+            if (strcmp(name, rel) == 0) { failed++; continue; }
+        }
 
         char path[256];
         snprintf(path, sizeof(path), "/sdcard/recordings/%s", name);
@@ -1118,7 +1129,7 @@ static esp_err_t metrics_handler(httpd_req_t *req)
     int upload_success = 0, upload_failure = 0;
     nas_uploader_get_stats(&upload_success, &upload_failure);
 
-    int rtsp_clients = 0;  /* RTSP removed */
+
     uint32_t frames_dropped = recorder_get_frames_dropped();
 
     /* === Chip info for node_uname_info === */

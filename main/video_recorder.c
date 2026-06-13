@@ -43,6 +43,9 @@
 #include <dirent.h>
 #include "sha256.h"
 
+/* Forward declarations */
+static void cleanup_orphan_zero_byte_files(void);
+
 /* ------------------------------------------------------------------ */
 /*  AVI binary helpers                                                */
 /* ------------------------------------------------------------------ */
@@ -700,7 +703,7 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
             ESP_LOGW(TAG, "SD write failed — closing segment, attempting cleanup");
             close_segment();  /* Save what we have */
             segment_open = false;
-
+            cleanup_orphan_zero_byte_files();  /* safety net */
             /* Try cleanup to free space (SD may be full) */
             storage_cleanup();
 
@@ -745,6 +748,9 @@ if (timelapse) {
 
             close_segment();
             segment_open = false;
+
+            /* Safety net: remove any zero-byte files left by close_segment() failures */
+            cleanup_orphan_zero_byte_files();
 
             /* Notify via callback */
             if (s_segment_cb && completed_size > 0) {
@@ -1015,16 +1021,20 @@ static int cleanup_dir_recursive(const char *dirpath, int depth)
         bool should_delete = false;
 
         /* File too small to be a valid AVI (min 260 bytes = RIFF + hdrl + movi headers) */
-        if (st.st_size > 0 && (size_t)st.st_size < (AVI_RIFF_HDR_SIZE + AVI_HDRL_TOTAL + 12)) {
+        /* Also catch truly empty files (0 bytes — crash during fopen before any write) */
+        if (st.st_size == 0) {
+            should_delete = true;
+            ESP_LOGI(TAG, "Found empty AVI (0 bytes): %s", fullpath);
+        } else if ((size_t)st.st_size < (AVI_RIFF_HDR_SIZE + AVI_HDRL_TOTAL + 12)) {
             should_delete = true;
             ESP_LOGI(TAG, "Found undersized AVI (%ld bytes): %s", (long)st.st_size, fullpath);
-        }
-
-        /* Check RIFF header and size=0 (incomplete write) */
-        if (!should_delete && n == 8 && memcmp(hdr, "RIFF", 4) == 0) {
-            uint32_t riff_size = hdr[4] | (hdr[5] << 8) | (hdr[6] << 16) | (hdr[7] << 24);
-            if (riff_size == 0) {
-                should_delete = true;
+        } else {
+            /* Check RIFF header and size=0 (incomplete write) */
+            if (n == 8 && memcmp(hdr, "RIFF", 4) == 0) {
+                uint32_t riff_size = hdr[4] | (hdr[5] << 8) | (hdr[6] << 16) | (hdr[7] << 24);
+                if (riff_size == 0) {
+                    should_delete = true;
+                }
             }
         }
 
@@ -1046,5 +1056,16 @@ void recorder_cleanup_incomplete(void)
     int deleted = cleanup_dir_recursive("/sdcard/recordings", 0);
     if (deleted > 0) {
         ESP_LOGI(TAG, "Boot cleanup: removed %d incomplete recordings", deleted);
+    }
+}
+
+ /** @brief One-shot cleanup of zero-byte .avi files in the recordings dir.
+ *  Called after segment rotation as a safety net for close_segment() failures.
+ */
+static void cleanup_orphan_zero_byte_files(void)
+    {
+    int deleted = cleanup_dir_recursive("/sdcard/recordings", 0);
+    if (deleted > 0) {
+        ESP_LOGI(TAG, "Post-rotation cleanup: removed %d orphan zero-byte files", deleted);
     }
 }

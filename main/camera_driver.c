@@ -23,6 +23,8 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "sensor.h"
+#include "freertos/timers.h"
+
 
 static const char *TAG = "camera";
 
@@ -47,6 +49,23 @@ static const char *TAG = "camera";
 static camera_sensor_t s_sensor      = CAMERA_SENSOR_UNKNOWN;
 static camera_res_t    s_current_res = CAMERA_RES_SVGA;
 static bool            s_initialized = false;
+
+/* Timeout for camera capture — prevents indefinite block in esp_camera_fb_get()
+ * that would starve the TWDT and trigger a panic reset.
+ * Must be < TWDT_TIMEOUT_MS (30000) to give the caller a chance to feed the WDT. */
+#define CAMERA_CAPTURE_TIMEOUT_MS  20000
+
+static TimerHandle_t s_capture_timer = NULL;
+static volatile bool  s_capture_timed_out = false;
+
+static void capture_timeout_cb(TimerHandle_t xTimer)
+{
+    s_capture_timed_out = true;
+    TaskHandle_t task = (TaskHandle_t)pvTimerGetTimerID(xTimer);
+    if (task) {
+        xTaskAbortDelay(task);
+    }
+}
 
 /** @brief 将分辨率枚举转换为 esp_camera 驱动的帧大小枚举
  *
@@ -171,6 +190,15 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
     /* Apply initial flip/mirror settings */
     camera_set_flip(false, false);
     
+    /* Create capture timeout timer (one-shot, reused across calls) */
+    s_capture_timer = xTimerCreate("cam_cap_to",
+        pdMS_TO_TICKS(CAMERA_CAPTURE_TIMEOUT_MS),
+        pdFALSE,  /* one-shot */
+        NULL,     /* timer ID set dynamically before each capture */
+        capture_timeout_cb);
+    if (!s_capture_timer) {
+        ESP_LOGW(TAG, "Cannot create capture timeout timer — no timeout protection");
+    }
     return ESP_OK;
 }
 
@@ -196,8 +224,28 @@ esp_err_t camera_capture(camera_frame_t *frame)
         return ESP_ERR_INVALID_STATE;
     }
 
+    s_capture_timed_out = false;
+
+    /* Arm timeout timer before the blocking esp_camera_fb_get() call.
+     * If the sensor stops producing frames, the timer fires -> xTaskAbortDelay()
+     * unblocks the task -> esp_camera_fb_get() returns NULL -> we report timeout. */
+    if (s_capture_timer) {
+        vTimerSetTimerID(s_capture_timer, (void*)xTaskGetCurrentTaskHandle());
+        xTimerStart(s_capture_timer, 0);
+    }
+
     camera_fb_t *fb = esp_camera_fb_get();
+
+    /* Disarm timer (harmless if it already fired) */
+    if (s_capture_timer) {
+        xTimerStop(s_capture_timer, 0);
+    }
+
     if (!fb) {
+        if (s_capture_timed_out) {
+            ESP_LOGW(TAG, "Capture timed out after %dms", CAMERA_CAPTURE_TIMEOUT_MS);
+            return ESP_ERR_TIMEOUT;
+        }
         ESP_LOGE(TAG, "Capture failed");
         return ESP_FAIL;
     }

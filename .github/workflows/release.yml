@@ -27,12 +27,55 @@ jobs:
           cp build/mibee_cam.bin release/
           cp build/bootloader/bootloader.bin release/
           cp build/partition_table/partition-table.bin release/
-          echo "esptool.py --chip esp32s3 -b 460800 write_flash 0x0 bootloader.bin 0x8000 partition-table.bin 0x10000 mibee_cam.bin" > release/flash_command.txt
-      
+          cp build/ota_data_initial.bin release/
+          cp build/spiffs.bin release/
+          cat > release/flash_command.txt << 'EOF'
+# MiBee Cam v0.3.0 — Full flash (replace PORT with your device)
+#
+# Flash all partitions at once:
+esptool.py --chip esp32s3 -p PORT -b 460800 --before default-reset --after hard-reset write-flash \
+  0x0 bootloader.bin \
+  0x8000 partition-table.bin \
+  0x10000 mibee_cam.bin \
+  0x3b0000 ota_data_initial.bin \
+  0x3b2000 spiffs.bin
+
+# Flash app only (fast, for upgrading from v0.2.x):
+# esptool.py --chip esp32s3 -p PORT -b 460800 --before default-reset --after hard-reset write-flash 0x10000 mibee_cam.bin
+EOF
+
+      - name: Write release notes
+        run: |
+          cat > release/body.md << 'RELEASED'
+## v0.3.0 — Optimal Config + Stability Fixes
+
+### New
+- **Auto-optimized timelapse config** — segment_sec and fps now auto-computed from interval, user only sets resolution/interval/JPEG quality
+- Optimal mapping table (1s→600s/15fps, 5s→1800s/15fps, 10s+→3600s/15fps, dynamic→1800s/15fps)
+- Web UI hides fps/segment_sec controls in timelapse mode, shows read-only optimal-config info
+
+### Bug Fixes
+- Camera capture timeout: 20s safety abort via xTaskAbortDelay (prevents indefinite block)
+- WebDAV upload timeout reduced 60s→20s, URL encoding for spaces, WDT feed in retry loops
+- Batch delete: TWDT feed in loop, fixed current-file comparison (relative vs absolute path)
+- Zero-byte file accumulation: cleanup_dir_recursive checks st_size==0, safety net at boot/rotation
+- cleanup_orphan_zero_byte_files() moved outside recorder_cleanup_incomplete() body
+- Device stable past 240s uptime (was 30-60s TWDT resets)
+
+### Packaging
+- Full flash assets: bootloader, partition-table, mibee_cam, ota_data_initial, spiffs
+- Complete flash_command.txt with all partitions + app-only upgrade command
+
+---
+
+**Full Changelog:** https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam/commits/v0.3.0
+RELEASED
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: release/*
-          generate_release_notes: true
+          body_path: release/body.md
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
