@@ -12,8 +12,6 @@ Exit: `Ctrl+]`
 
 ### Key Log Tags
 
-| Tag | Module |
-|-----|--------|
 | `main` | Main entry, health monitoring |
 | `camera` | Camera driver |
 | `recorder` | Video recorder |
@@ -24,7 +22,8 @@ Exit: `Ctrl+]`
 | `uploader` | NAS upload |
 | `status_led` | LED status |
 | `time_sync` | Time synchronization |
-
+| `onvif_disc` | ONVIF discovery module |
+| `onvif_svc` | ONVIF SOAP service |
 ### Health Monitor Output
 
 Automatically outputs every 60 seconds in the following format:
@@ -137,9 +136,9 @@ if (ev_err != ESP_OK && ev_err != ESP_ERR_INVALID_STATE) {
 
 ---
 
-
-
 ### SD Card Initialization Fails with SPI High-Speed Mode
+
+**Symptom**: SD card works fine with previous firmware but fails to initialize after upgrade. Serial log shows repeated failures:
 
 
 
@@ -183,9 +182,7 @@ E (xxx) sdmmc_sd: sdmmc_enable_hs_mode_and_check: send_csd returned 0x108
 
 
 
-**Fix**: In `storage_manager.c`, ensure the SPI clock frequency is set to `SDMMC_FREQ_DEFAULT` (20MHz), not `SDMMC_FREQ_HIGHSPEED` (40MHz). The 20MHz default provides reliable SPI operation with download speeds of approximately 300-600 KB/s.
-
-
+The 20MHz default provides reliable SPI operation with download speeds of approximately 300-600 KB/s.
 
 ```c
 
@@ -207,8 +204,7 @@ sdspi_device_config_t dev_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
 
 ---
 
----
-
+### Recording Not Starting
 ### Recording Not Starting
 
 **Symptom**: LED is off but `/api/status` shows `recording: false`.
@@ -291,6 +287,43 @@ sdspi_device_config_t dev_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
 
 ## 4. Recovery Methods
 
+### NVR Cannot Discover Camera via ONVIF
+
+**Symptom**: NVR's device search shows no results, but camera web UI works fine.
+
+**Troubleshooting**:
+
+1. Confirm camera is in **STA mode** (connected to router) — ONVIF discovery does not work in AP mode
+2. Confirm NVR and camera are on the **same subnet** — WS-Discovery multicast does not cross routers/subnets
+3. Check serial log for:
+   - `onvif_disc: Joined multicast 239.255.255.250` — discovery started OK
+   - `onvif_disc: Received Probe from ...` — NVR probes are reaching the camera
+   - `onvif_disc: ProbeMatches sent to ...` — camera is responding
+4. If no Probe messages are received, check router multicast settings
+5. Try **directed discovery**: manually add camera by IP address in the NVR
+6. Some NVRs need the ONVIF port explicitly: `http://<camera-IP>:80/onvif/device_service`
+
+**Solution**: Ensure camera is in STA mode on the same network as the NVR. Check serial log for Probe messages.
+
+---
+
+### NVR Discovers Camera but Cannot Play Video
+
+**Symptom**: NVR finds the camera via ONVIF but shows no video or black screen.
+
+**Root Cause**: This camera outputs **MJPEG only** (not H.264). Many NVRs expect H.264 by default.
+
+**Troubleshooting**:
+
+1. Check if the NVR supports MJPEG input — some NVRs only support H.264
+2. Verify the stream works independently: open `http://<camera-IP>:81/stream` in a browser
+3. Check NVR settings for "video format" or "codec" — switch to MJPEG if available
+4. Try manually adding the stream URL in the NVR: `http://<camera-IP>:81/stream`
+
+**Solution**: Use an NVR that supports MJPEG (Blue Iris, Shinobi, Frigate) or manually configure MJPEG stream URL.
+
+---
+
 ### Method 1: BOOT Button Recovery
 
 1. While device is powered on
@@ -326,10 +359,11 @@ idf.py -p COM3 flash monitor
 ### Downloaded AVI Files Won't Play
 
 
+---
+
+### Downloaded AVI Files Won't Play
 
 **Symptom**: AVI files downloaded from the file manager won't open in video players (Windows Media Player, VLC, etc.), or show "0 frames" / "corrupt file" errors.
-
-
 
 **Root Cause**: In firmware versions before this fix, the AVI header patch offsets in `close_segment()` were incorrect:
 
@@ -363,10 +397,11 @@ fseek(s_seg.fp, strh_data_pos + 32, SEEK_SET);
 
 ### Zero-Byte Recording Files
 
+---
 
+### Zero-Byte Recording Files
 
 **Symptom**: The file manager shows recording files with 0 bytes size.
-
 
 
 **Root Cause**: The segment completion callback was called without checking if any frames were actually written. When a segment was opened but immediately closed (e.g., due to SD card issues), a 0-byte entry was registered in the file cache.
