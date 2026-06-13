@@ -221,7 +221,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </div>
 <div class="field" id="intervalField" style="display:none;">
 <label>拍摄间隔</label>
-<select id="timelapseInterval">
+<select id="timelapseInterval" onchange="updateOptimalInfo()">
 <option value="1">1 秒</option>
 <option value="5">5 秒</option>
 <option value="10">10 秒</option>
@@ -259,10 +259,17 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <option value="300">300 秒</option>
 </select>
 </div>
-<div class="field">
-<label>播放帧率</label>
-<div style="color:#666;font-size:13px;">15 fps (固定)</div>
+<!-- Optimal config info (shown in timelapse/dynamic mode, hides fps + segment_sec controls) -->
+<div id="optimalInfo" style="display:none; background:#f5f3ff; border-radius:6px; padding:10px; margin-bottom:10px;">
+    <div style="font-size:12px; color:#7C3AED; font-weight:500; margin-bottom:6px;">自动最优配置</div>
+    <div style="font-size:13px; color:#555;">
+        播放帧率: <strong id="optimalFps">15</strong> fps &nbsp;|&nbsp;
+        片段时长: <strong id="optimalSegmentText">10 分钟</strong>
+        <span style="display:none" id="optimalSegmentSec">600</span>
+    </div>
 </div>
+
+<div id="fpsField">
 <div class="field">
 <label>帧率 (FPS)</label>
 <div class="range-row">
@@ -270,6 +277,9 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <span class="range-val" id="fpsVal">10</span>
 </div>
 </div>
+</div>
+
+<div id="segmentField">
 <div class="field">
 <label>片段时长</label>
 <select id="segment_sec">
@@ -281,6 +291,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <option value="900">15 分钟</option>
 <option value="1800">30 分钟</option>
 </select>
+</div>
 </div>
 <div class="field">
 <label>JPEG 质量 (1-63)</label>
@@ -577,8 +588,8 @@ var interval = tlMode === 1 ? parseInt($('timelapseInterval').value) : 0;
   webdav_pass:$('webdav_pass').value,
 
   resolution:parseInt($('resolution').value),
-  fps:parseInt($('fps').value),
-  segment_sec:parseInt($('segment_sec').value),
+  fps: (tlMode >= 1) ? getOptimalFps(interval) : parseInt($('fps').value),
+  segment_sec: (tlMode >= 1) ? (tlMode === 2 ? 1800 : getOptimalSegmentSec(parseInt($('timelapseInterval').value))) : parseInt($('segment_sec').value),
   jpeg_quality:parseInt($('jpeg_quality').value),
   vflip:$('vflip').checked,
   hmirror:$('hmirror').checked,
@@ -658,13 +669,57 @@ function onUploadMethodChange(){
 
 }
 
-/* ---- Record mode visibility ---- */
+/* ---- Record mode visibility + optimal config ---- */
+
+function getOptimalSegmentSec(interval) {
+    var map = {1:600, 5:1800, 10:3600, 30:3600, 60:3600, 120:3600, 300:3600};
+    return map[interval] || 1800;
+}
+
+function getOptimalFps(interval) {
+    return 15; // timelapse playback always 15 fps
+}
+
+function getOptimalSegmentText(sec) {
+    if (sec >= 3600) return '60 分钟';
+    if (sec >= 1800) return '30 分钟';
+    if (sec >= 900)  return '15 分钟';
+    if (sec >= 600)  return '10 分钟';
+    if (sec >= 300)  return '5 分钟';
+    if (sec >= 180)  return '3 分钟';
+    if (sec >= 120)  return '2 分钟';
+    if (sec >= 60)   return '1 分钟';
+    return sec + ' 秒';
+}
+
+function updateOptimalInfo() {
+    var mode = $('recordMode').value;
+    if (mode !== 'timelapse' && mode !== 'dynamic') return;
+    var seg, fps;
+    if (mode === 'dynamic') {
+        seg = 1800;
+        fps = 15;
+    } else {
+        var interval = parseInt($('timelapseInterval').value);
+        seg = getOptimalSegmentSec(interval);
+        fps = getOptimalFps(interval);
+    }
+    $('optimalFps').textContent = fps;
+    $('optimalSegmentSec').textContent = seg;
+    $('optimalSegmentText').textContent = getOptimalSegmentText(seg);
+}
+
 function onRecordModeChange(){
-var mode = $('recordMode').value;
-$('intervalField').style.display = mode === 'timelapse' ? 'block' : 'none';
-$('dynamicFields').style.display = mode === 'dynamic' ? 'block' : 'none';
-$('dynamicActiveField').style.display = mode === 'dynamic' ? 'block' : 'none';
-$('dynamicIdleField').style.display = mode === 'dynamic' ? 'block' : 'none';
+    var mode = $('recordMode').value;
+    var isTimelapse = mode === 'timelapse' || mode === 'dynamic';
+    $('intervalField').style.display = mode === 'timelapse' ? 'block' : 'none';
+    $('dynamicFields').style.display = mode === 'dynamic' ? 'block' : 'none';
+    $('dynamicActiveField').style.display = mode === 'dynamic' ? 'block' : 'none';
+    $('dynamicIdleField').style.display = mode === 'dynamic' ? 'block' : 'none';
+    $('fpsField').style.display = isTimelapse ? 'none' : 'block';
+    $('segmentField').style.display = isTimelapse ? 'none' : 'block';
+    $('optimalInfo').style.display = isTimelapse ? 'block' : 'none';
+    if (isTimelapse) updateOptimalInfo();
 }
 
 var msSlider=$('motionSensitivity');

@@ -19,6 +19,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_log.h"
@@ -201,6 +202,81 @@ static void parse_config_txt(void)
     }
 }
 
+/* ---- optimal timelapse parameter mapping ---- */
+
+typedef struct {
+    uint8_t  interval_sec;
+    uint16_t segment_sec_optimal;
+    uint8_t  fps_optimal;
+} optimal_timelapse_entry_t;
+
+/**
+ * @brief 最优配置映射表：根据 timelapse_interval_sec 查表得到最优 segment_sec 和 fps
+ *
+ * 设计原则：目标文件 20-40MB（SVGA@quality12，~65KB/帧），每日文件数 24-144
+ * 连续模式不受影响，保留用户自定义 fps/segment_sec
+ */
+static const optimal_timelapse_entry_t s_optimal_timelapse[] = {
+    {  1,   600,  15 },  /* 39MB/段, 144文件/天 */
+    {  5,  1800,  15 },  /* 23MB/段,  48文件/天 */
+    { 10,  3600,  15 },  /* 23MB/段,  24文件/天 */
+    { 30,  3600,  15 },  /*  8MB/段,  24文件/天 */
+    { 60,  3600,  15 },  /*  4MB/段,  24文件/天 */
+    {120,  3600,  15 },  /*  2MB/段,  24文件/天 */
+    /* 注：timelapse_interval_sec 为 uint8_t（最大 255），300 通过最近邻匹配到本表 */
+};
+
+#define OPTIMAL_TIMELAPSE_ENTRIES (sizeof(s_optimal_timelapse) / sizeof(s_optimal_timelapse[0]))
+
+/** @brief 根据 timelapse_interval_sec 查最优映射，返回最接近的索引 */
+static int optimal_lookup(uint8_t interval_sec)
+{
+    for (int i = 0; i < (int)OPTIMAL_TIMELAPSE_ENTRIES; i++) {
+        if (s_optimal_timelapse[i].interval_sec == interval_sec) {
+            return i;
+        }
+    }
+    /* Fallback: 不在表中的间隔值，使用最近邻匹配 */
+    int best = 0;
+    int best_diff = 999;
+    for (int i = 0; i < (int)OPTIMAL_TIMELAPSE_ENTRIES; i++) {
+        int diff = abs((int)s_optimal_timelapse[i].interval_sec - (int)interval_sec);
+        if (diff < best_diff) {
+            best_diff = diff;
+            best = i;
+        }
+    }
+    ESP_LOGW(TAG, "optimal_lookup: interval=%d not in table, nearest=%d",
+             interval_sec, s_optimal_timelapse[best].interval_sec);
+    return best;
+}
+
+/**
+ * @brief 根据拍摄间隔和录制模式计算最优片段时长和帧率
+ *
+ * - timelapse_mode=0（连续录制）：不做任何修改，保留用户自定义值
+ * - timelapse_mode=1（普通延时）：根据 timelapse_interval_sec 查表
+ * - timelapse_mode=2（动态延时）：固定值 1800s，fps=15
+ */
+void config_apply_optimal(cam_config_t *cfg)
+{
+    if (!cfg) return;
+
+    if (cfg->timelapse_mode == 1) {
+        int idx = optimal_lookup(cfg->timelapse_interval_sec);
+        cfg->segment_sec = s_optimal_timelapse[idx].segment_sec_optimal;
+        cfg->fps         = s_optimal_timelapse[idx].fps_optimal;
+        ESP_LOGD(TAG, "optimal: timelapse interval=%d → segment_sec=%u, fps=%u",
+                 cfg->timelapse_interval_sec, cfg->segment_sec, cfg->fps);
+    } else if (cfg->timelapse_mode == 2) {
+        cfg->segment_sec = 1800;
+        cfg->fps         = 15;
+        ESP_LOGD(TAG, "optimal: dynamic timelapse → segment_sec=%u, fps=%u",
+                 cfg->segment_sec, cfg->fps);
+    }
+    /* 连续模式 (mode=0)：不修改，保留用户配置 */
+}
+
 /* ---- public API ---- */
 
 /** @brief 初始化配置模块，初始化 NVS 并加载存储的配置，无存储则使用默认值 */
@@ -302,6 +378,9 @@ esp_err_t config_init(void)
         return ESP_OK;
     }
 
+    /* Apply optimal timelapse parameters after loading */
+    config_apply_optimal(&s_config);
+
     ESP_LOGI(TAG, "Config loaded from NVS");
     return ESP_OK;
 }
@@ -367,6 +446,9 @@ bool config_validate(const cam_config_t *cfg)
 /** @brief 将当前配置保存到 NVS 闪存持久化 */
 esp_err_t config_save(void)
 {
+    /* Apply optimal timelapse parameters before persisting */
+    config_apply_optimal(&s_config);
+
     if (!config_validate(&s_config)) {
         ESP_LOGW(TAG, "Config validation failed, not saving");
         return ESP_ERR_INVALID_ARG;
