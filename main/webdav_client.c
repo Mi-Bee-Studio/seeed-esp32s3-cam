@@ -23,6 +23,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include "esp_task_wdt.h"
+#include <ctype.h>
 
 static const char *TAG = "webdav";
 
@@ -66,12 +68,27 @@ static void set_auth_header(esp_http_client_handle_t client, const char *user, c
  */
 static char *build_url(const webdav_config_t *cfg, const char *remote_path)
 {
-    /* url(128) + remote_path(256) + slack */
-    size_t len = strlen(cfg->url) + strlen(remote_path) + 2;
-    char *url = malloc(len);
+    /* URL-encode the remote path (preserve '/' separators) */
+    size_t raw_len = strlen(cfg->url) + strlen(remote_path) * 3 + 2;
+    char *url = malloc(raw_len);
     if (!url) return NULL;
 
-    snprintf(url, len, "%s%s", cfg->url, remote_path);
+    char *dst = url;
+    const char *src = remote_path;
+    /* Copy base URL as-is */
+    size_t base_len = strlen(cfg->url);
+    memcpy(dst, cfg->url, base_len);
+    dst += base_len;
+
+    while (*src) {
+        if (*src == '/' || *src == '-' || *src == '_' || *src == '.' || *src == '~' || isalnum((unsigned char)*src)) {
+            *dst++ = *src;
+        } else {
+            dst += snprintf(dst, 4, "%%%02X", (unsigned char)*src);
+        }
+        src++;
+    }
+    *dst = '\0';
     return url;
 }
 
@@ -345,6 +362,7 @@ esp_err_t webdav_mkdir_recursive(const webdav_config_t *cfg, const char *path)
     for (char *p = tmp + 1; *p; p++) {
         if (*p == '/') {
             *p = '\0';
+            esp_task_wdt_reset();
             ESP_LOGD(TAG, "mkdir_recursive: creating %s", tmp);
             esp_err_t err = webdav_mkdir(cfg, tmp);
             if (err != ESP_OK) last_err = err;
@@ -354,6 +372,7 @@ esp_err_t webdav_mkdir_recursive(const webdav_config_t *cfg, const char *path)
 
     /* Create final component */
     if (strlen(tmp) > 1) {
+        esp_task_wdt_reset();
         ESP_LOGD(TAG, "mkdir_recursive: creating %s", tmp);
         esp_err_t err = webdav_mkdir(cfg, tmp);
         if (err != ESP_OK) last_err = err;
@@ -416,10 +435,12 @@ esp_err_t webdav_upload(const webdav_config_t *cfg, const char *remote_path, con
             fseek(f, 0, SEEK_SET);  /* Reset file position */
         }
 
+        /* Feed WDT: each retry blocks for up to timeout_ms on network I/O */
+        esp_task_wdt_reset();
         esp_http_client_config_t http_cfg = {
             .url = url,
             .method = HTTP_METHOD_PUT,
-            .timeout_ms = 60000,
+            .timeout_ms = 20000,
         };
 
         esp_http_client_handle_t client = esp_http_client_init(&http_cfg);
