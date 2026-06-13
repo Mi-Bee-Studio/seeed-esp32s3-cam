@@ -16,14 +16,14 @@
 
 ## Why MiBee Cam?
 
-Most ESP32 camera projects stop at "it streams video." MiBee Cam goes **all the way** — segmented recording, smart timelapse with motion detection, dual-protocol NAS upload (WebDAV + HTTPS), RTSP streaming, OTA updates, and a polished purple-themed Web UI — all on a single-core-friendly dual-core RTOS architecture. No Linux required. No cloud dependency. **Your camera, your data, your network.**
+Most ESP32 camera projects stop at "it streams video." MiBee Cam goes **all the way** — segmented recording, smart timelapse with motion detection, dual-protocol NAS upload (WebDAV + HTTPS), ONVIF auto-discovery (Synology/Milestone compatible), OTA updates, and a polished purple-themed Web UI — all on a single-core-friendly dual-core RTOS architecture. No Linux required. No cloud dependency. **Your camera, your data, your network.**
 
 ---
 
 ## What's Inside
 
 - **AI‑assisted recording** — Continuous, timelapse, and **dynamic timelapse** (motion‑adaptive capture, saves 90% storage when nothing happens)
-- **Real‑time video** — MJPEG over HTTP + RTSP (MJPEG‑over‑RTP, VLC‑compatible), max 2 clients each
+- **Real‑time video** — MJPEG over HTTP (port 81), max 2 concurrent clients
 - **Cloud‑grade NAS upload** — WebDAV or HTTP(S) PUT, queue‑based, 3‑retry backoff, mutually exclusive
 - **Motion detection engine** — Frame‑difference analysis, 0–100 score, triggers dynamic timelapse and webhook alerts
 - **Web dashboard** — 6‑page responsive UI: status, config (accordion), file manager (batch ops), live preview, OTA update, first‑time setup wizard
@@ -112,7 +112,7 @@ Dynamic timelapse is the killer feature — set `timelapse_mode=2`, tune sensiti
 | GET | `/api/scan` | No | Scan WiFi networks |
 | GET | `/stream` | No | MJPEG live stream |
 | GET | `/metrics` | No | Prometheus metrics (text format) |
-| RTSP | `rtsp://<IP>:554/stream` | No | RTSP stream (VLC‑compatible) |
+| GET | `/onvif/*` | No | ONVIF WS-Discovery + SOAP services |
 | WS | `ws://<IP>/` | No | WebSocket real-time push |
 
 Default password: `admin` 👉 [Complete API docs](docs/en/api/overview.md)
@@ -122,13 +122,15 @@ Default password: `admin` 👉 [Complete API docs](docs/en/api/overview.md)
 ## Architecture
 
 ```
-main/  —  20 C modules + main.c + cJSON (flat layout)
+main/  —  22 C modules + main.c + cJSON (flat layout)
 ├── main.c                 # Entry, 20-step boot, watchdog
 ├── camera_driver.c/h      # OV2640/OV3660 + JPEG capture
 ├── video_recorder.c/h     # AVI MJPEG segmented recorder (3 modes)
 ├── motion_detector.c/h    # Frame-difference motion analysis
 ├── mjpeg_streamer.c/h     # HTTP MJPEG live stream
-├── rtsp_server.c/h        # RTSP (MJPEG-over-RTP, TCP-interleaved)
+├── frame_broadcaster.c/h  # Frame buffer distributor (decouples FB consumers)
+├── onvif_service.c/h      # ONVIF SOAP service handlers
+├── onvif_discovery.c/h    # ONVIF WS-Discovery multicast
 ├── web_server.c/h         # HTTP server + REST API (16 endpoints)
 ├── ws_server.c/h          # WebSocket real-time push
 ├── ota_updater.c/h        # OTA firmware update (esp_https_ota)
@@ -158,7 +160,7 @@ main/  —  20 C modules + main.c + cJSON (flat layout)
 | [Hardware Manual](docs/en/hardware.md) | Pinout, specs, wiring |
 | [User Guide](docs/en/user-guide.md) | Config, recording modes, NAS, OTA, motion detection |
 | [System Architecture](docs/en/architecture.md) | Boot process, module design, data flow |
-| [API Reference](docs/en/api/overview.md) | Complete REST API + WebSocket + RTSP |
+| [API Reference](docs/en/api/overview.md) | Complete REST API + WebSocket + ONVIF |
 | [Troubleshooting](docs/en/troubleshooting.md) | Common issues & fixes |
 | [LED Status](docs/en/led-status.md) | LED blink patterns decoded |
 
