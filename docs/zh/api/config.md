@@ -36,7 +36,6 @@
     "vflip": false,
     "hmirror": false,
     "web_password": "****",
-    "web_password": "****",
     "timezone": "CST-8",
     "timelapse_interval_sec": 0,
     "cleanup_low_pct": 20,
@@ -83,11 +82,9 @@
     `wifi_ssid_2` | string | 备用 WiFi SSID |
     `wifi_pass_2` | string | 备用 WiFi 密码，已设置时显示 `"****"` |
     `allow_ap_fallback` | bool | 允许在两个 WiFi 网络均失败时回退到 AP 模式
-| `hmirror` | bool | 水平镜像 |
-| `web_password` | string | Web 管理密码，已设置时显示 `"****"`，未设置时显示 `""` |
 
-> **重要**：`webdav_pass` 和 `http_upload_pass` **不会**在此接口中返回（不包含在响应中）。这是设计上的安全考量。
-> 只有 `wifi_pass`、`http_upload_pass` 和 `web_password` 会以遮掩形式（`"****"`）返回。
+> **重要**：`webdav_pass` **不会**在此接口中返回（完全不包含在响应中）。这是设计上的安全考量。
+> 只有 `wifi_pass`、`http_upload_pass`、`web_password` 和 `wifi_pass_2` 会以遮掩形式（`"****"`）返回。
 
 **cURL 示例**：
 ```bash
@@ -132,7 +129,6 @@ console.log(`设备名: ${data.device_name}, 分辨率: ${data.resolution}`);
   "segment_sec": 600,
   "jpeg_quality": 8,
   "vflip": true,
-  "hmirror": false,
   "hmirror": false,
   "web_password": "newpass",
   "timelapse_interval_sec": 0,

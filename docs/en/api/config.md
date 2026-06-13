@@ -75,7 +75,6 @@ Get all current configuration items of the device. Password fields are masked.
 | `hmirror` | bool | Horizontal mirror |
 | `web_password` | string | Web management password, shows `"****"` if set, `""` if not set |
 
-| `web_password` | string | Web management password, shows `"****"` if set, `""` if not set |
 | `timelapse_interval_sec` | number | Timelapse interval in seconds (default `0` = continuous recording). When > 0, captures one frame every N seconds |
 | `cleanup_low_pct` | number | Storage cleanup trigger threshold percentage (default `20`) |
 | `cleanup_high_pct` | number | Storage cleanup target percentage (default `30`) |
@@ -86,7 +85,6 @@ Get all current configuration items of the device. Password fields are masked.
 | `allow_ap_fallback` | bool | Allow fallback to AP mode when both WiFi networks fail |
 > **Important**: `webdav_pass` is **NOT** returned by this endpoint (completely excluded from response). This is a security design consideration.
 > Only `wifi_pass`, `http_upload_pass`, `web_password` and `wifi_pass_2` are returned in masked form (`"****"`).
-> Only `wifi_pass`, `http_upload_pass` and `web_password` are returned in masked form (`"****"`).
 
 **cURL Example**:
 ```bash
@@ -182,7 +180,6 @@ Update device configuration. Request body is JSON format, only need to include f
 
 **Password Field Special Behavior**:
 
-**Password Field Special Behavior**:
 
 The four password fields (`wifi_pass`, `webdav_pass`, `http_upload_pass`, `web_password`) have special handling logic:
 - If value is `"****"` (four asterisks), the field is **ignored** and current password is kept unchanged

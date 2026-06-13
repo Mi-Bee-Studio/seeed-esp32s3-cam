@@ -36,17 +36,17 @@ cd esp-idf
 ## 2. 获取源码
 
 ```bash
-git clone https://github.com/Mi-Bee-Studio/esp32s3-cam.git
-cd esp32s3-camera
+git clone https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam.git
+cd seeed-esp32s3-cam
 ```
 
 项目结构：
 
 ```
-esp32s3-camera/
+seeed-esp32s3-cam/
 ├── main/                 # 固件源码（20 个 C 模块）
 
-│   ├── main.c            # 入口，19 步启动流程
+│   ├── main.c            # 入口，20 步启动流程
 
 │   ├── camera_driver.c   # 摄像头驱动
 
@@ -163,7 +163,7 @@ idf.py -p COM3 flash
 烧录完成后设备自动重启，串口日志显示：
 
 ```
-I (xxx) main: MiBee Cam v0.1 starting...
+I (xxx) main: MiBee Cam v0.3.0 starting...
 I (xxx) main: Free heap: XXXXX  Free PSRAM: XXXXXXX
 ```
 
@@ -235,7 +235,7 @@ I (xxx) storage: SD card mounted OK
 I (xxx) camera: Sensor: OV2640, Resolution: SVGA, Quality: 12
 I (xxx) web: Web server started on port 80
 I (xxx) main: Recording started
-I (xxx) main: MiBee Cam v0.1 initialized successfully
+I (xxx) main: MiBee Cam v0.3.0 initialized successfully
 I (xxx) main: Camera: OV2640 @ SVGA
 I (xxx) main: WiFi: STA, IP: 192.168.1.xxx
 ```
@@ -293,7 +293,7 @@ curl http://<设备IP>/api/status | grep firmware_version
 
 
 
-返回结果应包含：`"firmware_version": "0.2.0"`
+返回结果应包含：`"firmware_version": "0.3.0"`
 
 
 
@@ -307,8 +307,8 @@ curl http://<设备IP>/api/status | grep firmware_version
 
 ```
 
-I (xxx) main: MiBee Cam v0.2.0 starting...
+I (xxx) main: MiBee Cam v0.3.0 starting...
 
-I (xxx) main: Firmware: 0.2.0
+I (xxx) main: Firmware: 0.3.0
 
 ```
