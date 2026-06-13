@@ -46,7 +46,7 @@ jobs:
 
       - name: Write release notes
         run: |
-          cat > release/body.md << 'RELEASED'
+          cat > /tmp/release-body.md << 'RELEASED'
           ## v0.3.0 — Optimal Config + Stability Fixes
           
           ### New
@@ -74,8 +74,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*
-          body_path: release/body.md
+          files: release/*.bin release/flash_command.txt
+          body_path: /tmp/release-body.md
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
