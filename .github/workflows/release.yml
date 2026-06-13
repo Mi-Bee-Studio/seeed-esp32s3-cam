@@ -47,20 +47,44 @@ jobs:
       - name: Write release notes
         run: |
           cat > /tmp/release-body.md << 'RELEASED'
-          ## v0.3.0 — Optimal Config + Stability Fixes
+          ## v0.3.0 — ONVIF, MJPEG Port Separation, Frame Broadcaster, Stability
           
-          ### New
-          - **Auto-optimized timelapse config** — segment_sec and fps now auto-computed from interval, user only sets resolution/interval/JPEG quality
-          - Optimal mapping table (1s→600s/15fps, 5s→1800s/15fps, 10s+→3600s/15fps, dynamic→1800s/15fps)
-          - Web UI hides fps/segment_sec controls in timelapse mode, shows read-only optimal-config info
+          ### New Features
+          - **ONVIF auto-discovery (WS-Discovery)** — MiBee Cam appears automatically in NVR software (Synology Surveillance Station, Milestone XProtect, ONVIF-compatible NVRs) without manual IP entry
+          - **ONVIF SOAP services** — Probe, DeviceInfo, GetServices, GetScopes, GetHostname, GetEndpointReference, GetProfiles, StreamURI (returns HTTP MJPEG URI)
+          - **Frame broadcaster** — camera frame buffer (FB) copied to PSRAM and returned immediately; recording and streaming never block each other on FB access
+          - **MJPEG on independent TCP server (port 81)** — separate from HTTP web server (port 80), eliminates stream blocking web UI
+          - **Instant frame delivery** — cached last frame sent immediately to new MJPEG clients, no wait for next capture
+          - **Prometheus /metrics** — node_exporter-compatible format (15+ metrics: heap, PSRAM, temperature, recording stats, storage, WiFi)
+          - **Auto-optimized timelapse config** — segment_sec and fps auto-computed from interval; user only sets resolution/interval/JPEG quality
+          - **1-second timelapse interval** — new minimum interval option for near-real-time capture
+          - **Camera graceful degradation** — firmware boots without camera if init fails; /api/camera/availability endpoint reports status; web UI shows camera offline
+          - **Thread-safe config access** — mutex-protected reads/writes, input validation on all config fields
+          - **Product rename** — MiBeeHomeCam → MiBee Cam (firmware, docs, configs, all references)
           
           ### Bug Fixes
-          - Camera capture timeout: 20s safety abort via xTaskAbortDelay (prevents indefinite block)
-          - WebDAV upload timeout reduced 60s→20s, URL encoding for spaces, WDT feed in retry loops
-          - Batch delete: TWDT feed in loop, fixed current-file comparison (relative vs absolute path)
-          - Zero-byte file accumulation: cleanup_dir_recursive checks st_size==0, safety net at boot/rotation
-          - cleanup_orphan_zero_byte_files() moved outside recorder_cleanup_incomplete() body
-          - Device stable past 240s uptime (was 30-60s TWDT resets)
+          - **🔴 Camera FB contention** — frame broadcaster eliminates FB conflict between recording and streaming (root cause of stream freezes)
+          - **🔴 MJPEG stream blocking web UI** — moved to independent port 81 with separate TCP server task
+          - **🔴 Camera capture 20s timeout** — safety abort via xTaskAbortDelay, prevents indefinite block on dead/hung camera sensor
+          - **🔴 NAS upload TWDT crash** — WDT feed in retry loops, upload timeout reduced 60s→20s, URL encoding for spaces
+          - **🔴 Recorder zero-interval busy loop** — timelapse interval=0 no longer spin-locks the recording task
+          - **🔴 WiFi power save causing DHCP/HTTP issues** — power save disabled for reliable network connectivity
+          - **🔴 WiFi reconnect race condition** — flexible auth mode, DHCP hostname set, race condition in reconnection logic
+          - **🔴 WiFi multicast reception** — lowered listen_interval for reliable ONVIF WS-Discovery
+          - **🔴 Timer stack overflow** — increased stack size, prevents silent crash in timer callbacks
+          - **Batch delete TWDT** — WDT feed in delete loop, fixed relative vs absolute path comparison
+          - **Zero-byte file accumulation** — cleanup_dir_recursive checks st_size==0, safety net at boot and segment rotation
+          - **Device stable past 240s uptime** — was 30-60s TWDT resets
+          - **RTSP removed from codebase** — replaced by ONVIF HTTP MJPEG; all RTSP server code and documentation removed
+          
+          ### Documentation
+          - Complete ONVIF discovery guide with flowcharts and FAQ (en+zh)
+          - Port separation architecture design note (en+zh)
+          - Architecture diagram updated (remove RTSP, add ONVIF/frame_broadcaster, update partition table)
+          - User guide updated (remove RTSP, fix timelapse range, update port 81 references)
+          - API docs updated (remove RTSP, add ONVIF endpoints)
+          - Troubleshooting guide updated with ONVIF discovery FAQ
+          - MiBeeNVR recommended as companion NVR software
           
           ### Packaging
           - Full flash assets: bootloader, partition-table, mibee_cam, ota_data_initial, spiffs
@@ -68,7 +92,7 @@ jobs:
           
           ---
           
-          **Full Changelog:** https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam/commits/v0.3.0
+          **Full Changelog:** https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam/compare/v0.2.0...v0.3.0
           RELEASED
 
       - name: Create Release
