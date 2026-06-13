@@ -137,13 +137,13 @@ The device supports three recording modes controlled by `timelapse_mode`:
 | **1 = Normal timelapse** | Fixed interval capture, plays at 15fps | `TLM_` | 15fps AVI |
 | **2 = Dynamic timelapse** | Motion-adaptive capture, saves storage | `DYN_` | 15fps AVI |
 
-**Normal timelapse**: Uses `timelapse_interval_sec` (5-300s) for fixed interval captures.
+**Normal timelapse**: Uses `timelapse_interval_sec` (1-300s) for fixed interval captures.
 **Dynamic timelapse**: Automatically switches between `motion_active_interval_sec` (1-30s) when motion detected and `motion_idle_interval_sec` (5-300s) when idle.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `timelapse_mode` | uint8 | `0` | Recording mode: 0=continuous, 1=normal timelapse, 2=dynamic timelapse |
-| `timelapse_interval_sec` | uint16 | `0` | Timelapse interval (0=continuous, >0=seconds between captures) |
+|| `timelapse_interval_sec` | uint16 | `0` | Timelapse interval (0=continuous, 1-300=seconds between captures)
 | `frame_drop_enabled` | bool | `false` | Enable frame dropping under resource pressure |
 
 ##### Motion Detection Settings
@@ -181,7 +181,6 @@ Each webhook sends JSON payload:
 ```json
 {"event_type": "motion_detected", "message": "Motion detected at 2026-06-05 14:30:15", "timestamp": "2026-06-05T14:30:15Z"}
 ```
-## LED Indicator
 ## LED Indicator
 
 The onboard LED (GPIO21, active-low) reflects the device's current status through different blinking patterns:
@@ -243,7 +242,6 @@ curl -X POST "http://192.168.4.1/api/record?action=stop" \
 
 ### Recording Format
 
-### Recording Format
 
 - **Format**: AVI (MJPEG encoding)
 - **Segmentation**: Auto-segmented by `segment_sec` (default 300 seconds = 5 minutes)
@@ -270,7 +268,6 @@ After each segment completes: NAS upload → Storage cleanup → Start next segm
 
 ### Circular Storage
 
-### Circular Storage
 
 Automatic cleanup when SD card free space is insufficient:
 
@@ -384,11 +381,19 @@ Configurations read from TF card are synchronized back to NVS to ensure consiste
 Open directly in browser:
 
 ```
-http://<deviceIP>/stream
+```
+http://<deviceIP>:81/stream
+```
 ```
 
 ### Client Limit
 
+
+### ONVIF Discovery
+
+The camera supports ONVIF WS-Discovery protocol and can be auto-discovered by NVR systems (Network Video Recorders). The device announces itself on the network using standard ONVIF discovery messages, making it compatible with most professional surveillance systems.
+
+For detailed ONVIF configuration and integration, refer to the ONVIF documentation and your NVR system's manual.
 Supports maximum **2** simultaneously connected streaming clients. Returns 503 error when limit exceeded.
 
 ### Adjust Quality
@@ -400,18 +405,6 @@ Modify video parameters via `POST /api/config`:
 | `resolution` | 0, 1, 2 | VGA(640×480), SVGA(800×600), XGA(1024×768) |
 | `fps` | 1-30 | Frame rate, higher is smoother but uses more bandwidth |
 | `jpeg_quality` | 1-63 | Quality, lower value means better quality (recommended 10-20) |
-
-### RTSP Real-time Stream
-
-In addition to the HTTP MJPEG stream, the device also provides an RTSP real-time stream service:
-
-```
-rtsp://<deviceIP>:554/stream
-```
-
-**VLC Playback**: Open VLC → Media → Open Network Stream → Enter `rtsp://<deviceIP>:554/stream`
-
-**Max Concurrent Clients**: 2
 
 ### Camera Flip Settings
 
@@ -476,22 +469,14 @@ All configuration parameters restored to default values (WiFi cleared, password 
 Upload method (`upload_method`) can only be one of: Disabled, WebDAV, or HTTP(S). When switching methods, previous upload configurations are preserved in NVS but will not be used.
 
 ### ⚠️ Video Stream Concurrency Limits
-The system has 3 video stream consumers sharing the camera frame buffer:
+The system has 2 video stream consumers sharing the camera frame buffer:
 1. **Recording task** (recording_task) — Core 0, highest priority
 2. **MJPEG HTTP stream** (/stream) — Max 2 clients
-3. **RTSP stream** (rtsp://<IP>:554/stream) — Max 2 clients
 
-The camera frame buffer pool size is 2 (double buffer). When all 3 consumers are active simultaneously, frame contention may occur. Recommendations:
-- Normal use: Recording + 1 HTTP stream OR Recording + 1 RTSP stream
-- Not recommended: Multiple HTTP and RTSP stream clients simultaneously
+The camera frame buffer pool size is 2 (double buffer). When both consumers are active simultaneously, frame contention may occur. Recommendations:
+- Normal use: Recording + 1 HTTP stream client
 - Recording task has highest priority and will not drop frames due to stream clients
-
-### ⚠️ RTSP vs HTTP Stream
-- RTSP and HTTP MJPEG streams are **independent**, can run simultaneously
-- Both share camera frame buffers but not network connections
-- RTSP uses TCP-interleaved mode (port 554), no UDP
-- RTSP v1 does not support authentication
-
+### ⚠️ Flip Settings Don't Affect Recorded Videos
 ### ⚠️ Flip Settings Don't Affect Recorded Videos
 vflip/hmirror settings take effect immediately on **newly captured frames**, but:
 - Already recorded AVI files are not affected
@@ -529,7 +514,7 @@ curl http://192.168.4.1/metrics
 - `memory_psram_free_bytes`: Free PSRAM memory
 - `heap_watermark_bytes`: Heap watermark (lowest free)
 - `stack_watermark_bytes`: Stack watermark (lowest free)
-- `rtsp_clients`: Current RTSP client count
+- `http_clients`: Current HTTP stream client count
 - `http_clients`: Current HTTP stream client count
 
 ### Temperature Monitoring

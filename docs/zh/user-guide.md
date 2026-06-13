@@ -132,7 +132,7 @@ curl -X POST http://192.168.4.1/api/config \
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `timelapse_mode` | uint8 | `0` | 录像模式：0=连续, 1=普通延时, 2=动态延时 |
-| `timelapse_interval_sec` | uint16 | `0` | 延时拍摄间隔（0=连续, >0=延时秒数） |
+|| `timelapse_interval_sec` | uint16 | `0` | 延时拍摄间隔（0=连续, 1-300=延时秒数）
 
 #### 运动检测配置
 
@@ -157,7 +157,6 @@ curl -X POST http://192.168.4.1/api/config \
 | `alert_webhook_url` | string | `""` | 告警 webhook URL，用于 HTTP 回调通知 |
 | `alert_webhook_enabled` | bool | `false` | 启用告警 webhook 通知 |
 
-## LED 指示灯
 ## LED 指示灯
 
 板载 LED（GPIO21，低电平有效）通过不同闪烁模式反映设备当前状态：
@@ -219,7 +218,6 @@ curl -X POST "http://192.168.4.1/api/record?action=stop" \
 
 ### 录像格式
 
-### 录像格式
 
 - **格式**：AVI（MJPEG 编码）
 - **分段**：按 `segment_sec`（默认 300 秒 = 5 分钟）自动分段
@@ -260,7 +258,6 @@ curl -X POST "http://192.168.4.1/api/record?action=stop" \
 
 ### 循环存储
 
-### 循环存储
 
 当 SD 卡剩余空间不足时自动清理：
 
@@ -414,12 +411,21 @@ TF 卡配置文件 > NVS 闪存 > 默认值
 直接在浏览器中打开：
 
 ```
-http://<设备IP>/stream
+```
+http://<设备IP>:81/stream
+```
 ```
 
 ### 客户端限制
 
 最多支持 **2 个**同时连接的流客户端。超过限制时返回 503 错误。
+
+
+### ONVIF 发现
+
+摄像头支持 ONVIF WS-Discovery 协议，可以被 NVR 系统（网络录像机）自动发现。设备使用标准 ONVIF 发现消息在网络中宣告自己，与大多数专业监控系统兼容。
+
+有关详细的 ONVIF 配置和集成，请参阅 ONVIF 文档和您的 NVR 系统手册。
 
 ### 调整画质
 
@@ -430,18 +436,6 @@ http://<设备IP>/stream
 | `resolution` | 0, 1, 2 | VGA(640×480)、SVGA(800×600)、XGA(1024×768) |
 | `fps` | 1-30 | 帧率，越高越流畅但占用更多带宽 |
 | `jpeg_quality` | 1-63 | 画质，数值越低画质越好（建议 10-20） |
-
-### RTSP 实时流
-
-除了 HTTP MJPEG 流外，设备还提供 RTSP 实时流服务：
-
-```
-rtsp://<设备IP>:554/stream
-```
-
-**VLC 播放**：打开 VLC → 媒体 → 打开网络串流 → 输入 `rtsp://<设备IP>:554/stream`
-
-**最大并发客户端**：2 个
 
 ### 摄像头翻转设置
 
@@ -506,25 +500,16 @@ curl -X POST http://192.168.4.1/api/reset \
 上传方式（upload_method）只能选择一种：禁用、WebDAV 或 HTTP(S)。切换方式后，之前的上传配置仍然保留在 NVS 中，但不会被使用。
 
 ### ⚠️ 视频流并发限制
-系统共有 3 个视频流消费者共享摄像头帧缓冲：
+系统共有 2 个视频流消费者共享摄像头帧缓冲：
 1. **录像任务** (recording_task) — Core 0，最高优先级
 2. **MJPEG HTTP 流** (/stream) — 最多 2 个客户端
-3. **RTSP 流** (rtsp://<IP>:554/stream) — 最多 2 个客户端
-
-摄像头帧缓冲池大小为 2（双缓冲），当 3 个消费者同时活跃时，可能出现帧竞争。建议：
-- 正常使用：录像 + 1 路 HTTP 流 或 录像 + 1 路 RTSP 流
-- 不建议同时开启 HTTP 流和 RTSP 流给多个客户端观看
+- 正常使用：录像 + 1 个 HTTP 流客户端
+- 建议不同时开启多个 HTTP 流客户端
 - 录像任务优先级最高，不会因流客户端增加而丢帧
 
-### ⚠️ RTSP 与 HTTP 流的关系
-- RTSP 和 HTTP MJPEG 流是**独立的**，可以同时运行
-- 两者共享摄像头帧缓冲，但不共享网络连接
-- RTSP 使用 TCP-interleaved 模式（端口 554），不使用 UDP
-- RTSP 不支持认证（v1 版本）
-
 ### ⚠️ 翻转设置不影响已录制的视频
+
 vflip/hmirror 设置对**新采集的帧**立即生效，但：
-- 已录制的 AVI 文件不受影响
 - 录像过程中可以切换翻转，但同一段视频内可能出现方向不一致的帧
 - 建议在停止录像后修改翻转设置
 
@@ -557,8 +542,6 @@ curl http://192.168.4.1/metrics
 - `memory_psram_free_bytes`: 可用 PSRAM 内存
 - `heap_watermark_bytes`: 堆水位线（最低可用）
 - `stack_watermark_bytes`: 栈水位线（最低可用）
-- `rtsp_clients`: 当前 RTSP 客户端数
-- `http_clients`: 当前 HTTP 流客户端数
 
 ### 温度监控
 
