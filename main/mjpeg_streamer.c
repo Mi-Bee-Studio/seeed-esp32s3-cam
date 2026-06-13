@@ -145,6 +145,27 @@ static void mjpeg_client_task(void *arg)
 
     ESP_LOGI(TAG, "Stream client started (total %d)", s_client_count);
 
+    /* Send cached frame immediately so client doesn't wait for next capture */
+    frame_msg_t cache_msg;
+    if (fbroadcast_get_latest(&cache_msg)) {
+        char cache_hdr[128];
+        int cache_hdr_len = snprintf(cache_hdr, sizeof(cache_hdr),
+            "\r\n--" MJPEG_BOUNDARY "\r\n"
+            "Content-Type: image/jpeg\r\n"
+            "Content-Length: %zu\r\n"
+            "\r\n", cache_msg.len);
+        send(client_sock, cache_hdr, cache_hdr_len, 0);
+        const uint8_t *ptr = cache_msg.data;
+        size_t rem = cache_msg.len;
+        while (rem > 0) {
+            size_t chunk = (rem > CHUNK_SIZE) ? CHUNK_SIZE : rem;
+            if (send(client_sock, (const char *)ptr, chunk, 0) <= 0) break;
+            ptr += chunk; rem -= chunk;
+        }
+        send(client_sock, "\r\n", 2, 0);
+        fbroadcast_release(&cache_msg);
+    }
+
     /* ---- Stream loop ------------------------------------------------- */
     uint8_t fps;
     TickType_t frame_delay;
