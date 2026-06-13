@@ -3,9 +3,9 @@
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![ESP-IDF](https://img.shields.io/badge/ESP--IDF-v5.x%2Fv6.0-1C7C3D?logo=espressif)](https://idf.espressif.com/)
 [![Platform](https://img.shields.io/badge/Platform-XIAO%20ESP32--S3%20Sense-EA4C89)](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/)
-[![CI](https://img.shields.io/github/actions/workflow/status/Mi-Bee-Studio/esp32s3-cam/release.yml?logo=github&label=CI)](https://github.com/Mi-Bee-Studio/esp32s3-cam/actions)
-[![Release](https://img.shields.io/github/v/release/Mi-Bee-Studio/esp32s3-cam?logo=github)](https://github.com/Mi-Bee-Studio/esp32s3-cam/releases)
-[![Firmware](https://img.shields.io/badge/%E5%9B%BA%E4%BB%B6-v0.2.0-7C3AED)](https://github.com/Mi-Bee-Studio/esp32s3-cam/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/Mi-Bee-Studio/seeed-esp32s3-cam/release.yml?logo=github&label=CI)](https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam/actions)
+[![Release](https://img.shields.io/github/v/release/Mi-Bee-Studio/seeed-esp32s3-cam?logo=github)](https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam/releases)
+[![Firmware](https://img.shields.io/badge/%E5%9B%BA%E4%BB%B6-v0.3.0-7C3AED)](https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam/releases)
 
 > **家用级 AI 增强监控摄像头固件** — 巴掌大的身躯，企业级的能耐。
 > 一块 15 美元的 XIAO ESP32-S3 Sense 开发板，变身全功能网络监控摄像头。
@@ -62,8 +62,8 @@
 ## 快速开始
 
 ```bash
-git clone --recursive https://github.com/Mi-Bee-Studio/esp32s3-cam.git
-cd esp32s3-camera
+git clone --recursive https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam.git
+cd seeed-esp32s3-cam
 idf.py set-target esp32s3
 idf.py build
 idf.py -p COM3 flash monitor
