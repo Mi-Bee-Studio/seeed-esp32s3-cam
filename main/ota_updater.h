@@ -20,7 +20,7 @@
 #include "esp_err.h"
 #include "esp_http_server.h"
 
-#define FW_VERSION "0.2.0"
+#define FW_VERSION "0.3.0"
 
 /**
  * @brief Initialize OTA module — logs firmware version, creates mutex.
