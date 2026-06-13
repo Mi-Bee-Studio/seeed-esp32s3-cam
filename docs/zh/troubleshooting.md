@@ -10,10 +10,6 @@ idf.py -p COM3 monitor
 
 退出：`Ctrl+]`
 
-### 关键日志标签
-
-| 标签 | 模块 |
-|------|------|
 | `main` | 主入口、健康监控 |
 | `camera` | 摄像头驱动 |
 | `recorder` | 视频录像器 |
@@ -24,7 +20,8 @@ idf.py -p COM3 monitor
 | `uploader` | NAS 上传 |
 | `status_led` | LED 状态 |
 | `time_sync` | 时间同步 |
-
+| `onvif_disc` | ONVIF 发现模块 |
+| `onvif_svc` | ONVIF SOAP 服务 |
 ### 健康监控输出
 
 每 60 秒自动输出，格式如下：
@@ -141,6 +138,8 @@ if (ev_err != ESP_OK && ev_err != ESP_ERR_INVALID_STATE) {
 
 **现象**：固件升级后 SD 卡无法初始化，串口日志显示重复失败：
 
+**现象**：固件升级后 SD 卡无法初始化，串口日志显示重复失败：
+
 
 
 
@@ -181,11 +180,9 @@ E (xxx) sdmmc_sd: sdmmc_enable_hs_mode_and_check: send_csd returned 0x108
 
 
 
+SPI 模式的速度能力与 SDMMC 模式（4 位）不同。
 
-
-
-// Correct for SPI mode
-
+```c
 sdspi_device_config_t dev_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
 
 // Use SDMMC_FREQ_DEFAULT (20MHz), NOT SDMMC_FREQ_HIGHSPEED (40MHz)
@@ -201,9 +198,6 @@ sdspi_device_config_t dev_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
 
 
 ---
-
----
-
 
 ---
 
@@ -289,6 +283,43 @@ sdspi_device_config_t dev_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
 
 ## 4. 恢复方法
 
+### NVR 无法通过 ONVIF 发现摄像头
+
+**现象**：NVR 的设备搜索无结果，但摄像头 web UI 正常工作。
+
+**排查**：
+
+1. 确认摄像头处于 **STA 模式**（连接路由器）— ONVIF 发现不适用于 AP 模式
+2. 确认 NVR 和摄像头在 **同一子网** — WS-Discovery 组播不跨路由器/子网
+3. 查看串口日志：
+   - `onvif_disc: Joined multicast 239.255.255.250` — 发现启动正常
+   - `onvif_disc: Received Probe from ...` — NVR 探测到达摄像头
+   - `onvif_disc: ProbeMatches sent to ...` — 摄像头正在响应
+4. 如未收到探测消息，检查路由器组播设置
+5. 尝试 **定向发现**：在 NVR 中手动添加摄像头 IP 地址
+6. 部分 NVR 需要明确指定 ONVIF 端口：`http://<摄像头-IP>:80/onvif/device_service`
+
+**解决**：确保摄像头处于 STA 模式且与 NVR 在同一网络。检查串口日志中的探测消息。
+
+---
+
+### NVR 发现摄像头但无法播放视频
+
+**现象**：NVR 通过 ONVIF 发现摄像头但显示无视频或黑屏。
+
+**根因**：此摄像头仅输出 **MJPEG**（不支持 H.264）。许多 NVR 默认期望 H.264。
+
+**排查**：
+
+1. 检查 NVR 是否支持 MJPEG 输入 — 部分 NVR 仅支持 H.264
+2. 独立验证流：在浏览器中打开 `http://<摄像头-IP>:81/stream`
+3. 检查 NVR 设置中的 "视频格式" 或 "编解码器" — 如有选项切换到 MJPEG
+4. 尝试在 NVR 中手动添加流 URL：`http://<摄像头-IP>:81/stream`
+
+**解决**：使用支持 MJPEG 的 NVR（Blue Iris、Shinobi、Frigate）或手动配置 MJPEG 流 URL。
+
+---
+
 ### 方法一：BOOT 按钮恢复
 
 1. 设备上电状态下
@@ -323,8 +354,7 @@ idf.py -p COM3 flash monitor
 
 ### 下载的 AVI 文件无法播放
 
-
-
+**症状**：从文件管理器下载的 AVI 文件无法在视频播放器（Windows Media Player、VLC 等）中打开，或显示"0 帧"/"文件损坏"错误。
 **症状**：从文件管理器下载的 AVI 文件无法在视频播放器（Windows Media Player、VLC 等）中打开，或显示"0 帧"/"文件损坏"错误。
 
 
@@ -357,9 +387,11 @@ fseek(s_seg.fp, strh_data_pos + 32, SEEK_SET);
 
 **注意**：修复前录制的文件无法修复——更新固件后需重新录制。
 
-
+---
 
 ### 出现 0 字节录像文件
+
+**症状**：文件管理器中显示大小为 0 字节的录像文件。
 
 
 
