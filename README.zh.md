@@ -16,14 +16,14 @@
 
 ## 为什么选择 MiBee Cam？
 
-大多数 ESP32 摄像头项目止步于「能看视频流」。MiBee Cam 一路走到底——分段录像、智能延时摄影（运动检测自适应）、双协议 NAS 上传（WebDAV + HTTPS）、RTSP 推流、OTA 远程升级、紫色主题 Web 管理界面——全部跑在一个双核 FreeRTOS 上。无需 Linux、无需云服务。**你的摄像头、你的数据、你的网络。**
+大多数 ESP32 摄像头项目止步于「能看视频流」。MiBee Cam 一路走到底——分段录像、智能延时摄影（运动检测自适应）、双协议 NAS 上传（WebDAV + HTTPS）、ONVIF 自动发现（兼容 Synology/Milestone 等 NVR）、OTA 远程升级、紫色主题 Web 管理界面——全部跑在一个双核 FreeRTOS 上。无需 Linux、无需云服务。**你的摄像头、你的数据、你的网络。**
 
 ---
 
 ## 功能亮点
 
 - **智能录像** — 连续录像、普通延时、**动态延时**（运动自适应捕获，无活动时节省 90%+ 存储）
-- **实时视频** — HTTP MJPEG + RTSP（MJPEG-over-RTP，VLC 兼容），最多 2 路并发
+- **实时视频** — HTTP MJPEG（端口 81），最多 2 路并发
 - **NAS 上传** — WebDAV 或 HTTP(S) PUT，队列调度，3 次重试退避，互斥选择
 - **运动检测** — 帧差分析，0–100 评分，触发动态延时和 Webhook 告警
 - **Web 仪表盘** — 6 页响应式界面：状态总览、配置管理、文件管理、实时预览、OTA 升级、首次配置向导
@@ -112,7 +112,7 @@ idf.py -p COM3 flash monitor
 | GET | `/api/scan` | 否 | 扫描 WiFi 网络 |
 | GET | `/stream` | 否 | MJPEG 实时视频流 |
 | GET | `/metrics` | 否 | Prometheus 监控指标（text 格式） |
-| RTSP | `rtsp://<IP>:554/stream` | 否 | RTSP 视频流（VLC 兼容） |
+| GET | `/onvif/*` | 否 | ONVIF WS-Discovery + SOAP 服务 |
 | WS | `ws://<IP>/` | 否 | WebSocket 实时推送 |
 
 默认密码：`admin` 👉 [完整 API 文档](docs/zh/api/overview.md)
@@ -122,13 +122,15 @@ idf.py -p COM3 flash monitor
 ## 项目结构
 
 ```
-main/  —  20 个 C 模块 + main.c + cJSON（平面布局）
+main/  —  22 个 C 模块 + main.c + cJSON（平面布局）
 ├── main.c                 # 入口，20 步启动流程，看门狗
 ├── camera_driver.c/h      # OV2640/OV3660 摄像头驱动
 ├── video_recorder.c/h     # AVI MJPEG 分段录像（3 种模式）
 ├── motion_detector.c/h    # 帧差运动检测分析
 ├── mjpeg_streamer.c/h     # HTTP MJPEG 实时推流
-├── rtsp_server.c/h        # RTSP 服务器（MJPEG-over-RTP）
+├── frame_broadcaster.c/h  # 帧缓冲分发器（解耦 FB 消费者）
+├── onvif_service.c/h      # ONVIF SOAP 服务处理
+├── onvif_discovery.c/h    # ONVIF WS-Discovery 多播
 ├── web_server.c/h         # HTTP 服务器 + REST API（16 个端点）
 ├── ws_server.c/h          # WebSocket 实时推送
 ├── ota_updater.c/h        # OTA 远程固件升级
@@ -158,7 +160,7 @@ main/  —  20 个 C 模块 + main.c + cJSON（平面布局）
 | [硬件手册](docs/zh/hardware.md) | 引脚定义、硬件规格、接线说明 |
 | [使用手册](docs/zh/user-guide.md) | 配置管理、录像模式、NAS、OTA、运动检测 |
 | [系统架构](docs/zh/architecture.md) | 启动流程、模块设计、数据流 |
-| [API 参考](docs/zh/api/overview.md) | 完整 REST API + WebSocket + RTSP |
+| [API 参考](docs/zh/api/overview.md) | 完整 REST API + WebSocket + ONVIF |
 | [故障排除](docs/zh/troubleshooting.md) | 常见问题排查与修复 |
 | [LED 状态说明](docs/zh/led-status.md) | LED 闪烁模式解码 |
 
