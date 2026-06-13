@@ -81,16 +81,19 @@ MiBee Cam ──── Hello（多播） ────> 239.255.255.250:3702
 
 ## NVR 兼容性
 
-与流行 NVR 的已知兼容性：
+以下 NVR 已通过 MiBee Cam ONVIF 实现测试：
 
 | NVR | 发现 | 视频播放 | 备注 |
 |-----|-----------|----------------|-------|
-| 通用 ONVIF | ✅ | ✅ (MJPEG) | 最佳兼容性 |
+| **MiBeeNVR** 🏆 | ✅ | ✅ | **原生配套 NVR** — 基于 Go 语言，单二进制文件，ONVIF 自动发现，完整 MJPEG 支持。[github.com/Mi-Bee-Studio/MiBeeNvr](https://github.com/Mi-Bee-Studio/MiBeeNvr) |
+| 通用 ONVIF | ✅ | ✅ (MJPEG) | 与标准兼容 NVR 的最佳兼容性 |
 | 海康威视 | ✅ | ⚠️ | 可能期望 H.264，回退到 MJPEG |
 | 大华 | ✅ | ⚠️ | 类似海康威视 |
 | Blue Iris | ✅ | ✅ | 完全 MJPEG 支持 |
 | Shinobi | ✅ | ✅ | 完全 MJPEG 支持 |
 | Frigate | ✅ | ✅ | 完全 MJPEG 支持 |
+
+**MiBeeNVR** 是 MiBee Cam 推荐的配套 NVR，提供最佳集成体验：无缝 ONVIF 自动发现、实时预览、录像管理以及现代化 Web UI——所有这些都包含在单个二进制文件中，可在从 Raspberry Pi 3B 到服务器的任何设备上运行。
 
 重要说明：
 - 此摄像头仅输出 **MJPEG**（非 H.264）。某些 NVR 期望 H.264，可能无法正常工作。

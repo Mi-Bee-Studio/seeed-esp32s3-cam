@@ -81,16 +81,19 @@ MiBee Cam ──── Hello (multicast) ────> 239.255.255.250:3702
 
 ## NVR Compatibility
 
-Known compatibility with popular NVRs:
+The following NVRs have been tested with MiBee Cam's ONVIF implementation:
 
 | NVR | Discovery | Video Playback | Notes |
 |-----|-----------|----------------|-------|
-| Generic ONVIF | ✅ | ✅ (MJPEG) | Best compatibility |
+| **MiBeeNVR** 🏆 | ✅ | ✅ | **Native companion NVR** — Go-based, single binary, ONVIF auto-discovery, full MJPEG support. [github.com/Mi-Bee-Studio/MiBeeNvr](https://github.com/Mi-Bee-Studio/MiBeeNvr) |
+| Generic ONVIF | ✅ | ✅ (MJPEG) | Best compatibility with standards-compliant NVRs |
 | Hikvision | ✅ | ⚠️ | May expect H.264, falls back to MJPEG |
 | Dahua | ✅ | ⚠️ | Similar to Hikvision |
 | Blue Iris | ✅ | ✅ | Full MJPEG support |
 | Shinobi | ✅ | ✅ | Full MJPEG support |
 | Frigate | ✅ | ✅ | Full MJPEG support |
+
+**MiBeeNVR** is the recommended companion NVR for MiBee Cam, providing the best integration experience with seamless ONVIF auto-discovery, live view, recording management, and a modern web UI — all in a single binary that runs on anything from a Raspberry Pi 3B to a full server.
 
 Important notes:
 - This camera outputs **MJPEG only** (not H.264). Some NVRs expect H.264 and may not work well.
