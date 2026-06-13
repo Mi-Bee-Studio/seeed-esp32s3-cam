@@ -62,43 +62,33 @@ Access-Control-Allow-Headers: Content-Type, X-Password
 
 `OPTIONS` requests (preflight requests) return the above CORS headers and empty response body with status code 200.
 
-## Endpoint Overview
+#MJ|## Endpoint Overview
+#JQ|
+#HT|| # | Method | Path | Auth | Description |
+#MN||---|--------|------|------|-------------|
+#XB|| 1 | GET | `/api/status` | No | Get device status |
+#RZ|| 2 | GET | `/api/config` | No | Get current configuration |
+#PV|| 3 | POST | `/api/config` | **Yes** | Update configuration |
+#PW|| 4 | GET | `/api/files` | No | Get recording file list |
+#BZ|| 5 | DELETE | `/api/files?name=xxx` | **Yes** | Delete specified file |
+#SW|| 6 | POST | `/api/files/batch` | **Yes** | Batch delete files |
+#XN|| 7 | GET | `/api/download?name=xxx` | No | Download specified file |
+#YS|| 8 | GET | `/api/scan` | No | Scan WiFi networks |
+#VZ|| 9 | POST | `/api/time` | **Yes** | Manually set system time |
+#JR|| 10 | POST | `/api/record?action=start\|stop` | **Yes** | Control recording |
+#ZH|| 11 | POST | `/api/reset` | **Yes** | Factory reset |
+#HT|| 12 | POST | `/api/ota` | **Yes** | Trigger OTA firmware update from URL |
+#XP|| 13 | POST | `/api/format` | **Yes** | Format SD card |
+#XB|| 14 | GET | `/metrics` | No | Prometheus metrics (text format) |
+#RR|| 15 | GET | `/setup` | No | First-time WiFi setup wizard page |
+#PP|| 16 | GET | `/ota` | No | OTA firmware update web page |
+#ZN|| 17 | GET | `/*` | No | Static files (Web UI) |
+#NJ|| 18 | OPTIONS | `/*` | No | CORS preflight request |
+#SQ|| 19 | POST | `/onvif/device_service` | No | ONVIF Device Service (SOAP) |
+#BJ|| 20 | POST | `/onvif/media_service` | No | ONVIF Media Service (SOAP) |
+#HX|
+#NJ|## `/api/status` Response Fields
 
-| # | Method | Path | Auth | Description |
-|---|--------|------|------|-------------|
-| 1 | GET | `/api/status` | No | Get device status |
-| 2 | GET | `/api/config` | No | Get current configuration |
-| 3 | POST | `/api/config` | **Yes** | Update configuration |
-| 4 | GET | `/api/files` | No | Get recording file list |
-| 5 | DELETE | `/api/files?name=xxx` | **Yes** | Delete specified file |
-| 6 | GET | `/api/download?name=xxx` | No | Download specified file |
-| 7 | GET | `/api/scan` | No | Scan WiFi networks |
-| 8 | POST | `/api/time` | **Yes** | Manually set system time |
-| 9 | POST | `/api/record?action=start\|stop` | **Yes** | Control recording |
-| 10 | POST | `/api/reset` | **Yes** | Factory reset |
-| 11 | GET | `/stream` | No | MJPEG real-time video stream |
-| # | Method | Path | Auth | Description |
-||---|--------|------|------|-------------|
-| 1 | GET | `/api/status` | No | Get device status |
-| 2 | GET | `/api/config` | No | Get current configuration |
-| 3 | POST | `/api/config` | **Yes** | Update configuration |
-| 4 | GET | `/api/files` | No | Get recording file list |
-| 5 | DELETE | `/api/files?name=xxx` | **Yes** | Delete specified file |
-| 6 | GET | `/api/download?name=xxx` | No | Download specified file |
-| 7 | GET | `/api/scan` | No | Scan WiFi networks |
-| 8 | POST | `/api/time` | **Yes** | Manually set system time |
-| 9 | POST | `/api/record?action=start\|stop` | **Yes** | Control recording |
-| 10 | POST | `/api/reset` | **Yes** | Factory reset |
-| 11 | GET | `/stream` | No | MJPEG real-time video stream |
-| 12 | POST | `/api/files/batch` | **Yes** | Batch delete files |
-| 13 | GET | `/metrics` | No | Prometheus metrics (text format) |
-| 14 | POST | `/api/ota` | **Yes** | Trigger OTA firmware update from URL |
-| 15 | POST | `/api/format` | **Yes** | Format SD card |
-| 16 | GET | `/setup` | No | First-time WiFi setup wizard page |
-| 17 | GET | `/ota` | No | OTA firmware update web page |
-| 18 | OPTIONS | `/*` | No | CORS preflight request |
-## `/api/status` Response Fields
-## `/api/status` Response Fields
 
 `/api/status` returns JSON with following fields:
 
@@ -272,9 +262,6 @@ esp_upload_success_total 42
 # TYPE esp_upload_failure_total counter
 esp_upload_failure_total 3
 
-# HELP esp_rtsp_clients Current RTSP client count
-# TYPE esp_rtsp_clients gauge
-esp_rtsp_clients 0
 ```
 
 Total: 15 metrics (9 original + 6 new).
@@ -330,22 +317,3 @@ Web interface static files are stored in SPIFFS partition (~256KB), path prefix 
 | Receive Timeout | 30 seconds |
 | Send Timeout | 30 seconds |
 | URI Match Mode | Wildcard |
-
-### RTSP Real-time Stream
-
-RTSP server runs on port 554 (TCP-interleaved only), supporting standard RTSP protocol.
-
-| Method | Description |
-|--------|-------------|
-| OPTIONS | Returns list of supported methods |
-| DESCRIBE | Returns SDP session description |
-| SETUP | Creates session, sets transport parameters |
-| PLAY | Starts RTP data transmission |
-| TEARDOWN | Closes session |
-| GET_PARAMETER | Keep-alive heartbeat |
-
-**Connection URL**: `rtsp://<deviceIP>:554/stream`
-
-**Max Concurrent Clients**: 2
-
-**VLC Playback**: Open VLC → Media → Open Network Stream → Enter `rtsp://<deviceIP>:554/stream`
