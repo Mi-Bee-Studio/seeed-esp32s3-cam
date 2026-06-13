@@ -180,7 +180,7 @@ static void mjpeg_client_task(void *arg)
         frame_msg_t fmsg;
         if (!fbroadcast_receive(sub, &fmsg, 3000)) {
             capture_fails++;
-            if (capture_fails >= 30) {
+            if (capture_fails >= 6) {
                 ESP_LOGW(TAG, "No frames for %d tries, ending stream", capture_fails);
                 break;
             }
