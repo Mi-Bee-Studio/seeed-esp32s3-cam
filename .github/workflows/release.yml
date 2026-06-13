@@ -29,8 +29,8 @@ jobs:
           cp build/partition_table/partition-table.bin release/
           cp build/ota_data_initial.bin release/
           cp build/spiffs.bin release/
-          cat > release/flash_command.txt << 'EOF'
-          # MiBee Cam v0.3.0 — Full flash (replace PORT with your device)
+          cat > release/flash_command.txt << EOF
+          # MiBee Cam $GITHUB_REF_NAME — Full flash (replace PORT with your device)
           #
           # Flash all partitions at once:
           esptool.py --chip esp32s3 -p PORT -b 460800 --before default-reset --after hard-reset write-flash \
@@ -40,7 +40,7 @@ jobs:
             0x3b0000 ota_data_initial.bin \
             0x3b2000 spiffs.bin
           
-          # Flash app only (fast, for upgrading from v0.2.x):
+          # Flash app only (fast, for upgrading):
           # esptool.py --chip esp32s3 -p PORT -b 460800 --before default-reset --after hard-reset write-flash 0x10000 mibee_cam.bin
           EOF
 
