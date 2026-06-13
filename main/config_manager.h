@@ -88,3 +88,5 @@ void config_unlock(void);
 esp_err_t config_get_copy(cam_config_t *out);
 /** @brief 验证配置结构体所有字段是否在合法范围内 */
 bool config_validate(const cam_config_t *cfg);
+/** @brief 根据拍摄间隔和录制模式计算最优片段时长和帧率，覆盖 fps 和 segment_sec 字段 */
+void config_apply_optimal(cam_config_t *cfg);
