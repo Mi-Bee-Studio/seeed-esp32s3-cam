@@ -27,7 +27,7 @@ Default management password: `admin`. API requests involving write operations ne
 ### Page Description
 
 | Page | Function |
-||------|----------|
+|------|----------|
 | index | Status overview (recording status, WiFi, storage, camera model, uptime) |
 | config | Configuration management (all parameters including WiFi, recording, NAS upload) |
 | preview | Real-time video preview (MJPEG stream in browser) |
@@ -36,25 +36,25 @@ Default management password: `admin`. API requests involving write operations ne
 | setup | First-time WiFi setup wizard (auto-shown on first boot) |
 ### Dashboard Page
 
-![Dashboard](images/index-dashboard.png)
+![Dashboard](../images/index-dashboard.png)
 
 The dashboard shows real-time device status: recording state, current file, WiFi connection, SD card usage, camera model, chip temperature, and uptime. Uses WebSocket for live data push — no page refresh needed.
 
 ### Configuration Page
 
-![Configuration](images/config-page.png)
+![Configuration](../images/config-page.png)
 
 All device parameters can be modified here: WiFi credentials, video resolution/FPS/quality, recording segment duration, WebDAV/HTTP(S) upload settings, camera flip/mirror, and system password.
 
 ### File Manager Page
 
-![File Manager](images/files-page.png)
+![File Manager](../images/files-page.png)
 
 Browse recordings organized by date. Features collapsible date groups, batch selection, folder-level download/delete, and persistent authentication.
 
 ### Preview Page
 
-![Video Preview](images/preview-page.png)
+![Video Preview](../images/preview-page.png)
 
 Real-time MJPEG video stream viewable directly in the browser. Supports up to 2 simultaneous viewers.
 
@@ -143,7 +143,7 @@ The device supports three recording modes controlled by `timelapse_mode`:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `timelapse_mode` | uint8 | `0` | Recording mode: 0=continuous, 1=normal timelapse, 2=dynamic timelapse |
-|| `timelapse_interval_sec` | uint16 | `0` | Timelapse interval (0=continuous, 1-300=seconds between captures)
+| `timelapse_interval_sec` | uint16 | `0` | Timelapse interval (0=continuous, 1-300=seconds between captures) |
 | `frame_drop_enabled` | bool | `false` | Enable frame dropping under resource pressure |
 
 ##### Motion Detection Settings

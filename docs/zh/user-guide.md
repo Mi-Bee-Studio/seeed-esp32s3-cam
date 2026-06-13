@@ -37,25 +37,25 @@
 
 ### 仪表盘页面
 
-![仪表盘](images/index-dashboard.png)
+![仪表盘](../images/index-dashboard.png)
 
 仪表盘显示实时设备状态：录像状态、当前文件、WiFi 连接、SD 卡用量、摄像头型号、芯片温度和运行时间。通过 WebSocket 实时推送，无需刷新页面。
 
 ### 配置页面
 
-![配置页面](images/config-page.png)
+![配置页面](../images/config-page.png)
 
 所有设备参数均可在此修改：WiFi 凭据、视频分辨率/帧率/画质、录像分段时长、WebDAV/HTTP(S) 上传设置、摄像头翻转和系统密码。
 
 ### 文件管理页面
 
-![文件管理](images/files-page.png)
+![文件管理](../images/files-page.png)
 
 按日期组织的录像文件浏览。支持折叠展开日期分组、批量选择、文件夹级下载/删除和持久化登录认证。
 
 ### 视频预览页面
 
-![视频预览](images/preview-page.png)
+![视频预览](../images/preview-page.png)
 
 浏览器内直接查看实时 MJPEG 视频流，最多支持 2 个同时观看的客户端。
 
@@ -132,7 +132,7 @@ curl -X POST http://192.168.4.1/api/config \
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `timelapse_mode` | uint8 | `0` | 录像模式：0=连续, 1=普通延时, 2=动态延时 |
-|| `timelapse_interval_sec` | uint16 | `0` | 延时拍摄间隔（0=连续, 1-300=延时秒数）
+| `timelapse_interval_sec` | uint16 | `0` | 延时拍摄间隔（0=连续, 1-300=延时秒数） |
 
 #### 运动检测配置
 
@@ -343,7 +343,7 @@ curl http://192.168.4.1/api/status
 curl -X POST http://192.168.4.1/api/ota -H "Content-Type: application/json" -H "X-Password: admin" -d '{"url":"https://example.com/firmware/mibee_cam.bin"}'
 ```
 
-当前固件版本：v0.2.0，可在仪表盘页面查看。
+当前固件版本：v0.3.0，可在仪表盘页面查看。
 
 ## TF 卡配置覆盖
 

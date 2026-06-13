@@ -36,16 +36,16 @@ cd esp-idf
 ## 2. Get Source Code
 
 ```bash
-git clone https://github.com/Mi-Bee-Studio/esp32s3-cam.git
-cd esp32s3-camera
+git clone https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam.git
+cd seeed-esp32s3-cam
 ```
 
 Project structure:
 
 ```
-esp32s3-camera/
+seeed-esp32s3-cam/
 ├── main/                 # Firmware source code (20 C modules)
-│   ├── main.c            # Entry point, 19-step boot process
+│   ├── main.c            # Entry point, 20-step boot process
 │   ├── camera_driver.c   # Camera driver
 │   ├── video_recorder.c  # AVI recording engine
 │   ├── mjpeg_streamer.c  # MJPEG real-time streaming
@@ -145,7 +145,7 @@ Power on → LED solid (booting) → LED slow blink (AP mode)
 After flashing, the device automatically restarts. Serial log shows:
 
 ```
-I (xxx) main: MiBee Cam v0.1 starting...
+I (xxx) main: MiBee Cam v0.3.0 starting...
 I (xxx) main: Free heap: XXXXX  Free PSRAM: XXXXXXX
 ```
 
@@ -217,7 +217,7 @@ I (xxx) storage: SD card mounted OK
 I (xxx) camera: Sensor: OV2640, Resolution: SVGA, Quality: 12
 I (xxx) web: Web server started on port 80
 I (xxx) main: Recording started
-I (xxx) main: MiBee Cam v0.1 initialized successfully
+I (xxx) main: MiBee Cam v0.3.0 initialized successfully
 I (xxx) main: Camera: OV2640 @ SVGA
 I (xxx) main: WiFi: STA, IP: 192.168.1.xxx
 ```
