@@ -40,7 +40,17 @@ typedef enum {
     /** SVGA 分辨率 (800x600) */
     CAMERA_RES_SVGA = 1,   /* 800x600  */
     /** XGA 分辨率 (1024x768) */
-    CAMERA_RES_XGA  = 2,   /* 1024x768 */
+    CAMERA_RES_XGA  = 2,   /* 1024x768  */
+    /** HD 分辨率 (1280x720) */
+    CAMERA_RES_HD   = 3,   /* 1280x720  */
+    /** SXGA 分辨率 (1280x1024) */
+    CAMERA_RES_SXGA = 4,   /* 1280x1024 */
+    /** UXGA 分辨率 (1600x1200) */
+    CAMERA_RES_UXGA = 5,   /* 1600x1200 */
+    /** FHD 分辨率 (1920x1080) */
+    CAMERA_RES_FHD  = 6,   /* 1920x1080 */
+    /** QXGA 分辨率 (2048x1536) */
+    CAMERA_RES_QXGA = 7,   /* 2048x1536 */
 } camera_res_t;
 
 /** Captured frame descriptor (buffer owned by esp_camera driver, in PSRAM). */
@@ -119,6 +129,12 @@ esp_err_t camera_set_day_night(uint8_t mode);
  */
 /** Get current resolution setting. */
 camera_res_t camera_get_resolution(void);
+
+/** @brief 获取指定传感器支持的最大分辨率
+ * @param sensor 传感器类型
+ * @return 该传感器支持的最大分辨率枚举值
+ */
+camera_res_t camera_get_max_resolution(camera_sensor_t sensor);
 
 /** @brief 将分辨率枚举值转换为可读字符串
  * @param res 分辨率枚举值
