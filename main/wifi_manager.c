@@ -395,11 +395,11 @@ esp_err_t wifi_start_sta(void)
     esp_wifi_set_ps(WIFI_PS_NONE);
 
 
-    /* Boost TX power to 15 dBm (Seeed XIAO ESP32-S3 hardware fix for weak signal) */
-    int8_t power_param = (int8_t)(15 / 0.25);  // 15 dBm → 60 quarter-dBm units
+    /* Boost TX power to 20 dBm (ESP32-S3 maximum, for weak PCB antenna without external antenna) */
+    int8_t power_param = (int8_t)(20 / 0.25);  // 20 dBm → 80 quarter-dBm units
     esp_err_t pwr_err = esp_wifi_set_max_tx_power(power_param);
     if (pwr_err == ESP_OK) {
-        ESP_LOGI(TAG, "WiFi TX power set to 15 dBm");
+        ESP_LOGI(TAG, "WiFi TX power set to 20 dBm");
     } else {
         ESP_LOGW(TAG, "Failed to set WiFi TX power: %s", esp_err_to_name(pwr_err));
     }
