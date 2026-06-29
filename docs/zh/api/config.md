@@ -82,6 +82,9 @@
     `wifi_ssid_2` | string | 备用 WiFi SSID |
     `wifi_pass_2` | string | 备用 WiFi 密码，已设置时显示 `"****"` |
     `allow_ap_fallback` | bool | 允许在两个 WiFi 网络均失败时回退到 AP 模式
+| `video_record_to_sd` | bool | 将视频录制到 SD 卡（默认：true） |
+| `audio_record_to_sd` | bool | 将音频录制到 SD 卡，混流进 AVI（默认：false） |
+| `sd_log_enabled` | bool | 将结构化事件日志写入 SD 卡（默认：false） |
 
 > **重要**：`webdav_pass` **不会**在此接口中返回（完全不包含在响应中）。这是设计上的安全考量。
 > 只有 `wifi_pass`、`http_upload_pass`、`web_password` 和 `wifi_pass_2` 会以遮掩形式（`"****"`）返回。
@@ -176,6 +179,9 @@ console.log(`设备名: ${data.device_name}, 分辨率: ${data.resolution}`);
     `wifi_ssid_2` | string | 备用 WiFi SSID |
     `wifi_pass_2` | string | 备用 WiFi 密码 |
     `allow_ap_fallback` | bool | 允许 AP 回退
+| `video_record_to_sd` | bool | 设置为 false 禁用视频文件写入（流媒体/预览仍可用） |
+| `audio_record_to_sd` | bool | 设置为 true 向 AVI 录像添加 G.711 μ-law 音频轨 |
+| `sd_log_enabled` | bool | 设置为 true 启用 SD 卡日志到 /sdcard/logs/ |
 
 **密码字段特殊行为**：
 
@@ -348,3 +354,6 @@ await fetch('/api/config', {
     `wifi_ssid_2` | string | `""` | 备用 WiFi SSID |
     `wifi_pass_2` | string | `""` | 备用 WiFi 密码 |
     `allow_ap_fallback` | bool | `false` | 允许 AP 模式回退
+| `video_record_to_sd` | bool | `true` | 向后兼容 —— 录像功能保持原有行为 |
+| `audio_record_to_sd` | bool | `false` | 按需启用 —— 仅在需要音频录制时开启 |
+| `sd_log_enabled` | bool | `false` | 按需启用 —— 仅用于调试 |
