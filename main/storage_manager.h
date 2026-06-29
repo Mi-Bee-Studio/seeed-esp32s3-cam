@@ -65,6 +65,7 @@ esp_err_t storage_remount(void);         // Unmount + remount SD card
 /** @brief 格式化SD卡（擦除所有数据后重新创建FAT32文件系统） */
 esp_err_t storage_format(void);
 void storage_set_unavailable(void);      // Mark SD as removed
+void storage_mark_io_error(void);        // Mark SD as having I/O errors (distinct from removal)
 /** @brief 注册完成的录像文件到内存缓存（零 SD 卡 I/O） */
 void storage_register_file(const char *filepath, size_t size);
 /** @brief 从内存缓存移除已删除的文件 */
