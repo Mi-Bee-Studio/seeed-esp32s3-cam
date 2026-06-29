@@ -73,6 +73,7 @@ typedef struct {
     bool video_record_to_sd;     // 是否录制视频到 SD 卡（默认 true）
     bool audio_record_to_sd;     // 是否录制音频到 SD 卡（默认 false，合并进视频音轨）
     bool sd_log_enabled;         // 是否启用 SD 卡日志（默认 false，/sdcard/logs/）
+    uint8_t day_night_mode;   // 日夜模式：0=彩色, 1=黑白, 2=自动(预留)
 } cam_config_t;
 
 /** @brief 初始化配置模块，从 NVS 加载配置，无存储则使用默认值 */
