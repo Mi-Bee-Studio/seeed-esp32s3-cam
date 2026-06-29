@@ -18,6 +18,7 @@
 #include "logging.h"
 #include "time_sync.h"
 #include "esp_log.h"
+#include "sd_log.h"
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -75,6 +76,8 @@ void log_event_impl(const char *type, const char *msg, ...)
     if (written > 0 && (size_t)written < sizeof(line)) {
         printf("%s\n", line);
         fflush(stdout);
+        sd_log_write(line);
+        /* SD card log backend (non-blocking, silently drops on failure) */
     } else {
         ESP_LOGW(TAG, "JSON log line too long (type=%s)", type);
     }
