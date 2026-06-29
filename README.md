@@ -117,6 +117,7 @@ Dynamic timelapse is the killer feature — set `timelapse_mode=2`, tune sensiti
 | GET | `/metrics` | No | Prometheus metrics (text format) |
 | GET | `/onvif/*` | No | ONVIF WS-Discovery + SOAP services |
 | WS | `ws://<IP>/` | No | WebSocket real-time push |
+| GET | `/api/audio` | No | HTTP chunked G.711 audio stream (Web preview) |
 | RTSP | `rtsp://<IP>:554/stream` | Digest | MJPEG+G.711 dual-track stream for NVR |
 
 Default password: `admin` 👉 [Complete API docs](docs/en/api/overview.md)
@@ -143,7 +144,8 @@ main/  —  27 C modules + main.c + cJSON (flat layout)
 ├── nas_uploader.c/h       # Upload dispatcher (WebDAV | HTTPS)
 ├── webdav_client.c/h      # WebDAV PUT + MKCOL
 ├── http_upload_client.c/h # HTTP/HTTPS chunked PUT
-├── audio_driver.c/h       # I2S PDM mic capture, 16→8kHz decimation
+├── audio_driver.c/h       # I2S PDM mic capture, 8kHz + DC removal + spectral NS + noise gate
+├── audio_ns.c/h           # Spectral noise suppressor (256-pt FFT, Wiener gain)
 ├── audio_broadcaster.c/h  # Audio frame pub/sub (mirrors frame_broadcaster)
 ├── g711_codec.c/h         # G.711 μ-law encoder/decoder (ITU-T standard)
 ├── rtsp_server.cpp/h      # RTSP server (MJPEG+G.711 dual-track, digest auth, port 554)

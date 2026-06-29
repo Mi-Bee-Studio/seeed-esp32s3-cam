@@ -117,6 +117,7 @@ idf.py -p COM3 flash monitor
 | GET | `/metrics` | 否 | Prometheus 监控指标（text 格式） |
 | GET | `/onvif/*` | 否 | ONVIF WS-Discovery + SOAP 服务 |
 | WS | `ws://<IP>/` | 否 | WebSocket 实时推送 |
+| GET | `/api/audio` | 否 | HTTP 分块 G.711 音频流（网页预览） |
 | RTSP | `rtsp://<IP>:554/stream` | 摘要认证 | MJPEG+G.711 双轨道流，供 NVR 使用 |
 
 默认密码：`admin` 👉 [完整 API 文档](docs/zh/api/overview.md)
@@ -143,7 +144,8 @@ main/  —  27 个 C 模块 + main.c + cJSON（平面布局）
 ├── nas_uploader.c/h       # 上传调度（WebDAV / HTTPS 互斥）
 ├── webdav_client.c/h      # WebDAV 协议客户端
 ├── http_upload_client.c/h # HTTP/HTTPS 分块上传
-├── audio_driver.c/h       # I2S PDM 麦克风采集，16→8kHz 降采样
+├── audio_driver.c/h       # I2S PDM 麦克风采集，8kHz 直采 + DC 去除 + 频谱减法 + 噪声门
+├── audio_ns.c/h           # 频谱降噪器（256 点 FFT，Wiener 增益）
 ├── audio_broadcaster.c/h  # 音频帧发布/订阅中心（镜像帧广播器）
 ├── g711_codec.c/h         # G.711 μ-law 编解码器（ITU-T 标准）
 ├── rtsp_server.cpp/h      # RTSP 服务器（MJPEG+G.711 双轨道，摘要认证，端口 554）
