@@ -701,7 +701,7 @@ timelapse = tl_mode > 0;
 playback_fps = timelapse ? 15 : fps;
 prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
 
-        bool write_to_sd = cfg->video_record_to_sd;
+        bool write_to_sd = cfg->video_record_to_sd && storage_is_available();
         bool mux_audio = write_to_sd && cfg->audio_record_to_sd;
 
         /* If write_to_sd turned off mid-segment, close the segment */
