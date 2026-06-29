@@ -84,6 +84,9 @@ Get all current configuration items of the device. Password fields are masked.
 | `wifi_pass_2` | string | Backup WiFi password, shows `"****"` if set |
 | `allow_ap_fallback` | bool | Allow fallback to AP mode when both WiFi networks fail |
 > **Important**: `webdav_pass` is **NOT** returned by this endpoint (completely excluded from response). This is a security design consideration.
+| `video_record_to_sd` | bool | Record video to SD card (default: true) |
+| `audio_record_to_sd` | bool | Record audio to SD card, muxed into AVI (default: false) |
+| `sd_log_enabled` | bool | Write structured event logs to SD card (default: false) |
 > Only `wifi_pass`, `http_upload_pass`, `web_password` and `wifi_pass_2` are returned in masked form (`"****"`).
 
 **cURL Example**:
@@ -177,6 +180,9 @@ Update device configuration. Request body is JSON format, only need to include f
 | `wifi_ssid_2` | string | Backup WiFi SSID |
 | `wifi_pass_2` | string | Backup WiFi password |
 | `allow_ap_fallback` | bool | Allow AP fallback |
+| `video_record_to_sd` | bool | Set false to disable video file writing (streaming/preview still work) |
+| `audio_record_to_sd` | bool | Set true to add G.711 μ-law audio track to AVI recordings |
+| `sd_log_enabled` | bool | Set true to enable SD card logging to /sdcard/logs/ |
 
 **Password Field Special Behavior**:
 
@@ -350,3 +356,6 @@ await fetch('/api/config', {
 | `wifi_ssid_2` | string | `""` | Backup WiFi SSID |
 | `wifi_pass_2` | string | `""` | Backup WiFi password |
 | `allow_ap_fallback` | bool | `false` | Allow AP mode fallback |
+| `video_record_to_sd` | bool | `true` | Backward compatible — recording works as before |
+| `audio_record_to_sd` | bool | `false` | Opt-in — only when audio recording is needed |
+| `sd_log_enabled` | bool | `false` | Opt-in — only for debugging |
