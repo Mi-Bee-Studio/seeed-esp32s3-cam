@@ -28,18 +28,22 @@
  *   8. Camera
  *   9. Time sync (NTP, if STA connected)
  *  10. NAS uploader
+ *  10a. Frame broadcaster (decouples camera FB consumers)
+ *  10b. Audio broadcaster (G.711 frames to RTSP + AVI muxer)
+ *  10c. Audio driver (I2S PDM mic init)
  *  11. Video recorder
+ *  11a. SD card structured logging (/sdcard/logs/)
  *  12. MJPEG streamer
  *  13. Web server + streamer registration
  *  13a. OTA updater
  *  14. LED update for WiFi state
- *  15. Start recording
+ *  15. Start recording + audio driver + RTSP server
  *  16. BOOT button monitor (factory reset on 5s hold)
  *  17. Watchdog (30s)
  *  18. SD monitor task (polling 10s)
- *  19. Health monitor task (60s)
- */
+ *  19. Health monitor task (60s) */
 
+#include <stdio.h>
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
@@ -66,6 +70,10 @@
 #include "ota_updater.h"
 #include "onvif_discovery.h"
 #include "frame_broadcaster.h"
+#include "audio_broadcaster.h"
+#include "audio_driver.h"
+#include "sd_log.h"
+#include "rtsp_server.h"
 #include "driver/temperature_sensor.h"
 
 static const char *TAG = "main";
@@ -210,6 +218,7 @@ static void sd_monitor_task(void *arg)
             if (state == RECORDER_RECORDING || state == RECORDER_PAUSED) {
                 s_was_recording = true;
                 recorder_stop();
+                sd_log_pause();
                 ESP_LOGW(TAG, "Recording stopped due to SD removal");
             } else if (state == RECORDER_ERROR) {
                 /* Recorder already detected SD failure — still mark for auto-resume */
@@ -224,12 +233,21 @@ static void sd_monitor_task(void *arg)
             /* SD card reinserted */
             ESP_LOGI(TAG, "SD card reinserted — remounting...");
             if (storage_remount() == ESP_OK) {
-                storage_cleanup();
-                if (s_was_recording) {
-                    ESP_LOGI(TAG, "Auto-resuming recording after SD reinsert");
-                    recorder_start();
-                    s_was_recording = false;
-                    led_set_status(LED_RUNNING);
+                /* Verify SD is actually writable before resuming */
+                FILE *tf = fopen("/sdcard/.health", "w");
+                if (!tf || fputs("ok\n", tf) < 0 || fclose(tf) != 0) {
+                    ESP_LOGW(TAG, "SD write test failed after remount — staying disabled");
+                    storage_mark_io_error();
+                } else {
+                    remove("/sdcard/.health");
+                    storage_cleanup();
+                    if (s_was_recording) {
+                        ESP_LOGI(TAG, "Auto-resuming recording after SD reinsert");
+                        recorder_start();
+                        sd_log_resume();
+                        s_was_recording = false;
+                        led_set_status(LED_RUNNING);
+                    }
                 }
             }
         }
@@ -275,9 +293,11 @@ static void health_monitor_task(void *arg)
 
         temperature_sensor_get_celsius(temp_sensor, &s_chip_temp);
 
-        ESP_LOGI(TAG, "HEALTH: heap=%lu PSRAM=%lu rec_hwm=%lu nas_hwm=%lu temp=%.1f°C",
+        ESP_LOGI(TAG, "HEALTH: heap=%lu PSRAM=%lu rec_hwm=%lu nas_hwm=%lu temp=%.1f°C rtsp=%d audio=%s",
                  (unsigned long)free_heap, (unsigned long)free_psram,
-                 (unsigned long)rec_hwm, (unsigned long)nas_hwm, s_chip_temp);
+                 (unsigned long)rec_hwm, (unsigned long)nas_hwm, s_chip_temp,
+                 rtsp_server_client_count(),
+                 audio_driver_is_running() ? "on" : "off");
 
         if (free_heap < 20000) {
             ESP_LOGE(TAG, "CRITICAL: Free heap below 20KB (%lu bytes)", (unsigned long)free_heap);
@@ -401,9 +421,16 @@ void app_main(void)
         fbroadcast_init();
     }
 
+    /* ---- 10b. Audio broadcaster --------------------------------------- */
+    audio_bcast_init();
 
-    /* ---- 10b. ONVIF WS-Discovery deferred to step 15 (needs WiFi) --- */
+    /* ---- 10c. Audio driver (I2S PDM mic) ----------------------------- */
+    esp_err_t audio_err = audio_driver_init();
+    if (audio_err != ESP_OK) {
+        ESP_LOGW(TAG, "Audio driver init failed (0x%x) — audio disabled", audio_err);
+    }
 
+    /* ONVIF WS-Discovery deferred to step 15 (needs WiFi) */
 
     /* ---- 11. Video recorder ------------------------------------------ */
     /* 第11步：初始化视频录像引擎，注册分段完成回调 */
@@ -412,6 +439,14 @@ void app_main(void)
         recorder_set_segment_cb(on_segment_complete);
     } else {
         ESP_LOGW(TAG, "Skipping recorder_init \xe2\x80\x94 camera not available");
+    }
+
+    /* ---- 11a. SD card structured logging ------------------------------ */
+    if (config_get()->sd_log_enabled) {
+        sd_log_init();
+        ESP_LOGI(TAG, "SD log enabled");
+    } else {
+        ESP_LOGI(TAG, "SD log disabled (config)");
     }
 
     /* ---- 12. MJPEG streamer ------------------------------------------ */
@@ -455,6 +490,22 @@ void app_main(void)
     if (s_camera_ok && storage_is_available()) {
         recorder_start();
         ESP_LOGI(TAG, "Recording started");
+    }
+
+    /* ---- 15b. Audio driver start + RTSP server ----------------------- */
+    if (audio_driver_is_running() == false) {
+        audio_driver_start();
+    }
+    esp_err_t rtsp_err = rtsp_server_init();
+    if (rtsp_err == ESP_OK) {
+        rtsp_err = rtsp_server_start();
+        if (rtsp_err == ESP_OK) {
+            ESP_LOGI(TAG, "RTSP server started on port 554");
+        } else {
+            ESP_LOGW(TAG, "RTSP server start failed (0x%x)", rtsp_err);
+        }
+    } else {
+        ESP_LOGW(TAG, "RTSP server init failed (0x%x)", rtsp_err);
     }
 
     /* ---- 16. BOOT button monitor task -------------------------------- */
