@@ -79,3 +79,42 @@ img.onerror = () => {
 ```
 
 ---
+
+## GET /api/audio — HTTP Chunked Audio Stream
+
+> [← MJPEG Stream](#get-stream--mjpeg-real-time-video-stream) | [Device Control →](control.md)
+
+---
+
+Get real-time G.711 μ-law audio stream via HTTP chunked transfer encoding. Used by the Web UI preview page for live audio monitoring.
+
+**Authentication**: None required
+
+**Source**: `audio_stream_handler` (web_server.c)
+
+**Response Headers**:
+```
+Content-Type: application/octet-stream
+Transfer-Encoding: chunked
+Access-Control-Allow-Origin: *
+```
+
+**Response Body**: Continuous stream of G.711 μ-law encoded audio bytes (8 kHz, mono, 20 ms frames = 160 bytes each).
+
+**Client-side Decoding**: The browser decodes μ-law to 16-bit PCM via a lookup table and plays via Web Audio API (`AudioContext` at 8 kHz sample rate).
+
+**DSP Pipeline** (firmware-side):
+1. I2S PDM capture (DSR_16S, 1.024 MHz PDM clock, hardware anti-aliased)
+2. DC offset removal (IIR filter, α≈0.999)
+3. Spectral noise subtraction (256-point FFT, Wiener gain, minimum-statistics noise estimation)
+4. Software gain (4×) + hard clamp
+5. Noise gate with hysteresis (open@300, close@150)
+6. G.711 μ-law encoding
+
+**cURL Example**:
+```bash
+# Capture 3 seconds of audio
+curl --max-time 3 http://<deviceIP>/api/audio > audio.g711 2>/dev/null
+```
+
+---

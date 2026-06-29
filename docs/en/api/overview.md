@@ -89,6 +89,7 @@ Access-Control-Allow-Headers: Content-Type, X-Password
 #HX|
 | RTSP | `rtsp://<IP>:554/stream` | Digest | MJPEG+G.711 dual-track stream |
 | MJPEG | `http://<IP>:81/stream` | No | MJPEG live stream (video only) |
+| Audio | `http://<IP>/api/audio` | No | HTTP chunked G.711 μ-law audio stream (for Web preview) |
 
 Note: RTSP provides audio+video for NVR integration. MJPEG (port 81) remains video-only.
 #NJ|## `/api/status` Response Fields

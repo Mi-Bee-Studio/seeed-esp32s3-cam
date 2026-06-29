@@ -68,8 +68,8 @@ This project uses Octal PSRAM mode (8-line), initialized at boot (`CONFIG_SPIRAM
 | CLK  | GPIO42 | I2S PDM clock |
 
 - **Type**: MEMS PDM (Pulse Density Modulation) digital microphone
-- **Interface**: I2S PDM RX, 16kHz/16-bit/mono
-- **Processing**: Hardware PDM-to-PCM → 2:1 decimation to 8kHz → G.711 μ-law encoding
+- **Interface**: I2S PDM RX, 8kHz/16-bit/mono
+- **Processing**: Hardware PDM-to-PCM (DSR_16S, 1.024 MHz PDM clock) → DC removal → spectral noise subtraction (256-pt FFT) → noise gate → G.711 μ-law encoding
 
 ### TF Card Interface (SDMMC)
 

@@ -13,7 +13,8 @@ The ESP32-S3 camera monitoring system is based on the FreeRTOS real-time operati
   Status LED ← LED Controller (GPIO21, active-low)
   Watchdog (30s TWDT, panic) → Health Monitor (60s)
   ONVIF Discovery (UDP multicast) → NVR auto-discovery
-  Audio Driver (I2S PDM) → Audio Broadcaster → RTSP Server (port 554)
+  Audio Driver (I2S PDM DSR_16S, 8 kHz) → DC removal → spectral NS → noise gate → G.711 → Audio Broadcaster
+    → RTSP Server (port 554) + Web Server (/api/audio HTTP stream)
 ```
 
 ### Core Features
@@ -87,7 +88,8 @@ The system has 27 modules, all located in the `main/` directory, each module wit
 | OTA Updater | `ota_updater.c` | Firmware OTA updates via URL | `ota_updater_init()`, `ota_update_start()` |
 | Webhook | `webhook.c` | HTTP event notifications for motion/recordings | `webhook_send()`, `webhook_init()` |
 | WebSocket Server | `ws_server.c` | Real-time push updates to WebUI clients | `ws_server_init()`, `ws_broadcast()` |
-| Audio Driver | `audio_driver.c` | I2S PDM mic capture, 16→8kHz decimation | `audio_init()`, `audio_capture()` |
+| Audio Driver | `audio_driver.c` | I2S PDM mic capture, DSR_16S (1.024 MHz), 8 kHz + DC removal + noise gate | `audio_driver_init()`, `audio_driver_start()` |
+| Audio Noise Suppressor | `audio_ns.c` | 256-pt FFT spectral subtraction, Wiener gain, min-statistics noise estimation | `audio_ns_init()`, `audio_ns_process()` |
 | Audio Broadcaster | `audio_broadcaster.c` | Audio frame pub/sub (mirrors frame_broadcaster) | `abroadcast_publish()`, `abroadcast_subscribe()` |
 | G.711 Codec | `g711_codec.c` | G.711 μ-law encoder/decoder (ITU-T standard) | `g711_encode()`, `g711_decode()` |
 | RTSP Server | `rtsp_server.cpp` | RTSP server (MJPEG+G.711 dual-track, digest auth, port 554) | `rtsp_server_init()`, `rtsp_server_start()` |
