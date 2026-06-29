@@ -111,6 +111,7 @@ Access-Control-Allow-Headers: Content-Type, X-Password
 #PS|
 | RTSP | `rtsp://<IP>:554/stream` | 摘要认证 | MJPEG+G.711 双轨道流 |
 | MJPEG | `http://<IP>:81/stream` | 否 | MJPEG 实时视频流（仅视频） |
+| 音频 | `http://<IP>/api/audio` | 否 | HTTP 分块 G.711 μ-law 音频流（网页预览用） |
 
 注意：RTSP 提供音视频双轨道，适用于 NVR 集成。MJPEG（端口 81）仅支持视频。
 #TX|## HTTP 状态码

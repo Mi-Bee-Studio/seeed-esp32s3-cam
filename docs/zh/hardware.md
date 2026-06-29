@@ -68,8 +68,8 @@
 | CLK  | GPIO42 | I2S PDM 时钟 |
 
 - **类型**：MEMS PDM（脉冲密度调制）数字麦克风
-- **接口**：I2S PDM RX，16kHz/16-bit/单声道
-- **处理**：硬件 PDM 转 PCM → 2:1 降采样至 8kHz → G.711 μ-law 编码
+- **接口**：I2S PDM RX，8kHz/16-bit/单声道
+- **处理**：硬件 PDM 转 PCM（DSR_16S，1.024 MHz PDM 时钟）→ DC 去除 → 频谱减法（256 点 FFT）→ 噪声门 → G.711 μ-law 编码
 
 ### TF 卡接口（SDMMC）
 
