@@ -2,7 +2,7 @@
 
 ## 1. 系统概览
 
-ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP32-S3 上运行 22 个松耦合的 C 模块。系统采用事件驱动与轮询混合架构，摄像头采集帧数据后分两路输出：实时 HTTP MJPEG 流和录像存储。
+ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP32-S3 上运行 27 个松耦合的 C 模块。系统采用事件驱动与轮询混合架构，摄像头采集帧数据后分两路输出：实时 HTTP MJPEG 流和录像存储。
 
 ```
   Camera ──→ Frame Broadcaster ──→ MJPEG Streamer (端口 81) ──→ 浏览器/客户端
@@ -13,6 +13,7 @@ ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP
   Status LED ← LED Controller (GPIO21, 低电平有效)
   Watchdog (30s TWDT, panic) → Health Monitor (60s)
   ONVIF Discovery (UDP 组播) → NVR 自动发现
+  Audio Driver (I2S PDM) → Audio Broadcaster → RTSP Server (端口 554)
 ```
 
 ### 核心特性
@@ -62,7 +63,7 @@ ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP
 
 ## 3. 模块说明
 
-系统共 22 个模块，全部位于 `main/` 目录，每个模块一个 `.c`/`.h` 文件对。
+系统共 27 个模块，全部位于 `main/` 目录，每个模块一个 `.c`/`.h` 文件对。
 
 | 模块 | 文件 | 职责 | 关键函数 |
 |------|------|------|----------|
@@ -88,6 +89,11 @@ ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP
 | WebSocket 服务器 | `ws_server.c` | 实时推送更新到 WebUI 客户端 | `ws_server_init()`, `ws_broadcast()` |
 | SHA-256 哈希 | `sha256.c` | 文件完整性校验 | `sha256_hash()`, `sha256_verify()` |
 | JSON 解析器 | `cJSON.c` | 第三方 JSON 库（IDF v6.0 内置） | — |
+| 音频驱动 | `audio_driver.c` | I2S PDM 麦克风采集，16→8kHz 降采样 | `audio_init()`, `audio_capture()` |
+| 音频广播器 | `audio_broadcaster.c` | 音频帧发布/订阅中心（镜像帧广播器） | `abroadcast_publish()`, `abroadcast_subscribe()` |
+| G.711 编解码 | `g711_codec.c` | G.711 μ-law 编解码器（ITU-T 标准） | `g711_encode()`, `g711_decode()` |
+| RTSP 服务器 | `rtsp_server.cpp` | RTSP 服务器（MJPEG+G.711 双轨道，摘要认证，端口 554） | `rtsp_server_init()`, `rtsp_server_start()` |
+| SD 日志 | `sd_log.c` | SD 卡结构化事件日志，自动轮转 | `sd_log_init()`, `sd_log_write()` |
 
 ---
 
@@ -156,6 +162,13 @@ HTTP 分块传输 (multipart/x-mixed-replace)
     ▼
 浏览器实时渲染
 ```
+
+### RTSP 服务器数据流
+
+RTSP Server (端口 554) ← frame_broadcaster + audio_broadcaster
+  → MJPEG 视频轨道（RTP payload type 26）
+  → G.711 μ-law 音频轨道（RTP payload type 0, PCMU）
+  → 摘要认证
 
 ---
 

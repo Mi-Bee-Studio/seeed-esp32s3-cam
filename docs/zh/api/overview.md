@@ -109,6 +109,10 @@ Access-Control-Allow-Headers: Content-Type, X-Password
 #SQ|| 19 | POST | `/onvif/device_service` | 否 | ONVIF 设备服务（SOAP） |
 #BJ|| 20 | POST | `/onvif/media_service` | 否 | ONVIF 媒体服务（SOAP） |
 #PS|
+| RTSP | `rtsp://<IP>:554/stream` | 摘要认证 | MJPEG+G.711 双轨道流 |
+| MJPEG | `http://<IP>:81/stream` | 否 | MJPEG 实时视频流（仅视频） |
+
+注意：RTSP 提供音视频双轨道，适用于 NVR 集成。MJPEG（端口 81）仅支持视频。
 #TX|## HTTP 状态码
 
 ## HTTP 状态码

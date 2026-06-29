@@ -60,6 +60,17 @@
 | PWDN | -1 | 未使用 |
 | RESET | -1 | 未使用 |
 
+### 麦克风（MEMS PDM）
+
+| 引脚 | GPIO | 功能 |
+|------|------|------|
+| DATA | GPIO41 | I2S PDM RX 数据 |
+| CLK  | GPIO42 | I2S PDM 时钟 |
+
+- **类型**：MEMS PDM（脉冲密度调制）数字麦克风
+- **接口**：I2S PDM RX，16kHz/16-bit/单声道
+- **处理**：硬件 PDM 转 PCM → 2:1 降采样至 8kHz → G.711 μ-law 编码
+
 ### TF 卡接口（SDMMC）
 
 | 功能 | GPIO | 说明 |
