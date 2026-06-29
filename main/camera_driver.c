@@ -119,16 +119,16 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
         .pin_href     = CAM_PIN_HREF,
         .pin_pclk     = CAM_PIN_PCLK,
 
-        .xclk_freq_hz = 20000000,
+        .xclk_freq_hz = 16000000,
         .ledc_timer   = LEDC_TIMER_0,
         .ledc_channel = LEDC_CHANNEL_0,
 
         .pixel_format  = PIXFORMAT_JPEG,
         .frame_size    = res_to_framesize(res),
         .jpeg_quality  = quality,
-    .fb_count      = 2,                /* double buffer — broadcaster eliminates contention */
+        .fb_count      = 3,                /* triple buffer — broadcaster eliminates contention */
         .fb_location   = CAMERA_FB_IN_PSRAM,
-        .grab_mode     = CAMERA_GRAB_LATEST,
+        .grab_mode     = CAMERA_GRAB_WHEN_EMPTY,
     };
 
     esp_err_t err = esp_camera_init(&config);
@@ -149,6 +149,9 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
             case OV3660_PID:
                 s_sensor = CAMERA_SENSOR_OV3660;
                 break;
+            case OV5640_PID:
+                s_sensor = CAMERA_SENSOR_OV5640;
+                break;
             default:
                 s_sensor = CAMERA_SENSOR_UNKNOWN;
                 break;
@@ -159,6 +162,7 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
     switch (s_sensor) {
         case CAMERA_SENSOR_OV2640: sensor_name = "OV2640"; break;
         case CAMERA_SENSOR_OV3660: sensor_name = "OV3660"; break;
+        case CAMERA_SENSOR_OV5640: sensor_name = "OV5640"; break;
         default: break;
     }
     ESP_LOGI(TAG, "Sensor: %s, Resolution: %s, Quality: %d",
@@ -346,4 +350,30 @@ const char *camera_res_to_str(camera_res_t res)
         case CAMERA_RES_XGA:  return "XGA";
         default:              return "UNKNOWN";
     }
+}
+
+/** @brief 设置日夜模式（彩色/黑白）
+ * @param mode 0=彩色, 1=黑白, 2=自动(预留,当前等同0)
+ * @return ESP_OK 成功, ESP_ERR_INVALID_STATE 未初始化, ESP_FAIL 失败
+ */
+esp_err_t camera_set_day_night(uint8_t mode)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    sensor_t *sensor = esp_camera_sensor_get();
+    if (!sensor) {
+        return ESP_FAIL;
+    }
+    /* mode 0=color, 1=B/W(grayscale), 2=auto(预留,暂同color)
+     * effect=2 is grayscale for OV2640/OV3660/OV5640 in esp32-camera */
+    int effect = 0;
+    if (mode == 1) {
+        effect = 2; /* grayscale — 待硬件验证: set_special_effect 值需确认 */
+    }
+    if (sensor->set_special_effect) {
+        sensor->set_special_effect(sensor, effect);
+    }
+    ESP_LOGI(TAG, "Day/night mode set: %d (effect=%d)", mode, effect);
+    return ESP_OK;
 }
