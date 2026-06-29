@@ -37,6 +37,9 @@
 - **SNTP 时间同步** — 双 NTP 服务器、手动设置、时区配置
 - **健康看门狗** — 30s TWDT + 60s 健康监控（堆 / PSRAM / 栈 / 芯片温度）
 - **紫色主题** — Mi&Bee 品牌视觉，全站统一
+- **音频采集 + RTSP 推流** — 板载 MEMS 麦克风、G.711 μ-law 编解码、双轨道 RTSP（MJPEG+音频）供 NVR 集成，支持摘要认证
+- **TF 卡事件日志** — 结构化 JSON 事件日志，按日期轮转，保留 7 天
+- **智能录制控制** — 独立切换视频/音频录制到 SD 卡；流媒体无需本地存储
 
 ---
 
@@ -114,6 +117,7 @@ idf.py -p COM3 flash monitor
 | GET | `/metrics` | 否 | Prometheus 监控指标（text 格式） |
 | GET | `/onvif/*` | 否 | ONVIF WS-Discovery + SOAP 服务 |
 | WS | `ws://<IP>/` | 否 | WebSocket 实时推送 |
+| RTSP | `rtsp://<IP>:554/stream` | 摘要认证 | MJPEG+G.711 双轨道流，供 NVR 使用 |
 
 默认密码：`admin` 👉 [完整 API 文档](docs/zh/api/overview.md)
 
@@ -122,7 +126,7 @@ idf.py -p COM3 flash monitor
 ## 项目结构
 
 ```
-main/  —  22 个 C 模块 + main.c + cJSON（平面布局）
+main/  —  27 个 C 模块 + main.c + cJSON（平面布局）
 ├── main.c                 # 入口，20 步启动流程，看门狗
 ├── camera_driver.c/h      # OV2640/OV3660 摄像头驱动
 ├── video_recorder.c/h     # AVI MJPEG 分段录像（3 种模式）
@@ -139,6 +143,11 @@ main/  —  22 个 C 模块 + main.c + cJSON（平面布局）
 ├── nas_uploader.c/h       # 上传调度（WebDAV / HTTPS 互斥）
 ├── webdav_client.c/h      # WebDAV 协议客户端
 ├── http_upload_client.c/h # HTTP/HTTPS 分块上传
+├── audio_driver.c/h       # I2S PDM 麦克风采集，16→8kHz 降采样
+├── audio_broadcaster.c/h  # 音频帧发布/订阅中心（镜像帧广播器）
+├── g711_codec.c/h         # G.711 μ-law 编解码器（ITU-T 标准）
+├── rtsp_server.cpp/h      # RTSP 服务器（MJPEG+G.711 双轨道，摘要认证，端口 554）
+└── sd_log.c/h             # SD 卡结构化事件日志，自动轮转
 ├── wifi_manager.c/h       # WiFi AP/STA 双模管理
 ├── config_manager.c/h     # NVS 配置持久化 + SD 卡覆盖
 ├── storage_manager.c/h    # SD 卡 FAT32 + 循环清理
