@@ -24,6 +24,8 @@
 #include "status_led.h"
 #include "logging.h"
 #include "motion_detector.h"
+#include "audio_broadcaster.h"
+#include "audio_common.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -71,6 +73,10 @@ static void cleanup_orphan_zero_byte_files(void);
 #define AVI_HDRL_TOTAL     (12 + AVI_AVIH_SIZE + 12 + AVI_STRH_SIZE + AVI_STRF_SIZE) /* 236 */
 
 #define AVI_FRAME_HDR_SIZE 8    /* "00dc" + 4-byte length              */
+
+#define AVI_WAVEFMT_SIZE    18   /* WAVEFORMATEX: 18 bytes for G.711 μ-law    */
+#define AVI_AUDIO_STRL_SIZE 102  /* audio strl: LIST(12) + strh(64) + strf(26) */
+#define AVI_HDRL_WITH_AUDIO (AVI_HDRL_TOTAL + AVI_AUDIO_STRL_SIZE)           /* 302 */
 
 /* ------------------------------------------------------------------ */
 /*  Private state                                                     */
@@ -133,8 +139,9 @@ static inline void put_u32(uint8_t *p, uint32_t v)
 /* ------------------------------------------------------------------ */
 
 typedef struct {
+    uint32_t fourcc;   /* chunk FOURCC: '00dc' or '01wb' */
     uint32_t offset;   /* offset from start of 'movi' list data */
-    uint32_t size;     /* JPEG data size                         */
+    uint32_t size;     /* data size (without header and padding) */
 } idx1_entry_t;
 
 typedef struct {
@@ -156,7 +163,7 @@ static void idx1_init(idx1_t *idx)
 /**
  * @brief 向AVI帧索引追加一条记录，容量不足时自动扩展
  */
-static esp_err_t idx1_append(idx1_t *idx, uint32_t offset, uint32_t size)
+static esp_err_t idx1_append(idx1_t *idx, uint32_t fourcc, uint32_t offset, uint32_t size)
 {
     if (idx->count >= idx->capacity) {
         int new_cap = idx->capacity == 0 ? 512 : idx->capacity * 2;
@@ -172,6 +179,7 @@ static esp_err_t idx1_append(idx1_t *idx, uint32_t offset, uint32_t size)
         idx->entries  = new_buf;
         idx->capacity = new_cap;
     }
+    idx->entries[idx->count].fourcc = fourcc;
     idx->entries[idx->count].offset = offset;
     idx->entries[idx->count].size   = size;
     idx->count++;
@@ -206,13 +214,13 @@ static void write_riff_hdr(uint8_t *buf)
 /**
  * @brief 写入AVI文件头列表（hdrl），包含主头部avih和视频流信息strl
  */
-static void write_hdrl(uint8_t *buf, uint16_t w, uint16_t h, uint8_t playback_fps)
+static void write_hdrl(uint8_t *buf, uint16_t w, uint16_t h, uint8_t playback_fps, bool with_audio)
 {
     int pos = 0;
 
     /* LIST "hdrl" */
     memcpy(buf + pos, "LIST", 4);                         pos += 4;
-    put_u32(buf + pos, AVI_HDRL_TOTAL - 8);              pos += 4;
+    put_u32(buf + pos, AVI_HDRL_TOTAL - 8 + (with_audio ? AVI_AUDIO_STRL_SIZE : 0)); pos += 4;
     memcpy(buf + pos, "hdrl", 4);                         pos += 4;
 
     /* avih chunk */
@@ -224,7 +232,7 @@ static void write_hdrl(uint8_t *buf, uint16_t w, uint16_t h, uint8_t playback_fp
     put_u32(buf + pos, AVIF_HASINDEX);  /* dwFlags              */ pos += 4;
     put_u32(buf + pos, 0);              /* dwTotalFrames        */ pos += 4;
     put_u32(buf + pos, 0);              /* dwInitialFrames      */ pos += 4;
-    put_u32(buf + pos, 1);              /* dwStreams            */ pos += 4;
+    put_u32(buf + pos, with_audio ? 2 : 1);  /* dwStreams    */ pos += 4;
     put_u32(buf + pos, 0x100000);       /* dwSuggestedBufSize   */ pos += 4;
     put_u32(buf + pos, w);              /* dwWidth              */ pos += 4;
     put_u32(buf + pos, h);              /* dwHeight             */ pos += 4;
@@ -233,7 +241,7 @@ static void write_hdrl(uint8_t *buf, uint16_t w, uint16_t h, uint8_t playback_fp
     put_u32(buf + pos, 0);              /* reserved[2]          */ pos += 4;
     put_u32(buf + pos, 0);              /* reserved[3]          */ pos += 4;
 
-    /* LIST "strl" */
+    /* LIST "strl" — video stream */
     memcpy(buf + pos, "LIST", 4);                         pos += 4;
     put_u32(buf + pos, AVI_STRH_SIZE + AVI_STRF_SIZE + 4); /* strl content size */ pos += 4;
     memcpy(buf + pos, "strl", 4);                         pos += 4;
@@ -248,7 +256,7 @@ static void write_hdrl(uint8_t *buf, uint16_t w, uint16_t h, uint8_t playback_fp
     put_u16(buf + pos, 0);              /* wLanguage      */ pos += 2;
     put_u32(buf + pos, 0);              /* dwInitialFrames */ pos += 4;
     put_u32(buf + pos, 1);              /* dwScale        */ pos += 4;
-    put_u32(buf + pos, playback_fps); /* dwRate */ pos += 4;
+    put_u32(buf + pos, playback_fps);   /* dwRate         */ pos += 4;
     put_u32(buf + pos, 0);              /* dwStart        */ pos += 4;
     put_u32(buf + pos, 0);              /* dwLength       */ pos += 4;
     put_u32(buf + pos, 0x100000);       /* dwSuggestedBuf */ pos += 4;
@@ -273,6 +281,45 @@ static void write_hdrl(uint8_t *buf, uint16_t w, uint16_t h, uint8_t playback_fp
     put_u32(buf + pos, 0);              /* biYPelsPerMeter */ pos += 4;
     put_u32(buf + pos, 0);              /* biClrUsed      */ pos += 4;
     put_u32(buf + pos, 0);              /* biClrImportant */ pos += 4;
+
+    if (with_audio) {
+        /* LIST "strl" — audio stream */
+        memcpy(buf + pos, "LIST", 4);                         pos += 4;
+        put_u32(buf + pos, AVI_STRH_SIZE + 8 + AVI_WAVEFMT_SIZE + 4); pos += 4;
+        memcpy(buf + pos, "strl", 4);                         pos += 4;
+
+        /* strh chunk — audio stream header */
+        memcpy(buf + pos, "strh", 4);                         pos += 4;
+        put_u32(buf + pos, 56);                               pos += 4;
+        memcpy(buf + pos, "auds", 4);      /* fccType = audio */ pos += 4;
+        put_u32(buf + pos, 0x0007);         /* fccHandler = WAVE_FORMAT_MULAW */ pos += 4;
+        put_u32(buf + pos, 0);              /* dwFlags        */ pos += 4;
+        put_u16(buf + pos, 0);              /* wPriority      */ pos += 2;
+        put_u16(buf + pos, 0);              /* wLanguage      */ pos += 2;
+        put_u32(buf + pos, 0);              /* dwInitialFrames */ pos += 4;
+        put_u32(buf + pos, 1);              /* dwScale        */ pos += 4;
+        put_u32(buf + pos, G711_SAMPLE_RATE); /* dwRate    */ pos += 4;
+        put_u32(buf + pos, 0);              /* dwStart        */ pos += 4;
+        put_u32(buf + pos, 0);              /* dwLength       */ pos += 4;
+        put_u32(buf + pos, G711_FRAME_SIZE); /* dwSuggestedBuf */ pos += 4;
+        put_u32(buf + pos, 0xFFFFFFFF);     /* dwQuality      */ pos += 4;
+        put_u32(buf + pos, 1);              /* dwSampleSize   */ pos += 4;
+        put_u16(buf + pos, 0);              /* rcFrame.left   */ pos += 2;
+        put_u16(buf + pos, 0);              /* rcFrame.top    */ pos += 2;
+        put_u16(buf + pos, 0);              /* rcFrame.right  */ pos += 2;
+        put_u16(buf + pos, 0);              /* rcFrame.bottom */ pos += 2;
+
+        /* strf chunk — WAVEFORMATEX */
+        memcpy(buf + pos, "strf", 4);                         pos += 4;
+        put_u32(buf + pos, AVI_WAVEFMT_SIZE);                 pos += 4;
+        put_u16(buf + pos, 0x0007);         /* wFormatTag = WAVE_FORMAT_MULAW */ pos += 2;
+        put_u16(buf + pos, 1);              /* nChannels = mono */ pos += 2;
+        put_u32(buf + pos, G711_SAMPLE_RATE); /* nSamplesPerSec */ pos += 4;
+        put_u32(buf + pos, G711_SAMPLE_RATE); /* nAvgBytesPerSec */ pos += 4;
+        put_u16(buf + pos, 1);              /* nBlockAlign     */ pos += 2;
+        put_u16(buf + pos, 8);              /* wBitsPerSample  */ pos += 2;
+        put_u16(buf + pos, 0);              /* cbSize          */ pos += 2;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -331,6 +378,8 @@ typedef struct {
     uint32_t    movi_data_size;   /* bytes written inside 'movi' data area  */
     uint32_t    frame_count;
     int64_t     start_ms;        /* segment start timestamp (esp_timer)     */
+    audio_sub_t *audio_sub;       /* audio subscriber (NULL if mux disabled) */
+    uint32_t    hdrl_size;        /* actual hdrl bytes written to file       */
 } segment_t;
 
 static segment_t s_seg = {0};
@@ -348,6 +397,9 @@ static int64_t s_seg_elapsed_ms(void)
  */
 static esp_err_t open_segment(uint16_t w, uint16_t h, uint8_t playback_fps, const char *prefix)
 {
+    bool with_audio = config_get()->audio_record_to_sd;
+    size_t hdrl_size = with_audio ? AVI_HDRL_WITH_AUDIO : AVI_HDRL_TOTAL;
+
     build_segment_path(s_current_file, sizeof(s_current_file), prefix);
 
     s_seg.fp = fopen(s_current_file, "wb");
@@ -364,10 +416,10 @@ static esp_err_t open_segment(uint16_t w, uint16_t h, uint8_t playback_fps, cons
         goto fail_open;
     }
 
-    /* Write hdrl LIST */
-    uint8_t hdrl[AVI_HDRL_TOTAL];
-    write_hdrl(hdrl, w, h, playback_fps);
-    if (fwrite(hdrl, 1, AVI_HDRL_TOTAL, s_seg.fp) != AVI_HDRL_TOTAL) {
+    /* Write hdrl LIST (with optional audio stream headers) */
+    uint8_t hdrl[AVI_HDRL_WITH_AUDIO];
+    write_hdrl(hdrl, w, h, playback_fps, with_audio);
+    if (fwrite(hdrl, 1, hdrl_size, s_seg.fp) != hdrl_size) {
         ESP_LOGE(TAG, "Failed to write hdrl to %s", s_current_file);
         goto fail_open;
     }
@@ -387,12 +439,26 @@ static esp_err_t open_segment(uint16_t w, uint16_t h, uint8_t playback_fps, cons
     s_seg.movi_data_size = 0;
     s_seg.frame_count    = 0;
     s_seg.start_ms       = s_seg_elapsed_ms();
+    s_seg.hdrl_size      = (uint32_t)hdrl_size;
+
+    /* Subscribe to audio broadcaster if muxing audio */
+    s_seg.audio_sub = NULL;
+    if (with_audio) {
+        s_seg.audio_sub = audio_bcast_subscribe(AUDIO_SUB_AVI_MUX);
+        if (!s_seg.audio_sub) {
+            ESP_LOGW(TAG, "Failed to subscribe to audio broadcaster");
+        }
+    }
 
     ESP_LOGI(TAG, "Started %s", s_current_file);
     LOG_EVENT(LOG_EVENT_REC_STARTED, "file=%s", s_current_file);
     return ESP_OK;
 
 fail_open:
+    if (s_seg.audio_sub) {
+        audio_bcast_unsubscribe(s_seg.audio_sub);
+        s_seg.audio_sub = NULL;
+    }
     fclose(s_seg.fp);
     s_seg.fp = NULL;
     remove(s_current_file);
@@ -423,7 +489,7 @@ static esp_err_t write_avi_frame(const uint8_t *jpeg, size_t jpeg_len)
 
     /* Record in index */
     uint32_t chunk_offset = s_seg.movi_data_size;
-    idx1_append(&s_seg.idx, chunk_offset, (uint32_t)jpeg_len);
+    idx1_append(&s_seg.idx, FOURCC('0','0','d','c'), chunk_offset, (uint32_t)jpeg_len);
 
     /* Protect against SIZE_MAX overflow in alignment calculation */
     if (jpeg_len == SIZE_MAX) {
@@ -439,11 +505,55 @@ static esp_err_t write_avi_frame(const uint8_t *jpeg, size_t jpeg_len)
 }
 
 /**
+ * @brief 向当前分段写入一帧G.711音频数据（'01wb'块），含2字节对齐
+ */
+static esp_err_t write_avi_audio_chunk(const uint8_t *data, size_t len)
+{
+    uint8_t hdr[AVI_FRAME_HDR_SIZE];
+    memcpy(hdr, "01wb", 4);
+    put_u32(hdr + 4, (uint32_t)len);
+
+    if (fwrite(hdr, 1, AVI_FRAME_HDR_SIZE, s_seg.fp) != AVI_FRAME_HDR_SIZE)
+        return ESP_FAIL;
+    if (fwrite(data, 1, len, s_seg.fp) != len)
+        return ESP_FAIL;
+
+    /* Pad to 2-byte alignment */
+    if (len & 1) {
+        uint8_t pad = 0;
+        fwrite(&pad, 1, 1, s_seg.fp);
+    }
+
+    /* Record in index */
+    uint32_t chunk_offset = s_seg.movi_data_size;
+    idx1_append(&s_seg.idx, FOURCC('0','1','w','b'), chunk_offset, (uint32_t)len);
+
+    size_t aligned_len = (len + 1) & ~1u;
+    s_seg.movi_data_size += AVI_FRAME_HDR_SIZE + (uint32_t)aligned_len;
+
+    return ESP_OK;
+}
+
+/**
  * @brief 关闭当前分段文件，写入idx1索引并回填RIFF/movi大小和帧数
  */
 static void close_segment(void)
 {
-    if (!s_seg.fp) return;
+    if (!s_seg.fp) {
+        /* No file was open — just reset audio subscription */
+        if (s_seg.audio_sub) {
+            audio_bcast_unsubscribe(s_seg.audio_sub);
+            s_seg.audio_sub = NULL;
+        }
+        idx1_free(&s_seg.idx);
+        return;
+    }
+
+    /* Unsubscribe from audio broadcaster first */
+    if (s_seg.audio_sub) {
+        audio_bcast_unsubscribe(s_seg.audio_sub);
+        s_seg.audio_sub = NULL;
+    }
 
     /* Write idx1 index */
     uint32_t idx1_data_size = (uint32_t)s_seg.idx.count * 16;  /* 16 bytes per entry */
@@ -454,10 +564,10 @@ static void close_segment(void)
 
     for (int i = 0; i < s_seg.idx.count; i++) {
         uint8_t entry[16];
-        memcpy(entry, "00dc", 4);                              /* dwChunkId          */
-        put_u32(entry + 4,  AVIIF_KEYFRAME);                   /* dwFlags            */
-        put_u32(entry + 8,  s_seg.idx.entries[i].offset + 4);  /* dwOffset (from movi)*/
-        put_u32(entry + 12, s_seg.idx.entries[i].size);         /* dwSize             */
+        memcpy(entry, &s_seg.idx.entries[i].fourcc, 4);         /* dwChunkId          */
+        put_u32(entry + 4,  AVIIF_KEYFRAME);                    /* dwFlags            */
+        put_u32(entry + 8,  s_seg.idx.entries[i].offset + 4);   /* dwOffset (from movi)*/
+        put_u32(entry + 12, s_seg.idx.entries[i].size);          /* dwSize             */
         fwrite(entry, 1, 16, s_seg.fp);
     }
 
@@ -469,10 +579,10 @@ static void close_segment(void)
         fseek(s_seg.fp, 4, SEEK_SET);
         fwrite(riff_size, 1, 4, s_seg.fp);
 
-        /* Patch movi LIST size */
+        /* Patch movi LIST size — use actual hdrl_size written */
         uint8_t movi_size[4];
         put_u32(movi_size, s_seg.movi_data_size + 4); /* +4 for "movi" tag */
-        fseek(s_seg.fp, AVI_RIFF_HDR_SIZE + AVI_HDRL_TOTAL + 4, SEEK_SET);
+        fseek(s_seg.fp, AVI_RIFF_HDR_SIZE + s_seg.hdrl_size + 4, SEEK_SET);
         fwrite(movi_size, 1, 4, s_seg.fp);
 
         /* Patch avih: dwTotalFrames — offset = RIFF(12) + LIST_hdrl(12) + avih_hdr(8) + 16 */
@@ -591,21 +701,31 @@ timelapse = tl_mode > 0;
 playback_fps = timelapse ? 15 : fps;
 prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
 
+        bool write_to_sd = cfg->video_record_to_sd;
+        bool mux_audio = write_to_sd && cfg->audio_record_to_sd;
+
+        /* If write_to_sd turned off mid-segment, close the segment */
+        if (s_seg.fp && !write_to_sd) {
+            close_segment();
+            segment_open = false;
+        }
         /* Open first segment */
         if (!segment_open) {
-            if (open_segment(w, h, playback_fps, prefix) != ESP_OK) {
-                ESP_LOGW(TAG, "Failed to open segment — trying cleanup");
-                storage_cleanup();
-                /* Retry once after cleanup */
+            if (write_to_sd) {
                 if (open_segment(w, h, playback_fps, prefix) != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to open segment after cleanup, retrying in 5 s");
-                    storage_set_unavailable();
-                    vTaskDelay(pdMS_TO_TICKS(5000));
-                    continue;
+                    ESP_LOGW(TAG, "Failed to open segment — trying cleanup");
+                    storage_cleanup();
+                    /* Retry once after cleanup */
+                    if (open_segment(w, h, playback_fps, prefix) != ESP_OK) {
+                        ESP_LOGE(TAG, "Failed to open segment after cleanup, retrying in 5 s");
+                        storage_mark_io_error();
+                        vTaskDelay(pdMS_TO_TICKS(5000));
+                        continue;
+                    }
                 }
+                total_bytes  = 0;
             }
             segment_open = true;
-            total_bytes  = 0;
         }
         /* Record start of capture cycle */
         int64_t cycle_start_us = esp_timer_get_time();
@@ -691,15 +811,26 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
             continue;
         }
 
-        /* Write frame to AVI */
-        err = write_avi_frame(jpeg_data, jpeg_data_len);
+        /* Write frame to AVI (only if recording to SD) */
+        if (write_to_sd) {
+            err = write_avi_frame(jpeg_data, jpeg_data_len);
+
+            /* Drain available audio frames and mux into AVI */
+            if (err == ESP_OK && mux_audio && s_seg.audio_sub) {
+                audio_frame_t aframe;
+                while (audio_bcast_receive(s_seg.audio_sub, &aframe, 0)) {
+                    write_avi_audio_chunk(aframe.data, aframe.len);
+                    audio_bcast_release(&aframe);
+                }
+            }
+        }
         if (jpeg_copy) {
             free(jpeg_copy);
         } else {
             camera_return_fb(&frame);
         }
 
-        if (err != ESP_OK) {
+        if (write_to_sd && err != ESP_OK) {
             ESP_LOGW(TAG, "SD write failed — closing segment, attempting cleanup");
             close_segment();  /* Save what we have */
             segment_open = false;
@@ -717,50 +848,49 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
 
             /* Cleanup didn't help — truly unrecoverable */
             ESP_LOGE(TAG, "SD write failed after cleanup — entering ERROR state");
-            storage_set_unavailable();
+            storage_mark_io_error();
             s_state = RECORDER_ERROR;
             led_set_status(LED_ERROR);
             break;
         }
 
-        total_bytes += jpeg_data_len;
+        if (write_to_sd) {
+            total_bytes += jpeg_data_len;
 
-        /* Flush to SD: every frame in timelapse (sparse), every ~1s in continuous */
-static int flush_counter = 0;
-if (timelapse) {
-    fflush(s_seg.fp);
-} else if (++flush_counter >= 10) {
-    fflush(s_seg.fp);
-    flush_counter = 0;
-}
-
-        /* Track stack high-water mark */
-        s_stack_hwm = uxTaskGetStackHighWaterMark(NULL);
-
-        /* Check segment duration */
-        int64_t elapsed_ms = s_seg_elapsed_ms() - s_seg.start_ms;
-        if (elapsed_ms >= (int64_t)cfg->segment_sec * 1000) {
-            /* Close current segment */
-            char completed_file[128];
-            strncpy(completed_file, s_current_file, sizeof(completed_file) - 1);
-            completed_file[sizeof(completed_file) - 1] = '\0';
-            uint32_t completed_size = total_bytes;
-
-            close_segment();
-            segment_open = false;
-
-            /* Safety net: remove any zero-byte files left by close_segment() failures */
-            cleanup_orphan_zero_byte_files();
-
-            /* Notify via callback */
-            if (s_segment_cb && completed_size > 0) {
-                s_segment_cb(completed_file, completed_size);
+            /* Flush to SD: every frame in timelapse (sparse), every ~1s in continuous */
+            static int flush_counter = 0;
+            if (timelapse) {
+                fflush(s_seg.fp);
+            } else if (++flush_counter >= 10) {
+                fflush(s_seg.fp);
+                flush_counter = 0;
             }
 
-            /* Immediately open next segment */
-            if (open_segment(w, h, playback_fps, prefix) == ESP_OK) {
-                segment_open = true;
-                total_bytes  = 0;
+            /* Check segment duration */
+            int64_t elapsed_ms = s_seg_elapsed_ms() - s_seg.start_ms;
+            if (elapsed_ms >= (int64_t)cfg->segment_sec * 1000) {
+                /* Close current segment */
+                char completed_file[128];
+                strncpy(completed_file, s_current_file, sizeof(completed_file) - 1);
+                completed_file[sizeof(completed_file) - 1] = '\0';
+                uint32_t completed_size = total_bytes;
+
+                close_segment();
+                segment_open = false;
+
+                /* Safety net: remove any zero-byte files left by close_segment() failures */
+                cleanup_orphan_zero_byte_files();
+
+                /* Notify via callback */
+                if (s_segment_cb && completed_size > 0) {
+                    s_segment_cb(completed_file, completed_size);
+                }
+
+                /* Immediately open next segment */
+                if (open_segment(w, h, playback_fps, prefix) == ESP_OK) {
+                    segment_open = true;
+                    total_bytes  = 0;
+                }
             }
         }
 
