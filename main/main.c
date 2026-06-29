@@ -382,6 +382,7 @@ void app_main(void)
     /* Apply camera flip/mirror from config */
     if (s_camera_ok) {
         camera_set_flip(cfg->vflip, cfg->hmirror);
+        camera_set_day_night(cfg->day_night_mode);
     }
 
     /* ---- 6. SD card storage (SPI mode: CS=21, SCK=7, MOSI=9, MISO=8) --- */
@@ -536,7 +537,8 @@ void app_main(void)
     if (s_camera_ok) {
         ESP_LOGI(TAG, "Camera: %s @ %s",
             camera_get_sensor() == CAMERA_SENSOR_OV2640 ? "OV2640" :
-            camera_get_sensor() == CAMERA_SENSOR_OV3660 ? "OV3660" : "unknown",
+            camera_get_sensor() == CAMERA_SENSOR_OV3660 ? "OV3660" :
+            camera_get_sensor() == CAMERA_SENSOR_OV5640 ? "OV5640" : "unknown",
             camera_res_to_str(camera_get_resolution()));
     }
     ESP_LOGI(TAG, "WiFi: %s, IP: %s",
