@@ -43,7 +43,7 @@ This project uses Octal PSRAM mode (8-line), initialized at boot (`CONFIG_SPIRAM
 
 | Function | GPIO | Description |
 |----------|------|-------------|
-| XCLK | 10 | Main clock output (20 MHz) |
+| XCLK | 10 | Main clock output (16 MHz) |
 | SIOD (SDA) | 40 | SCCB data line (I²C) |
 | SIOC (SCL) | 39 | SCCB clock line (I²C) |
 | D0 | 18 | Data bit 0 |
@@ -115,10 +115,45 @@ The system automatically detects the model by reading sensor PID via SCCB during
 |-----------|-------|---------|-------------|
 | FPS | 1-30 | — | Frame rate target |
 | JPEG Quality | 1-63 | — | Lower value = higher quality |
-| Frame Buffer | 2 (fixed) | — | Dual buffer, allocated in PSRAM |
-| Grab Mode | `CAMERA_GRAB_LATEST` | — | Always get latest frame |
-| XCLK Frequency | 20 MHz | — | Camera main clock |
+| Frame Buffer | 3 (fixed) | — | Triple buffer, allocated in PSRAM |
+| Grab Mode | `CAMERA_GRAB_WHEN_EMPTY` | — | Wait for empty buffer, prevents frame drops |
+| XCLK Frequency | 16 MHz | — | Camera main clock (unified for all sensors) |
 
+### Runtime Sensor Auto-Detection
+
+The firmware supports runtime automatic detection of the following camera sensors (no recompilation required):
+
+| Model | Resolution | Features | Notes |
+|-------|------------|----------|-------|
+| OV2640 | 2MP (UXGA) | On-chip JPEG | Default configuration, XIAO onboard |
+| OV3660 | 3MP (QXGA) | DSP compressed JPEG | Replaceable module |
+| OV5640 | 5MP (5MP) | High resolution | Non-autofocus version only |
+
+The firmware detects the sensor model by reading the sensor PID via SCCB during initialization. Simply swap the camera module and restart, no need to flash different firmware builds.
+
+### OV5640 AF Version Not Supported
+
+This project does not support the OV5640 AF (autofocus) version. The esp32-camera Kconfig can only compile one OV5640 driver (either `ov5640.c` or `ov5640_af.c`). The AF version requires loading focus firmware to sensor RAM during initialization, which conflicts with this project's "simple one-size-fits-all" design principle. If autofocus support is required, please refer to the official esp32-camera AF firmware loading examples.
+
+### Unified XCLK Configuration
+
+All sensors use a unified 16MHz XCLK (one-size-fits-all strategy). This is the optimal frequency for OV3660 (the driver has dedicated code paths for this), and OV2640 and OV5640 also work stably at this frequency. The tradeoff is that OV2640's maximum frame rate is reduced by approximately 20% compared to 20MHz, which has no practical impact on surveillance scenarios.
+
+### Day/Night Mode
+
+For users with infrared camera modules (IR-cut filter removed), the firmware provides day/night mode switching via the web configuration page, no recompilation needed:
+
+| Mode | Value | Description | Use Case |
+|------|-------|-------------|----------|
+| Color | 0 | Normal color output | Daytime or modules with IR-cut filter |
+| Grayscale | 1 | Grayscale output | IR modules to avoid color cast (IR-cut removal causes pink/red/green tint from mixed visible+IR light) |
+| Auto | 2 | Reserved mode | Currently equivalent to color (future versions may auto-switch based on time or light sensor) |
+
+Switch via Web UI → Configuration → Day/Night Mode, takes effect immediately. Infrared night vision requires an external IR light source (e.g., 940nm LED), the firmware does not control IR illumination hardware.
+
+### Wide-Angle Lens Notes
+
+Different wide-angle lenses (FOV) have varying distortion characteristics. The firmware does not perform software distortion correction. In surveillance scenarios, barrel distortion from wide-angle lenses is expected behavior (increases field of view). ESP32-S3 cannot perform real-time distortion correction. Ultra-wide-angle lenses (160°+) with small sensors (e.g., OV3660's 1/5") cause physical edge resolution degradation due to optical limits, which is not a software issue.
 ---
 
 ## 5. TF Card
