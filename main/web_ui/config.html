@@ -352,6 +352,14 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </label>
 </div>
 <div class="field">
+	<label>日夜模式</label>
+	<select id="day_night_mode">
+		<option value="0">彩色（白天）</option>
+		<option value="1">黑白（夜视）</option>
+		<option value="2">自动（预留）</option>
+	</select>
+</div>
+<div class="field">
 <label>设备名称</label>
 <input type="text" id="device_name" placeholder="MiBee Cam">
 </div>
@@ -527,6 +535,7 @@ function loadConfig(){
 
   $('vflip').checked=!!v.vflip;
   $('hmirror').checked=!!v.hmirror;
+  $('day_night_mode').value=v.day_night_mode!=null?v.day_night_mode:0;
   onUploadMethodChange();
   $('resolution').value=v.resolution!=null?v.resolution:1;
   $('fps').value=v.fps||10;$('fpsVal').textContent=$('fps').value;
@@ -628,6 +637,7 @@ var interval = tlMode === 1 ? parseInt($('timelapseInterval').value) : 0;
   jpeg_quality:parseInt($('jpeg_quality').value),
   vflip:$('vflip').checked,
   hmirror:$('hmirror').checked,
+  day_night_mode:parseInt($('day_night_mode').value),
   timezone:$('timezone').value,
 timelapse_interval_sec: interval,
 timelapse_mode: tlMode,
