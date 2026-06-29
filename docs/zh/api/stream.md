@@ -80,3 +80,43 @@ img.onerror = () => {
 
 ---
 
+---
+
+## GET /api/audio — HTTP 分块音频流
+
+> [← MJPEG 流](#get-stream--mjpeg-实时视频流) | [设备控制 →](control.md)
+
+---
+
+通过 HTTP 分块传输获取实时 G.711 μ-law 音频流。网页预览页面使用此接口进行实时音频监听。
+
+**认证**：无需认证
+
+**来源**：`audio_stream_handler` (web_server.c)
+
+**响应头**：
+```
+Content-Type: application/octet-stream
+Transfer-Encoding: chunked
+Access-Control-Allow-Origin: *
+```
+
+**响应体**：G.711 μ-law 编码音频字节流（8 kHz，单声道，20ms 帧 = 160 字节/帧）。
+
+**客户端解码**：浏览器通过查找表将 μ-law 解码为 16 位 PCM，通过 Web Audio API（`AudioContext` 8 kHz 采样率）播放。
+
+**DSP 管线**（固件端）：
+1. I2S PDM 采集（DSR_16S，1.024 MHz PDM 时钟，硬件抗混叠）
+2. DC 偏移去除（IIR 滤波器，α≈0.999）
+3. 频谱减法降噪（256 点 FFT，Wiener 增益，最小统计量噪声估计）
+4. 软件增益（4×）+ 硬限幅
+5. 带迟滞的噪声门（开门@300，关门@150）
+6. G.711 μ-law 编码
+
+**cURL 示例**：
+```bash
+# 采集 3 秒音频
+curl --max-time 3 http://<设备IP>/api/audio > audio.g711 2>/dev/null
+```
+
+---
