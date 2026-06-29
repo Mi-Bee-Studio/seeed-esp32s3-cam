@@ -195,6 +195,30 @@ static esp_err_t api_status_handler(httpd_req_t *req)
         camera_get_sensor() == CAMERA_SENSOR_OV5640 ? "OV5640" : "unknown");
     cJSON_AddStringToObject(data, "resolution", camera_res_to_str(camera_get_resolution()));
 
+    /* Supported resolutions for the detected sensor (for dynamic UI filtering) */
+    {
+        camera_sensor_t cam_sensor = camera_get_sensor();
+        camera_res_t max_res = camera_get_max_resolution(cam_sensor);
+        cJSON *res_arr = cJSON_CreateArray();
+        for (int r = CAMERA_RES_VGA; r <= (int)max_res; r++) {
+            cJSON *item = cJSON_CreateObject();
+            switch (r) {
+                case CAMERA_RES_VGA:  cJSON_AddStringToObject(item, "label", "VGA (640x480)");   break;
+                case CAMERA_RES_SVGA: cJSON_AddStringToObject(item, "label", "SVGA (800x600)");  break;
+                case CAMERA_RES_XGA:  cJSON_AddStringToObject(item, "label", "XGA (1024x768)");  break;
+                case CAMERA_RES_HD:   cJSON_AddStringToObject(item, "label", "HD (1280x720)");   break;
+                case CAMERA_RES_SXGA: cJSON_AddStringToObject(item, "label", "SXGA (1280x1024)");break;
+                case CAMERA_RES_UXGA: cJSON_AddStringToObject(item, "label", "UXGA (1600x1200)");break;
+                case CAMERA_RES_FHD:  cJSON_AddStringToObject(item, "label", "FHD (1920x1080)"); break;
+                case CAMERA_RES_QXGA: cJSON_AddStringToObject(item, "label", "QXGA (2048x1536)");break;
+                default: continue;
+            }
+            cJSON_AddNumberToObject(item, "value", r);
+            cJSON_AddItemToArray(res_arr, item);
+        }
+        cJSON_AddItemToObject(data, "supported_resolutions", res_arr);
+    }
+
     /* Time */
     cJSON_AddBoolToObject(data, "time_synced", time_is_synced());
     char current_time[32] = "";
@@ -363,12 +387,13 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         cfg->webdav_pass[sizeof(cfg->webdav_pass) - 1] = '\0';
     }
 
+    uint8_t prev_resolution = cfg->resolution;
     if ((item = cJSON_GetObjectItem(json, "resolution"))) {
         int val = item->valueint;
-        if (!validate_uint_range(val, 0, 3)) {
+        if (!validate_uint_range(val, 0, 7)) {
             cJSON_Delete(json);
             config_unlock();
-            return json_error(req, "Invalid resolution (must be 0-3)", HTTPD_400_BAD_REQUEST);
+            return json_error(req, "Invalid resolution (must be 0-7)", HTTPD_400_BAD_REQUEST);
         }
         cfg->resolution = (uint8_t)val;
     }
@@ -522,6 +547,16 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     config_save();
 
     config_unlock();
+
+    /* Apply resolution change to camera sensor + restart recorder for correct AVI dimensions */
+    if (cfg->resolution != prev_resolution) {
+        camera_set_resolution((camera_res_t)cfg->resolution);
+        if (recorder_get_state() == RECORDER_RECORDING) {
+            recorder_stop();
+            vTaskDelay(pdMS_TO_TICKS(200));
+            recorder_start();
+        }
+    }
     return json_ok(req, NULL);
 }
 
