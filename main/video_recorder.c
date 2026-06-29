@@ -106,6 +106,11 @@ static void resolution_dims(uint8_t res, uint16_t *w, uint16_t *h)
         case 0:  *w = 640;  *h = 480;  break;   /* VGA  */
         case 1:  *w = 800;  *h = 600;  break;   /* SVGA */
         case 2:  *w = 1024; *h = 768;  break;   /* XGA  */
+        case 3:  *w = 1280; *h = 720;  break;   /* HD   */
+        case 4:  *w = 1280; *h = 1024; break;   /* SXGA */
+        case 5:  *w = 1600; *h = 1200; break;   /* UXGA */
+        case 6:  *w = 1920; *h = 1080; break;   /* FHD  */
+        case 7:  *w = 2048; *h = 1536; break;   /* QXGA */
         default: *w = 800;  *h = 600;  break;
     }
 }

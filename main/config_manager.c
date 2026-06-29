@@ -435,7 +435,7 @@ bool config_validate(const cam_config_t *cfg)
     if (!cfg) return false;
 
     /* ---- core numeric ranges ---- */
-    if (cfg->resolution > 2)         { ESP_LOGW(TAG, "validate: resolution=%d > 2", cfg->resolution); return false; }
+    if (cfg->resolution > 7)         { ESP_LOGW(TAG, "validate: resolution=%d > 7", cfg->resolution); return false; }
     if (cfg->fps < 1 || cfg->fps > 30) { ESP_LOGW(TAG, "validate: fps=%d out of 1-30", cfg->fps); return false; }
     if (cfg->jpeg_quality < 1 || cfg->jpeg_quality > 63)
                                        { ESP_LOGW(TAG, "validate: jpeg_quality=%d out of 1-63", cfg->jpeg_quality); return false; }

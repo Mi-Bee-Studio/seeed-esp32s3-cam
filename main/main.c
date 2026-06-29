@@ -368,7 +368,12 @@ void app_main(void)
         switch (cfg->resolution) {
             case 0:  res = CAMERA_RES_VGA;  break;
             case 1:  res = CAMERA_RES_SVGA; break;
-            case 2:  res = CAMERA_RES_XGA;  break;
+        case 2:  res = CAMERA_RES_XGA;  break;
+        case 3:  res = CAMERA_RES_HD;   break;
+        case 4:  res = CAMERA_RES_SXGA; break;
+        case 5:  res = CAMERA_RES_UXGA; break;
+        case 6:  res = CAMERA_RES_FHD;  break;
+        case 7:  res = CAMERA_RES_QXGA; break;
             default: res = CAMERA_RES_VGA; break;
         }
         esp_err_t cam_err = camera_init(res, cfg->fps, quality);

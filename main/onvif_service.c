@@ -67,6 +67,21 @@ static void resolution_to_wh(uint8_t res, int *w, int *h)
         case 2:
             *w = 1024; *h = 768;
             break;
+        case 3:
+            *w = 1280; *h = 720;
+            break;
+        case 4:
+            *w = 1280; *h = 1024;
+            break;
+        case 5:
+            *w = 1600; *h = 1200;
+            break;
+        case 6:
+            *w = 1920; *h = 1080;
+            break;
+        case 7:
+            *w = 2048; *h = 1536;
+            break;
         default:
             *w = 640;  *h = 480;
             break;
