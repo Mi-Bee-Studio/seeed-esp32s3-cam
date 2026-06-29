@@ -79,6 +79,11 @@ static framesize_t res_to_framesize(camera_res_t res)
         case CAMERA_RES_VGA:  return FRAMESIZE_VGA;
         case CAMERA_RES_SVGA: return FRAMESIZE_SVGA;
         case CAMERA_RES_XGA:  return FRAMESIZE_XGA;
+        case CAMERA_RES_HD:   return FRAMESIZE_HD;    /* 1280x720  */
+        case CAMERA_RES_SXGA: return FRAMESIZE_SXGA;  /* 1280x1024 */
+        case CAMERA_RES_UXGA: return FRAMESIZE_UXGA;  /* 1600x1200 */
+        case CAMERA_RES_FHD:  return FRAMESIZE_FHD;   /* 1920x1080 */
+        case CAMERA_RES_QXGA: return FRAMESIZE_QXGA;  /* 2048x1536 */
         default:              return FRAMESIZE_SVGA;
     }
 }
@@ -133,11 +138,16 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
 
     esp_err_t err = esp_camera_init(&config);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Camera init failed: 0x%x", err);
-        return err;
+        ESP_LOGW(TAG, "Camera init with res=%d failed: 0x%x, retrying with VGA", res, err);
+        config.frame_size = FRAMESIZE_VGA;
+        err = esp_camera_init(&config);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Camera init failed (VGA fallback): 0x%x", err);
+            return err;
+        }
+        res = CAMERA_RES_VGA;
     }
 
-    s_current_res = res;
 
     /* Auto-detect sensor */
     sensor_t *sensor = esp_camera_sensor_get();
@@ -157,6 +167,16 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
                 break;
         }
     }
+
+    /* Clamp resolution to sensor capability */
+    if (s_sensor != CAMERA_SENSOR_UNKNOWN && res > camera_get_max_resolution(s_sensor)) {
+        camera_res_t clamped = camera_get_max_resolution(s_sensor);
+        ESP_LOGW(TAG, "Requested res %d exceeds sensor max %d, clamping", res, clamped);
+        sensor->set_framesize(sensor, res_to_framesize(clamped));
+        res = clamped;
+    }
+
+    s_current_res = res;
 
     const char *sensor_name = "UNKNOWN";
     switch (s_sensor) {
@@ -212,6 +232,16 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
 camera_sensor_t camera_get_sensor(void)
 {
     return s_sensor;
+}
+
+camera_res_t camera_get_max_resolution(camera_sensor_t sensor)
+{
+    switch (sensor) {
+        case CAMERA_SENSOR_OV2640: return CAMERA_RES_UXGA;  /* 1600x1200 */
+        case CAMERA_SENSOR_OV3660: return CAMERA_RES_QXGA;  /* 2048x1536 */
+        case CAMERA_SENSOR_OV5640: return CAMERA_RES_QXGA;  /* 2048x1536 */
+        default:                  return CAMERA_RES_XGA;    /* conservative fallback */
+    }
 }
 
 /** @brief 捕获一帧 JPEG 图像
@@ -348,6 +378,11 @@ const char *camera_res_to_str(camera_res_t res)
         case CAMERA_RES_VGA:  return "VGA";
         case CAMERA_RES_SVGA: return "SVGA";
         case CAMERA_RES_XGA:  return "XGA";
+        case CAMERA_RES_HD:   return "HD";
+        case CAMERA_RES_SXGA: return "SXGA";
+        case CAMERA_RES_UXGA: return "UXGA";
+        case CAMERA_RES_FHD:  return "FHD";
+        case CAMERA_RES_QXGA: return "QXGA";
         default:              return "UNKNOWN";
     }
 }
