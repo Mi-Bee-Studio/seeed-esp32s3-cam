@@ -64,6 +64,7 @@ static const cam_config_t s_defaults = {
     .audio_record_to_sd = false,
     .sd_log_enabled = false,
     .day_night_mode = 0,
+    .web_password   = "admin",
 };
 
 /* ---- internal helpers ---- */
@@ -356,6 +357,12 @@ esp_err_t config_init(void)
     if (s_config.day_night_mode > 2) {
         ESP_LOGW(TAG, "day_night_mode=%d out of range, resetting to 0", s_config.day_night_mode);
         s_config.day_night_mode = 0;
+    }
+
+    /* Migration: web_password must not be empty (older firmware defaulted to "") */
+    if (s_config.web_password[0] == '\0') {
+        ESP_LOGI(TAG, "web_password empty, setting default 'admin'");
+        strcpy(s_config.web_password, "admin");
     }
 
     /* ---- Legacy FTP config migration check ---- */
