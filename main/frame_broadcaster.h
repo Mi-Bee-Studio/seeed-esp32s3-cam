@@ -22,7 +22,11 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#define FBROADCAST_MAX_SUBSCRIBERS  2   /* MJPEG only */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define FBROADCAST_MAX_SUBSCRIBERS  3   /* MJPEG + RTSP */
 
 /** Subscriber type for logging and diagnostics. */
 typedef enum {
@@ -96,3 +100,7 @@ esp_err_t fbroadcast_init(void);
  * @brief Shut down the frame broadcaster and free all resources.
  */
 void fbroadcast_deinit(void);
+
+#ifdef __cplusplus
+}
+#endif
