@@ -36,6 +36,7 @@
 #include "esp_task_wdt.h"
 
 #include "ota_updater.h"
+#include "audio_broadcaster.h"
 #include <string.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -1424,6 +1425,37 @@ static esp_err_t metrics_handler(httpd_req_t *req)
 }
 /*  URI handler registration table                                     */
 /* ------------------------------------------------------------------ */
+/** @brief GET /api/audio — stream live G.711 μ-law audio for web preview */
+static esp_err_t api_audio_stream_handler(httpd_req_t *req)
+{
+    audio_sub_t *sub = audio_bcast_subscribe(AUDIO_SUB_RTSP);
+    if (!sub) {
+        return json_error(req, "No audio subscriber slots", HTTPD_500_INTERNAL_SERVER_ERROR);
+    }
+
+    httpd_resp_set_type(req, "application/octet-stream");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+
+    audio_frame_t frame;
+    while (true) {
+        if (!audio_bcast_receive(sub, &frame, pdMS_TO_TICKS(2000))) {
+            continue;  /* timeout — keep alive */
+        }
+
+        /* Send frame as chunk — check for client disconnect */
+        esp_err_t err = httpd_resp_send_chunk(req, (const char *)frame.data, frame.len);
+        audio_bcast_release(&frame);
+
+        if (err != ESP_OK) {
+            break;  /* client disconnected */
+        }
+    }
+
+    /* Send empty chunk to close stream */
+    httpd_resp_send_chunk(req, NULL, 0);
+    audio_bcast_unsubscribe(sub);
+    return ESP_OK;
+}
 
 typedef struct {
     const char  *uri;
@@ -1449,6 +1481,7 @@ static const uri_entry_t s_uris[] = {
     { "/api/format",   HTTP_POST,   api_format_handler        },
     { "/api/ota",     HTTP_POST,   api_ota_handler           },
     { "/metrics",      HTTP_GET,    metrics_handler           },
+    { "/api/audio",   HTTP_GET,    api_audio_stream_handler  },
     /* CORS preflight — wildcard */
     { "/*",            HTTP_OPTIONS, options_handler           },
     /* Static files — catch-all (lowest priority) */
@@ -1470,7 +1503,7 @@ esp_err_t web_server_start(uint16_t port)
     }
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 22;   /* 20 static + 2 ONVIF */
+    config.max_uri_handlers = 23;   /* 21 static + 2 ONVIF */
     config.stack_size = 16384;   /* 16KB: download handler has ~6KB locals + nested calls */
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.max_open_sockets = 4;
