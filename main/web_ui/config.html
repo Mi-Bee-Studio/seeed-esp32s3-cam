@@ -57,6 +57,9 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .net-dot.offline{background:#e74c3c;box-shadow:0 0 4px rgba(231,76,60,.5);animation:pulse 1s infinite}
 .checkbox-row{display:flex;align-items:center;margin-bottom:10px}
 .checkbox-row label{margin-bottom:0;font-size:14px;color:#333;cursor:pointer}
+.checkbox-row.disabled{opacity:.4;pointer-events:none}
+.checkbox-row.disabled label{cursor:not-allowed}
+.sd-warning{font-size:12px;color:#e67e22;padding:8px 12px;background:#fff8e1;border-radius:6px;margin-bottom:10px;display:none}
 .sub-section{margin-top:12px}
 .sub-title{font-size:13px;color:#888;margin-bottom:8px;font-weight:500}
 .pw-wrap{position:relative}
@@ -193,6 +196,27 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </div>
 </div>
 </div>
+</div>
+
+<div class="accordion-section">
+    <div class="accordion-header" onclick="toggleSection(this)">
+        <span class="card-title">音频与存储</span>
+        <span class="accordion-indicator">▶</span>
+    </div>
+    <div class="accordion-content collapsed">
+        <div class="card">
+            <div class="sd-warning" id="sdWarning">⚠ 未检测到 SD 卡，以下功能暂不可用</div>
+            <div class="checkbox-row">
+                <label><input type="checkbox" id="video_record_to_sd"> 录制视频到 SD 卡</label>
+            </div>
+            <div class="checkbox-row">
+                <label><input type="checkbox" id="audio_record_to_sd"> 录制音频到 SD 卡（合并进视频音轨）</label>
+            </div>
+            <div class="checkbox-row">
+                <label><input type="checkbox" id="sd_log_enabled"> 系统日志写入 SD 卡（/sdcard/logs/）</label>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="accordion-section">
@@ -489,6 +513,17 @@ function loadConfig(){
   $('webdav_pass').value=v.webdav_pass||'';
   $('alert_webhook_url').value=v.alert_webhook_url||'';
   $('alert_webhook_enabled').checked=!!v.alert_webhook_enabled;
+  $('video_record_to_sd').checked=!!v.video_record_to_sd;
+  $('audio_record_to_sd').checked=!!v.audio_record_to_sd;
+  $('sd_log_enabled').checked=!!v.sd_log_enabled;
+
+  /* Grey out SD-dependent toggles when no SD card */
+  var sdOk=!!v.sd_present;
+  ['video_record_to_sd','audio_record_to_sd','sd_log_enabled'].forEach(function(id){
+    var row=$(id).closest('.checkbox-row');
+    if(sdOk){row.classList.remove('disabled')}else{row.classList.add('disabled')}
+  });
+  $('sdWarning').style.display=sdOk?'none':'block';
 
   $('vflip').checked=!!v.vflip;
   $('hmirror').checked=!!v.hmirror;
@@ -603,6 +638,9 @@ motion_idle_interval_sec: tlMode === 2 ? parseInt($('motionIdleInterval').value)
   cleanup_high_pct:parseInt($('cleanup_high_pct').value),
   alert_webhook_url:$('alert_webhook_url').value,
   alert_webhook_enabled:$('alert_webhook_enabled').checked,
+  video_record_to_sd:$('video_record_to_sd').checked,
+  audio_record_to_sd:$('audio_record_to_sd').checked,
+  sd_log_enabled:$('sd_log_enabled').checked,
  };
  /* Only send password if user changed it (not masked "****") */
  var wp=$('web_password').value;
