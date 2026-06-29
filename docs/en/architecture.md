@@ -2,7 +2,7 @@
 
 ## 1. System Overview
 
-The ESP32-S3 camera monitoring system is based on the FreeRTOS real-time operating system, running 22 loosely coupled C modules on the dual-core ESP32-S3. The system uses a hybrid event-driven and polling architecture, with camera frame data split into two outputs: real-time HTTP MJPEG streaming and recording storage.
+The ESP32-S3 camera monitoring system is based on the FreeRTOS real-time operating system, running 27 loosely coupled C modules on the dual-core ESP32-S3. The system uses a hybrid event-driven and polling architecture, with camera frame data split into two outputs: real-time HTTP MJPEG streaming and recording storage.
 
 ```
   Camera ──→ Frame Broadcaster ──→ MJPEG Streamer (port 81) ──→ Browser/Client
@@ -13,6 +13,7 @@ The ESP32-S3 camera monitoring system is based on the FreeRTOS real-time operati
   Status LED ← LED Controller (GPIO21, active-low)
   Watchdog (30s TWDT, panic) → Health Monitor (60s)
   ONVIF Discovery (UDP multicast) → NVR auto-discovery
+  Audio Driver (I2S PDM) → Audio Broadcaster → RTSP Server (port 554)
 ```
 
 ### Core Features
@@ -62,7 +63,7 @@ The ESP32-S3 camera monitoring system is based on the FreeRTOS real-time operati
 
 ## 3. Module Description
 
-The system has 22 modules, all located in the `main/` directory, each module with one `.c`/`.h` file pair.
+The system has 27 modules, all located in the `main/` directory, each module with one `.c`/`.h` file pair.
 
 | Module | File | Responsibility | Key Functions |
 |--------|------|----------------|---------------|
@@ -86,6 +87,11 @@ The system has 22 modules, all located in the `main/` directory, each module wit
 | OTA Updater | `ota_updater.c` | Firmware OTA updates via URL | `ota_updater_init()`, `ota_update_start()` |
 | Webhook | `webhook.c` | HTTP event notifications for motion/recordings | `webhook_send()`, `webhook_init()` |
 | WebSocket Server | `ws_server.c` | Real-time push updates to WebUI clients | `ws_server_init()`, `ws_broadcast()` |
+| Audio Driver | `audio_driver.c` | I2S PDM mic capture, 16→8kHz decimation | `audio_init()`, `audio_capture()` |
+| Audio Broadcaster | `audio_broadcaster.c` | Audio frame pub/sub (mirrors frame_broadcaster) | `abroadcast_publish()`, `abroadcast_subscribe()` |
+| G.711 Codec | `g711_codec.c` | G.711 μ-law encoder/decoder (ITU-T standard) | `g711_encode()`, `g711_decode()` |
+| RTSP Server | `rtsp_server.cpp` | RTSP server (MJPEG+G.711 dual-track, digest auth, port 554) | `rtsp_server_init()`, `rtsp_server_start()` |
+| SD Log | `sd_log.c` | SD card structured event logging with rotation | `sd_log_init()`, `sd_log_write()` |
 | SHA-256 | `sha256.c` | Standalone SHA-256 for firmware hash verification | `sha256_hash()`, `sha256_verify()` |
 | JSON Parser | `cJSON.c` | Third-party JSON library (vendored for IDF v6.0) | — |
 
@@ -198,6 +204,14 @@ Browser real-time rendering
 ```
 
 ---
+
+### RTSP Server Data Flow
+
+RTSP Server (port 554) ← frame_broadcaster + audio_broadcaster
+  → MJPEG video track (RTP payload type 26)
+  → G.711 μ-law audio track (RTP payload type 0, PCMU)
+  → Digest authentication
+
 
 ## 5. FreeRTOS Task Table
 

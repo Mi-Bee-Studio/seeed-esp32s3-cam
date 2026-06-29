@@ -87,6 +87,10 @@ Access-Control-Allow-Headers: Content-Type, X-Password
 #SQ|| 19 | POST | `/onvif/device_service` | No | ONVIF Device Service (SOAP) |
 #BJ|| 20 | POST | `/onvif/media_service` | No | ONVIF Media Service (SOAP) |
 #HX|
+| RTSP | `rtsp://<IP>:554/stream` | Digest | MJPEG+G.711 dual-track stream |
+| MJPEG | `http://<IP>:81/stream` | No | MJPEG live stream (video only) |
+
+Note: RTSP provides audio+video for NVR integration. MJPEG (port 81) remains video-only.
 #NJ|## `/api/status` Response Fields
 
 
