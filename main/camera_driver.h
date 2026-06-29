@@ -29,6 +29,8 @@ typedef enum {
     CAMERA_SENSOR_OV2640,
     /** OV3660 摄像头传感器 */
     CAMERA_SENSOR_OV3660,
+    /** OV5640 摄像头传感器 */
+    CAMERA_SENSOR_OV5640,
 } camera_sensor_t;
 
 /** Resolution options */
@@ -105,6 +107,12 @@ esp_err_t camera_set_resolution(camera_res_t res);
  * @return ESP_OK 成功
  */
 esp_err_t camera_set_flip(bool vflip, bool hmirror);
+
+/** @brief 设置日夜模式（彩色/黑白）
+ * @param mode 0=彩色, 1=黑白, 2=自动(预留,当前等同0)
+ * @return ESP_OK 成功, ESP_ERR_INVALID_STATE 未初始化, ESP_FAIL 失败
+ */
+esp_err_t camera_set_day_night(uint8_t mode);
 
 /** @brief 获取当前分辨率设置
  * @return 当前分辨率枚举值
