@@ -233,6 +233,14 @@ static esp_err_t handle_get_capabilities(httpd_req_t *req)
         "<tcr:Media>"
         "<tcr:XAddr>http://%s:80/onvif/media_service</tcr:XAddr>"
         "</tcr:Media>"
+        "<tcr:Audio>"
+        "<tcr:AudioSources>"
+        "<tcr:AudioSource token=\"AudioSource_1\"/>"
+        "</tcr:AudioSources>"
+        "<tcr:AudioEncoders>"
+        "<tcr:AudioEncoding>G.711</tcr:AudioEncoding>"
+        "</tcr:AudioEncoders>"
+        "</tcr:Audio>"
         "</tcr:Capabilities>"
         "</tcr:GetCapabilitiesResponse>"
         "</s:Body>"
@@ -311,7 +319,7 @@ static esp_err_t handle_get_profiles(httpd_req_t *req)
         "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\">"
         "<s:Body>"
         "<trt:GetProfilesResponse "
-        "xmlns:trt=\"" NS_MED "\">"
+        "xmlns:trt=\"" NS_MED "\" xmlns:tt=\"http://www.onvif.org/ver10/schema\">"
         "<trt:Profiles token=\"profile_1\">"
         "<trt:Name>MainStream</trt:Name>"
         "<trt:VideoSourceConfiguration token=\"video_src_1\">"
@@ -330,6 +338,18 @@ static esp_err_t handle_get_profiles(httpd_req_t *req)
         "<trt:FrameRateLimit>%d</trt:FrameRateLimit>"
         "</trt:RateControl>"
         "</trt:VideoEncoderConfiguration>"
+        "<tt:AudioSourceConfiguration token=\"AudioSourceConfig_1\">"
+        "<tt:Name>AudioSource</tt:Name>"
+        "<tt:UseCount>1</tt:UseCount>"
+        "<tt:SourceToken>AudioSource_1</tt:SourceToken>"
+        "</tt:AudioSourceConfiguration>"
+        "<tt:AudioEncoderConfiguration token=\"AudioEncoderConfig_1\">"
+        "<tt:Name>AudioEncoder</tt:Name>"
+        "<tt:UseCount>1</tt:UseCount>"
+        "<tt:Encoding>G.711</tt:Encoding>"
+        "<tt:Bitrate>64000</tt:Bitrate>"
+        "<tt:SampleRate>8</tt:SampleRate>"
+        "</tt:AudioEncoderConfiguration>"
         "</trt:Profiles>"
         "</trt:GetProfilesResponse>"
         "</s:Body>"
@@ -345,13 +365,23 @@ static esp_err_t handle_get_profiles(httpd_req_t *req)
 
 /**
  * @brief Handle GetStreamUri SOAP action.
- * Returns the HTTP MJPEG stream URI for the camera.
+ * Returns RTSP or HTTP MJPEG stream URI based on StreamType in request.
  */
-static esp_err_t handle_get_stream_uri(httpd_req_t *req)
+static esp_err_t handle_get_stream_uri(httpd_req_t *req, const char *body)
 {
     char *ip_str = wifi_get_ip_str();
     if (!ip_str || strcmp(ip_str, "0.0.0.0") == 0) {
         ip_str = "0.0.0.0";
+    }
+
+    /* Build stream URI based on StreamType from SOAP body */
+    char uri_str[256];
+    if (body && (strstr(body, "RTP-RTSP") || strstr(body, "RTSP"))) {
+        /* RTSP stream (with audio support) */
+        snprintf(uri_str, sizeof(uri_str), "rtsp://%s:554/stream", ip_str);
+    } else {
+        /* Default: HTTP MJPEG on port 81 (not 80) */
+        snprintf(uri_str, sizeof(uri_str), "http://%s:81/stream", ip_str);
     }
 
     char resp[ONVIF_RESP_MAX];
@@ -360,14 +390,14 @@ static esp_err_t handle_get_stream_uri(httpd_req_t *req)
         "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\">"
         "<s:Body>"
         "<trt:GetStreamUriResponse "
-        "xmlns:trt=\"" NS_MED "\">"
+        "xmlns:trt=\"" NS_MED "\" xmlns:tt=\"http://www.onvif.org/ver10/schema\">"
         "<trt:MediaUri>"
-        "<trt:Uri>http://%s/stream</trt:Uri>"
+        "<trt:Uri>%s</trt:Uri>"
         "</trt:MediaUri>"
         "</trt:GetStreamUriResponse>"
         "</s:Body>"
         "</s:Envelope>",
-        ip_str);
+        uri_str);
 
     httpd_resp_set_type(req, "application/soap+xml");
     httpd_resp_send(req, resp, len);
@@ -439,6 +469,7 @@ static esp_err_t handle_http_probe(httpd_req_t *req, const char *body)
         "</wsa:EndpointReference>"
         "<wsd:Types>tns:NetworkVideoTransmitter</wsd:Types>"
         "<wsd:Scopes>onvif://www.onvif.org/type/video_encoder "
+        "onvif://www.onvif.org/type/audio_encoder "
         "onvif://www.onvif.org/type/NetworkVideoTransmitter "
         "onvif://www.onvif.org/hardware/MiBeeCam "
         "onvif://www.onvif.org/name/MiBeeCam "
@@ -528,7 +559,7 @@ static esp_err_t dispatch_media_action(httpd_req_t *req, const char *body)
         return handle_get_profiles(req);
     }
     if (strstr(body, "GetStreamUri")) {
-        return handle_get_stream_uri(req);
+        return handle_get_stream_uri(req, body);
     }
 
     /* Unrecognized action — log and return SOAP fault */
