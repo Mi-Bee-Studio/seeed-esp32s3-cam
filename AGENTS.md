@@ -37,7 +37,8 @@ MiBee Cam — ESP-IDF firmware that turns a XIAO ESP32-S3 Sense into a surveilla
 | Web UI | `main/web_ui/*.html` | 6 pages, embedded via SPIFFS, purple theme |
 | Camera hardware | `sdkconfig.defaults` lines 31-49 | Pin mapping for XIAO ESP32-S3 Sense |
 | CI/CD | `.github/workflows/release.yml` | Tag-triggered, `espressif/idf:v6.0` container, hybrid release body |
-| Audio capture | `main/audio_driver.c` | I2S PDM mic, GPIO41/42, 16→8kHz decimation |
+| Audio capture | `main/audio_driver.c` | I2S PDM mic, GPIO41/42, DSR_16S (1.024MHz), 8kHz + DC removal + spectral NS + noise gate |
+| Audio noise suppression | `main/audio_ns.c` | 256-pt FFT spectral subtraction, Wiener gain, min-statistics noise est |
 | Audio codec | `main/g711_codec.c` | G.711 μ-law encode/decode |
 | RTSP server | `main/rtsp_server.cpp` | MJPEG+G.711, port 554, digest auth |
 | SD logging | `main/sd_log.c` | Event log to /sdcard/logs/, 512KB rotation |
@@ -137,6 +138,8 @@ Key log patterns to watch:
 - **Max 2 concurrent** clients for MJPEG HTTP stream
 - **espressif/esp32-camera ~2.1.6** pinned in idf_component.yml
 - **CI container** — `espressif/idf:v6.0`
+- **Audio DSP pipeline** — I2S PDM (DSR_16S) → DC removal (IIR) → spectral noise subtraction (256-pt FFT, Wiener gain α=4.0) → 4× gain → noise gate → G.711 μ-law
+- **Web audio playback** — `AudioContext({sampleRate:8000})`, separate read/schedule loops with 100ms lookahead, μ-law decode via lookup table
 
 ## RELEASE
 
