@@ -487,7 +487,7 @@ void app_main(void)
         }
     }
 
-    if (s_camera_ok && storage_is_available()) {
+    if (s_camera_ok) {
         recorder_start();
         ESP_LOGI(TAG, "Recording started");
     }

@@ -189,11 +189,9 @@ void sd_log_write(const char *json_line)
     fprintf(s_current_file, "%s\n", json_line);
     s_lines_since_flush++;
 
-    /* batch flush every ~10 lines */
-    if (s_lines_since_flush >= SD_LOG_FLUSH_INTERVAL) {
-        fflush(s_current_file);
-        s_lines_since_flush = 0;
-    }
+    /* Always flush to prevent 0KB files if system resets before batch flush */
+    fflush(s_current_file);
+    s_lines_since_flush = 0;
 
     /* periodic cleanup of old log files (every ~100 writes) */
     s_write_count++;
