@@ -51,6 +51,7 @@ static const char *TAG = "storage";
 #define RECORDINGS_SUFFIX ".avi"
 
 static bool s_sd_available = false;
+static bool s_sd_io_error  = false;   /* true when SD has I/O errors (not physical removal) */
 static SemaphoreHandle_t s_sd_mutex = NULL;
 static sdmmc_card_t *s_card = NULL;
 
@@ -572,14 +573,23 @@ bool storage_is_available(void)
 }
 
 /**
- * @brief 检查SD卡是否仍然挂载，通过stat /sdcard目录判断
+ * @brief 检查SD卡是否仍然挂载且可读写
+ *
+ * stat成功但s_sd_io_error为true时返回FAIL，
+ * 防止sd_monitor_task对损坏的卡反复重挂载。
+ * stat失败（物理拔出）时清除I/O错误标记。
  */
 esp_err_t storage_check(void)
 {
     struct stat st;
     if (stat("/sdcard", &st) == 0) {
+        if (s_sd_io_error) {
+            return ESP_FAIL;  /* Card present but known-bad */
+        }
         return ESP_OK;
     }
+    /* Mount point gone — physical removal, clear I/O error */
+    s_sd_io_error = false;
     s_sd_available = false;
     return ESP_FAIL;
 }
@@ -589,9 +599,21 @@ esp_err_t storage_check(void)
  */
 void storage_set_unavailable(void)
 {
+    }
+
+/**
+ * @brief 标记SD卡出现I/O错误（不可写）
+ *
+ * 与storage_set_unavailable不同，此函数设置s_sd_io_error标记，
+ * 阻止sd_monitor_task自动重挂载一个损坏的卡。
+ * 只有物理拔出后重新插入（触发remount）才能清除此标记。
+ */
+void storage_mark_io_error(void)
+{
     s_sd_available = false;
-    ESP_LOGW(TAG, "SD card marked unavailable");
-    LOG_EVENT(LOG_EVENT_SD_REMOVED, "sd_marked_unavailable");
+    s_sd_io_error = true;
+    ESP_LOGE(TAG, "SD card I/O error — writing disabled until reinsert");
+    LOG_EVENT(LOG_EVENT_SD_REMOVED, "sd_io_error");
 }
 
 /**
@@ -713,6 +735,7 @@ esp_err_t storage_remount(void)
     }
 
     s_sd_available = true;
+    s_sd_io_error = false;   /* Clear I/O error on successful remount */
     ESP_LOGI(TAG, "SD card remounted successfully");
     return ESP_OK;
 }
