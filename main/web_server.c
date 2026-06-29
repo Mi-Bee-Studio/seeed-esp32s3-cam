@@ -191,7 +191,8 @@ static esp_err_t api_status_handler(httpd_req_t *req)
 
     cJSON_AddStringToObject(data, "camera",
         camera_get_sensor() == CAMERA_SENSOR_OV2640 ? "OV2640" :
-        camera_get_sensor() == CAMERA_SENSOR_OV3660 ? "OV3660" : "unknown");
+        camera_get_sensor() == CAMERA_SENSOR_OV3660 ? "OV3660" :
+        camera_get_sensor() == CAMERA_SENSOR_OV5640 ? "OV5640" : "unknown");
     cJSON_AddStringToObject(data, "resolution", camera_res_to_str(camera_get_resolution()));
 
     /* Time */
@@ -257,6 +258,7 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "jpeg_quality", cfg->jpeg_quality);
     cJSON_AddBoolToObject(data, "vflip", cfg->vflip);
     cJSON_AddBoolToObject(data, "hmirror", cfg->hmirror);
+    cJSON_AddNumberToObject(data, "day_night_mode", cfg->day_night_mode);
 
     /* Mask web password */
     cJSON_AddStringToObject(data, "web_password", cfg->web_password[0] ? "****" : "");
@@ -401,9 +403,16 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         cfg->vflip = item->valueint;
     if ((item = cJSON_GetObjectItem(json, "hmirror")))
         cfg->hmirror = item->valueint;
+    if ((item = cJSON_GetObjectItem(json, "day_night_mode"))) {
+        int val = item->valueint;
+        if (val >= 0 && val <= 2) {
+            cfg->day_night_mode = (uint8_t)val;
+        }
+    }
     
     /* Apply camera flip/mirror immediately */
     camera_set_flip(cfg->vflip, cfg->hmirror);
+    camera_set_day_night(cfg->day_night_mode);
     if ((item = cJSON_GetObjectItem(json, "web_password")) && strcmp(item->valuestring, "****") != 0) {
         strncpy(cfg->web_password, item->valuestring, sizeof(cfg->web_password) - 1);
         cfg->web_password[sizeof(cfg->web_password) - 1] = '\0';
@@ -496,25 +505,16 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     if ((item = cJSON_GetObjectItem(json, "alert_webhook_enabled")))
         cfg->alert_webhook_enabled = item->valueint;
     if ((item = cJSON_GetObjectItem(json, "video_record_to_sd"))) {
-        if (item->valueint && !storage_is_available()) {
-            cJSON_Delete(json); config_unlock();
-            return json_error(req, "SD card not present", HTTPD_400_BAD_REQUEST);
-        }
-        cfg->video_record_to_sd = item->valueint;
+        /* SD absent: silently disable, don't block other config */
+        cfg->video_record_to_sd = (item->valueint && !storage_is_available()) ? false : item->valueint;
     }
     if ((item = cJSON_GetObjectItem(json, "audio_record_to_sd"))) {
-        if (item->valueint && !storage_is_available()) {
-            cJSON_Delete(json); config_unlock();
-            return json_error(req, "SD card not present", HTTPD_400_BAD_REQUEST);
-        }
-        cfg->audio_record_to_sd = item->valueint;
+        /* SD absent: silently disable, don't block other config */
+        cfg->audio_record_to_sd = (item->valueint && !storage_is_available()) ? false : item->valueint;
     }
     if ((item = cJSON_GetObjectItem(json, "sd_log_enabled"))) {
-        if (item->valueint && !storage_is_available()) {
-            cJSON_Delete(json); config_unlock();
-            return json_error(req, "SD card not present", HTTPD_400_BAD_REQUEST);
-        }
-        cfg->sd_log_enabled = item->valueint;
+        /* SD absent: silently disable, don't block other config */
+        cfg->sd_log_enabled = (item->valueint && !storage_is_available()) ? false : item->valueint;
     }
 
 
