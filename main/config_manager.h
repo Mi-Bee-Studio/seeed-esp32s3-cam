@@ -21,6 +21,10 @@
 #include <stdint.h>
 #include "esp_err.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** @brief 摄像头全局配置结构体，持久化到 NVS 闪存 */
 typedef struct {
     char wifi_ssid[33];
@@ -66,6 +70,9 @@ typedef struct {
     uint8_t motion_sensitivity;          // Motion sensitivity 0-100 (higher=more sensitive)
     uint8_t motion_active_interval_sec;  // Dynamic: interval when motion detected (1-30s)
     uint8_t motion_idle_interval_sec;    // Dynamic: interval when no motion (5-300s)
+    bool video_record_to_sd;     // 是否录制视频到 SD 卡（默认 true）
+    bool audio_record_to_sd;     // 是否录制音频到 SD 卡（默认 false，合并进视频音轨）
+    bool sd_log_enabled;         // 是否启用 SD 卡日志（默认 false，/sdcard/logs/）
 } cam_config_t;
 
 /** @brief 初始化配置模块，从 NVS 加载配置，无存储则使用默认值 */
@@ -90,3 +97,7 @@ esp_err_t config_get_copy(cam_config_t *out);
 bool config_validate(const cam_config_t *cfg);
 /** @brief 根据拍摄间隔和录制模式计算最优片段时长和帧率，覆盖 fps 和 segment_sec 字段 */
 void config_apply_optimal(cam_config_t *cfg);
+
+#ifdef __cplusplus
+}
+#endif

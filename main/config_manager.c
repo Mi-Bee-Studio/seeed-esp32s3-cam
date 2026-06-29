@@ -60,6 +60,9 @@ static const cam_config_t s_defaults = {
     .motion_sensitivity = 50,
     .motion_active_interval_sec = 1,
     .motion_idle_interval_sec = 30,
+    .video_record_to_sd = true,
+    .audio_record_to_sd = false,
+    .sd_log_enabled = false,
 };
 
 /* ---- internal helpers ---- */
@@ -193,6 +196,9 @@ static void parse_config_txt(void)
         parse_line(line, "WIFI.SSID2", s_config.wifi_ssid_2, sizeof(s_config.wifi_ssid_2));
         parse_line(line, "WIFI.PASS2", s_config.wifi_pass_2, sizeof(s_config.wifi_pass_2));
         parse_bool(line, "ALLOW_AP_FALLBACK", &s_config.allow_ap_fallback);
+        parse_bool(line, "VIDEO_RECORD_TO_SD", &s_config.video_record_to_sd);
+        parse_bool(line, "AUDIO_RECORD_TO_SD", &s_config.audio_record_to_sd);
+        parse_bool(line, "SD_LOG_ENABLED", &s_config.sd_log_enabled);
         parse_bool(line, "one_time", &one_time);
     }
     fclose(f);
@@ -342,6 +348,9 @@ esp_err_t config_init(void)
     nvs_get_u8(h, "motion_sens", &s_config.motion_sensitivity);
     nvs_get_u8(h, "motion_active_int", &s_config.motion_active_interval_sec);
     nvs_get_u8(h, "motion_idle_int", &s_config.motion_idle_interval_sec);
+    nvs_get_u8(h, "video_record_to_sd", (uint8_t *)&s_config.video_record_to_sd);
+    nvs_get_u8(h, "audio_record_to_sd", (uint8_t *)&s_config.audio_record_to_sd);
+    nvs_get_u8(h, "sd_log_enabled", (uint8_t *)&s_config.sd_log_enabled);
 
     /* ---- Legacy FTP config migration check ---- */
     uint8_t old_ftp_enabled = 0;
@@ -487,6 +496,9 @@ esp_err_t config_save(void)
     nvs_set_u8(h, "motion_sens", s_config.motion_sensitivity);
     nvs_set_u8(h, "motion_active_int", s_config.motion_active_interval_sec);
     nvs_set_u8(h, "motion_idle_int", s_config.motion_idle_interval_sec);
+    nvs_set_u8(h, "video_record_to_sd", s_config.video_record_to_sd ? 1 : 0);
+    nvs_set_u8(h, "audio_record_to_sd", s_config.audio_record_to_sd ? 1 : 0);
+    nvs_set_u8(h, "sd_log_enabled", s_config.sd_log_enabled ? 1 : 0);
 
     err = nvs_commit(h);
     nvs_close(h);
