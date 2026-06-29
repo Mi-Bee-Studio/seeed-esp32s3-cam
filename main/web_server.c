@@ -157,6 +157,7 @@ static esp_err_t api_status_handler(httpd_req_t *req)
         cJSON_AddNumberToObject(data, "sd_free_bytes", (double)sd_info.free_bytes);
     }
     cJSON_AddNumberToObject(data, "sd_free_percent", storage_get_free_percent());
+    cJSON_AddBoolToObject(data, "sd_present", storage_is_available());
 
     /* WiFi */
     cam_config_t *cfg = config_get();
@@ -269,6 +270,10 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "motion_idle_interval_sec", cfg->motion_idle_interval_sec);
     cJSON_AddStringToObject(data, "alert_webhook_url", cfg->alert_webhook_url);
     cJSON_AddBoolToObject(data, "alert_webhook_enabled", cfg->alert_webhook_enabled);
+    cJSON_AddBoolToObject(data, "video_record_to_sd", cfg->video_record_to_sd);
+    cJSON_AddBoolToObject(data, "audio_record_to_sd", cfg->audio_record_to_sd);
+    cJSON_AddBoolToObject(data, "sd_log_enabled", cfg->sd_log_enabled);
+    cJSON_AddBoolToObject(data, "sd_present", storage_is_available());
 
     /* Add mDNS hostname for display in web UI */
     cJSON_AddStringToObject(data, "mdns_hostname", wifi_get_mdns_hostname());
@@ -489,6 +494,27 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     }
     if ((item = cJSON_GetObjectItem(json, "alert_webhook_enabled")))
         cfg->alert_webhook_enabled = item->valueint;
+    if ((item = cJSON_GetObjectItem(json, "video_record_to_sd"))) {
+        if (item->valueint && !storage_is_available()) {
+            cJSON_Delete(json); config_unlock();
+            return json_error(req, "SD card not present", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->video_record_to_sd = item->valueint;
+    }
+    if ((item = cJSON_GetObjectItem(json, "audio_record_to_sd"))) {
+        if (item->valueint && !storage_is_available()) {
+            cJSON_Delete(json); config_unlock();
+            return json_error(req, "SD card not present", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->audio_record_to_sd = item->valueint;
+    }
+    if ((item = cJSON_GetObjectItem(json, "sd_log_enabled"))) {
+        if (item->valueint && !storage_is_available()) {
+            cJSON_Delete(json); config_unlock();
+            return json_error(req, "SD card not present", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->sd_log_enabled = item->valueint;
+    }
 
 
     cJSON_Delete(json);
