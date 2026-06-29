@@ -12,7 +12,7 @@ MiBee Cam — ESP-IDF firmware that turns a XIAO ESP32-S3 Sense into a surveilla
 
 ```
 ./
-├── main/            # All firmware code (flat layout, 20+ C modules)
+├── main/            # All firmware code (flat layout, 27 C modules)
 │   └── web_ui/      # 6 HTML pages embedded into SPIFFS partition
 ├── docs/            # Dual-language docs (en/ + zh/)
 ├── partitions.csv   # Custom partition table (dual OTA + SPIFFS)
@@ -37,6 +37,10 @@ MiBee Cam — ESP-IDF firmware that turns a XIAO ESP32-S3 Sense into a surveilla
 | Web UI | `main/web_ui/*.html` | 6 pages, embedded via SPIFFS, purple theme |
 | Camera hardware | `sdkconfig.defaults` lines 31-49 | Pin mapping for XIAO ESP32-S3 Sense |
 | CI/CD | `.github/workflows/release.yml` | Tag-triggered, `espressif/idf:v6.0` container, hybrid release body |
+| Audio capture | `main/audio_driver.c` | I2S PDM mic, GPIO41/42, 16→8kHz decimation |
+| Audio codec | `main/g711_codec.c` | G.711 μ-law encode/decode |
+| RTSP server | `main/rtsp_server.cpp` | MJPEG+G.711, port 554, digest auth |
+| SD logging | `main/sd_log.c` | Event log to /sdcard/logs/, 512KB rotation |
 
 ## BUILD
 

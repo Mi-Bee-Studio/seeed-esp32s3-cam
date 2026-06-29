@@ -37,6 +37,9 @@ Most ESP32 camera projects stop at "it streams video." MiBee Cam goes **all the 
 - **SNTP time sync** — Dual‑server (cn.pool.ntp.org + ntp.aliyun.com), manual override, TZ config
 - **Health watchdog** — 30s TWDT + 60s health monitor (heap / PSRAM / stack / chip temp)
 - **Purple theme**  — Mi&Bee branding across all pages
+- **Audio capture + RTSP streaming** — Onboard MEMS microphone, G.711 μ-law codec, dual-track RTSP (MJPEG+audio) for NVR integration with digest authentication
+- **SD card event logging** — Structured JSON event logs with date-based rotation and 7-day retention
+- **Smart recording controls** — Toggle video/audio recording to SD independently; stream without local storage
 
 ---
 
@@ -114,6 +117,7 @@ Dynamic timelapse is the killer feature — set `timelapse_mode=2`, tune sensiti
 | GET | `/metrics` | No | Prometheus metrics (text format) |
 | GET | `/onvif/*` | No | ONVIF WS-Discovery + SOAP services |
 | WS | `ws://<IP>/` | No | WebSocket real-time push |
+| RTSP | `rtsp://<IP>:554/stream` | Digest | MJPEG+G.711 dual-track stream for NVR |
 
 Default password: `admin` 👉 [Complete API docs](docs/en/api/overview.md)
 
@@ -122,7 +126,7 @@ Default password: `admin` 👉 [Complete API docs](docs/en/api/overview.md)
 ## Architecture
 
 ```
-main/  —  22 C modules + main.c + cJSON (flat layout)
+main/  —  27 C modules + main.c + cJSON (flat layout)
 ├── main.c                 # Entry, 20-step boot, watchdog
 ├── camera_driver.c/h      # OV2640/OV3660 + JPEG capture
 ├── video_recorder.c/h     # AVI MJPEG segmented recorder (3 modes)
@@ -139,6 +143,11 @@ main/  —  22 C modules + main.c + cJSON (flat layout)
 ├── nas_uploader.c/h       # Upload dispatcher (WebDAV | HTTPS)
 ├── webdav_client.c/h      # WebDAV PUT + MKCOL
 ├── http_upload_client.c/h # HTTP/HTTPS chunked PUT
+├── audio_driver.c/h       # I2S PDM mic capture, 16→8kHz decimation
+├── audio_broadcaster.c/h  # Audio frame pub/sub (mirrors frame_broadcaster)
+├── g711_codec.c/h         # G.711 μ-law encoder/decoder (ITU-T standard)
+├── rtsp_server.cpp/h      # RTSP server (MJPEG+G.711 dual-track, digest auth, port 554)
+└── sd_log.c/h             # SD card structured event logging with rotation
 ├── wifi_manager.c/h       # AP/STA dual-mode
 ├── config_manager.c/h     # NVS config + SD card override
 ├── storage_manager.c/h    # SD card FAT32 + circular cleanup
