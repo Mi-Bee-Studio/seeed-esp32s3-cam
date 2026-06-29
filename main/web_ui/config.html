@@ -230,9 +230,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 <div class="field">
 <label>分辨率</label>
 <select id="resolution">
-<option value="0">VGA (640x480)</option>
-<option value="1">SVGA (800x600)</option>
-<option value="2">XGA (1024x768)</option>
+<option value="">加载中...</option>
 </select>
 </div>
 <div class="field">
@@ -491,6 +489,38 @@ $('jpeg_quality').oninput=function(){$('jpegVal').textContent=this.value};
 $('cleanup_low_pct').oninput=function(){$('cleanupLowVal').textContent=this.value};
 $('cleanup_high_pct').oninput=function(){$('cleanupHighVal').textContent=this.value};
 
+/* ---- Resolution options (dynamic, based on detected sensor) ---- */
+var RESOLUTION_FALLBACK=[
+  {value:0,label:'VGA (640x480)'},
+  {value:1,label:'SVGA (800x600)'},
+  {value:2,label:'XGA (1024x768)'},
+  {value:3,label:'HD (1280x720)'},
+  {value:4,label:'SXGA (1280x1024)'},
+  {value:5,label:'UXGA (1600x1200)'},
+  {value:6,label:'FHD (1920x1080)'},
+  {value:7,label:'QXGA (2048x1536)'}
+];
+function populateResolution(options){
+  var sel=$('resolution');
+  sel.innerHTML='';
+  for(var i=0;i<options.length;i++){
+    var opt=document.createElement('option');
+    opt.value=options[i].value;
+    opt.textContent=options[i].label;
+    sel.appendChild(opt);
+  }
+}
+function loadSupportedResolutions(cb){
+  fetch('/api/status').then(function(r){return r.json()}).then(function(d){
+    var opts=(d&&d.ok&&d.data&&d.data.supported_resolutions)?d.data.supported_resolutions:RESOLUTION_FALLBACK;
+    populateResolution(opts);
+    if(cb)cb();
+  }).catch(function(e){
+    populateResolution(RESOLUTION_FALLBACK);
+    if(cb)cb();
+  });
+}
+
 /* ---- Load config ---- */
 function loadConfig(){
  fetch('/api/config').then(function(r){return r.json()}).then(function(d){
@@ -538,6 +568,10 @@ function loadConfig(){
   $('day_night_mode').value=v.day_night_mode!=null?v.day_night_mode:0;
   onUploadMethodChange();
   $('resolution').value=v.resolution!=null?v.resolution:1;
+  /* If current resolution isn't in supported list, default to first option */
+  if($('resolution').value !== String(v.resolution!=null?v.resolution:1)){
+    $('resolution').selectedIndex=0;
+  }
   $('fps').value=v.fps||10;$('fpsVal').textContent=$('fps').value;
   $('segment_sec').value=v.segment_sec||300;
   $('jpeg_quality').value=v.jpeg_quality||12;$('jpegVal').textContent=$('jpeg_quality').value;
@@ -786,7 +820,7 @@ function toggleSection(header){
   }
 }
 
-window.onload=function(){loadConfig();updateAuthUI()};
+window.onload=function(){loadSupportedResolutions(function(){loadConfig()});updateAuthUI()};
 </script>
 </body>
 </html>
