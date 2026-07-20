@@ -14,6 +14,9 @@ CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
 CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
 CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y
+# Run Octal PSRAM at 80MHz (up from default 40MHz) for ~2x memcpy bandwidth.
+# Octal DDR mode requires 64B cache line (set below); 80MHz is supported by the ESP32-S3 PSRAM controller.
+CONFIG_SPIRAM_SPEED_80M=y
 
 # Cache line size MUST be 64B for Octal PSRAM DDR mode (32B causes data corruption)
 CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
@@ -54,16 +57,20 @@ CONFIG_CAMERA_JPEG_MODE_FRAME_SIZE=524288
 CONFIG_I2S_PDM_RX_GPIO_CLK=42
 CONFIG_I2S_PDM_RX_GPIO_DATA=41
 
-# SD MMC (1-line mode to free GPIO10 for camera)
-CONFIG_SD_MMC_1_LINE_MODE=y
+# SD card: currently uses SDSPI mode (see main/storage_manager.c).
+# SDMMC 1-bit mode would free GPIO10 for camera XCLK, but requires the SDMMC
+# host driver + CMD pin wiring verification. Tracked as a future optimization.
+# (CONFIG_SD_MMC_1_LINE_MODE was removed: not a real ESP-IDF v6.0 Kconfig symbol.)
 
 # FatFS
 CONFIG_FATFS_FS_LOCK=10
 CONFIG_FATFS_ALLOC_PREFER_EXTRAM=n
 
 # WiFi
-CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
-CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=n
+# AMPDU aggregation significantly improves MJPEG/RTSP streaming throughput by
+# allowing multiple frames per TXOP. Was disabled (legacy default); re-enabled.
+CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=y
+CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=y
 # LWIP
 CONFIG_LWIP_MAX_SOCKETS=10
 CONFIG_LWIP_SO_REUSE=y

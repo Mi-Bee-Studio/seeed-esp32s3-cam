@@ -33,7 +33,6 @@
 #include "nas_uploader.h"
 #include "ws_server.h"
 #include "motion_detector.h"
-#include "esp_task_wdt.h"
 
 #include "ota_updater.h"
 #include "audio_broadcaster.h"
@@ -665,8 +664,10 @@ static esp_err_t api_files_batch_handler(httpd_req_t *req)
     int total = cJSON_GetArraySize(names_arr);
 
     for (int i = 0; i < total; i++) {
-        /* Feed watchdog — SPI SD card remove() can take long on many files */
-        esp_task_wdt_reset();
+        /* NOTE: httpd worker task is NOT subscribed to TWDT (esp_task_wdt_add was
+         * never called), so esp_task_wdt_reset() here was a no-op returning
+         * ESP_ERR_NOT_FOUND. Removed. The idle-task WDT (30s) still protects
+         * against true hangs, and remove() per file is well under that. */
 
         cJSON *item = cJSON_GetArrayItem(names_arr, i);
         const char *name = cJSON_GetStringValue(item);

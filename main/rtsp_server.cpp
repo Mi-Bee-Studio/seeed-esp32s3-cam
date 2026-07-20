@@ -196,6 +196,7 @@ extern "C" esp_err_t rtsp_server_init(void)
             .auth_username = "admin",
             .auth_password = cfg->web_password,
             .auth_realm = "MiBee Cam",
+            .max_sessions = MAX_RTSP_CLIENTS,
         });
 
         /* Track 0 — MJPEG video (payload type 26, RFC 2435) */

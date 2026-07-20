@@ -782,10 +782,9 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
 }
 
         /* Smart frame dropping: skip write if cycle exceeds threshold.
-         * NOTE: For dynamic timelapse (tl_mode==2), motion detection itself
-         * takes ~500ms, so use a higher threshold (2000ms) to avoid dropping
-         * every single frame. Regular continuous mode uses 500ms threshold. */
-        int64_t drop_threshold_us = (tl_mode == 2) ? 2000000 : 500000;
+         * Motion detection now uses JPEG_IMAGE_SCALE_4X (~30ms instead of ~500ms),
+         * so dynamic timelapse no longer needs a relaxed threshold — unified at 500ms. */
+        int64_t drop_threshold_us = 500000;
         int64_t cycle_elapsed_us = esp_timer_get_time() - cycle_start_us;
         if (cycle_elapsed_us > drop_threshold_us && cfg->frame_drop_enabled) {
             if (jpeg_copy) {
@@ -1089,14 +1088,6 @@ void recorder_set_segment_cb(recorder_segment_cb_t cb)
 const char *recorder_get_current_file(void)
 {
     return s_current_file;
-}
-
-/**
- * @brief 喂任务看门狗，防止录像任务被看门狗复位
- */
-void recorder_watchdog_feed(void)
-{
-    esp_task_wdt_reset();
 }
 
 /**
