@@ -37,6 +37,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>   /* fileno(), fsync() */
 #include <stdarg.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -176,9 +177,15 @@ static esp_err_t idx1_append(idx1_t *idx, uint32_t fourcc, uint32_t offset, uint
             ESP_LOGE(TAG, "idx1 overflow: entries would exceed %d", MAX_IDX1_ENTRIES);
             return ESP_ERR_NO_MEM;
         }
-        idx1_entry_t *new_buf = realloc(idx->entries, (size_t)new_cap * sizeof(idx1_entry_t));
+        /* Allocate idx1 in PSRAM: 100000 entries * 12B = 1.2MB, which far
+         * exceeds internal RAM headroom and would fail/fragment the default
+         * heap. PSRAM has 8MB; index access is sequential at segment close,
+         * so the cache-miss penalty is negligible. */
+        idx1_entry_t *new_buf = heap_caps_realloc(idx->entries,
+                                                  (size_t)new_cap * sizeof(idx1_entry_t),
+                                                  MALLOC_CAP_SPIRAM);
         if (!new_buf) {
-            ESP_LOGE(TAG, "idx1 realloc failed");
+            ESP_LOGE(TAG, "idx1 PSRAM realloc failed (%d entries)", new_cap);
             return ESP_ERR_NO_MEM;
         }
         idx->entries  = new_buf;
@@ -385,6 +392,7 @@ typedef struct {
     int64_t     start_ms;        /* segment start timestamp (esp_timer)     */
     audio_sub_t *audio_sub;       /* audio subscriber (NULL if mux disabled) */
     uint32_t    hdrl_size;        /* actual hdrl bytes written to file       */
+    uint8_t    *stdio_buf;        /* 64KB setvbuf buffer (PSRAM) — cuts SD sector-write count */
 } segment_t;
 
 static segment_t s_seg = {0};
@@ -411,6 +419,22 @@ static esp_err_t open_segment(uint16_t w, uint16_t h, uint8_t playback_fps, cons
     if (!s_seg.fp) {
         ESP_LOGE(TAG, "Failed to open %s", s_current_file);
         return ESP_FAIL;
+    }
+
+    /* Use a 64KB full-write buffer in PSRAM. Without this, fwrite defaults to
+     * the VFS/FatFS sector size (512B), so a typical 50KB JPEG frame would
+     * trigger ~100 SD sector writes. With a 64KB buffer, multiple frames
+     * coalesce before hitting the SD bus, cutting write latency and SD GC
+     * churn. Buffer must outlive the FILE — freed in close_segment. */
+    s_seg.stdio_buf = heap_caps_malloc(65536, MALLOC_CAP_SPIRAM);
+    if (s_seg.stdio_buf) {
+        if (setvbuf(s_seg.fp, (char *)s_seg.stdio_buf, _IOFBF, 65536) != 0) {
+            ESP_LOGW(TAG, "setvbuf failed, using default stdio buffer");
+            free(s_seg.stdio_buf);
+            s_seg.stdio_buf = NULL;
+        }
+    } else {
+        ESP_LOGW(TAG, "stdio_buf PSRAM alloc 64KB failed, using default buffer");
     }
 
     /* Write RIFF header (placeholder size) */
@@ -466,6 +490,10 @@ fail_open:
     }
     fclose(s_seg.fp);
     s_seg.fp = NULL;
+    if (s_seg.stdio_buf) {
+        free(s_seg.stdio_buf);
+        s_seg.stdio_buf = NULL;
+    }
     remove(s_current_file);
     s_current_file[0] = '\0';
     ESP_LOGE(TAG, "Removing failed segment file");
@@ -605,6 +633,13 @@ static void close_segment(void)
 
     fclose(s_seg.fp);
     s_seg.fp = NULL;
+
+    /* Release the 64KB setvbuf buffer now that the FILE is closed. fclose
+     * has already flushed any buffered data to the SD card. */
+    if (s_seg.stdio_buf) {
+        free(s_seg.stdio_buf);
+        s_seg.stdio_buf = NULL;
+    }
 
     /* Delete zero-frame segments to prevent 0B file accumulation */
     if (s_seg.frame_count == 0 && s_current_file[0] != '\0') {
@@ -867,12 +902,18 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
         if (write_to_sd) {
             total_bytes += jpeg_data_len;
 
-            /* Flush to SD: every frame in timelapse (sparse), every ~1s in continuous */
+            /* Sync to SD: every frame in timelapse (sparse), every ~1s in continuous.
+             * fflush drains the libc stdio buffer into FatFS; fsync (-> f_sync)
+             * additionally flushes FAT directory/FAT-table entries so a power
+             * loss mid-recording leaves a playable, correctly-sized AVI rather
+             * than a truncated/zero-length file. */
             static int flush_counter = 0;
             if (timelapse) {
                 fflush(s_seg.fp);
+                fsync(fileno(s_seg.fp));
             } else if (++flush_counter >= 10) {
                 fflush(s_seg.fp);
+                fsync(fileno(s_seg.fp));
                 flush_counter = 0;
             }
 
