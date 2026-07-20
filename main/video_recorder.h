@@ -53,8 +53,6 @@ recorder_state_t recorder_get_state(void);
 void recorder_set_segment_cb(recorder_segment_cb_t cb);
 /** @brief 获取当前正在写入的录像文件路径 */
 const char *recorder_get_current_file(void);
-/** @brief 喂任务看门狗，防止录像任务被复位 */
-void recorder_watchdog_feed(void);
 /** @brief 清理启动时发现的不完整录像文件（RIFF大小为0） */
 void recorder_cleanup_incomplete(void);
 /** @brief 获取录像任务的栈高水位标记（字节） */
