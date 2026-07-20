@@ -1542,7 +1542,10 @@ esp_err_t web_server_start(uint16_t port)
     config.max_uri_handlers = 23;   /* 21 static + 2 ONVIF */
     config.stack_size = 16384;   /* 16KB: download handler has ~6KB locals + nested calls */
     config.uri_match_fn = httpd_uri_match_wildcard;
-    config.max_open_sockets = 8;  /* was 4: /api/audio long-poll + download + ws + browser can saturate it */
+    /* httpd caps max_open_sockets at LWIP_MAX_SOCKETS (10) minus 3 internal = 7.
+     * Was 4 (too tight: /api/audio long-poll + download + ws + browser saturate).
+     * 7 is the max allowed without bumping LWIP_MAX_SOCKETS in sdkconfig. */
+    config.max_open_sockets = 7;
     config.recv_wait_timeout = 10;
     config.send_wait_timeout = 10;
     config.keep_alive_enable = false;
