@@ -167,7 +167,7 @@ frame_sub_t *fbroadcast_subscribe(frame_sub_type_t type)
     xSemaphoreGive(s_mutex);
 
     ESP_LOGI(TAG, "Subscriber registered: %s",
-             "MJPEG");
+             type == FRAMESUB_MOTION ? "MOTION" : "MJPEG");
     return sub;
 }
 
@@ -189,7 +189,7 @@ void fbroadcast_unsubscribe(frame_sub_t *sub)
         sub->active = false;
 
         ESP_LOGI(TAG, "Subscriber %s unregistered (total_drops=%lu)",
-                 "MJPEG",
+                 sub->type == FRAMESUB_MOTION ? "MOTION" : "MJPEG",
                  (unsigned long)sub->total_drops);
     }
 

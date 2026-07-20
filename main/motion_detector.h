@@ -50,5 +50,38 @@ esp_err_t motion_detector_process(
 /** Get current motion score (0-100), thread-safe read */
 uint8_t motion_detector_get_score(void);
 
+/**
+ * @brief Get the dynamic capture interval computed from the latest motion
+ *        detection cycle (active_interval when motion seen, idle_interval
+ *        otherwise). Returns 0 if motion detection hasn't run yet.
+ *
+ * The async motion task (motion_detector_start) updates this continuously;
+ * the recorder reads it instead of running motion detection inline.
+ */
+uint16_t motion_detector_get_dynamic_interval(void);
+
+/**
+ * @brief Start the async motion-detection task.
+ *
+ * Subscribes to the frame broadcaster (FRAMESUB_MOTION) on Core 1, decodes
+ * each received JPEG at 1/4 scale, and computes the motion score off the
+ * recorder's hot path. Results are read via motion_detector_get_score() /
+ * motion_detector_get_dynamic_interval(). Safe to call when not in dynamic
+ * timelapse mode — the task just consumes frames and discards results.
+ *
+ * Reads sensitivity/interval config live from config_get() each cycle, so
+ * runtime config changes take effect without restart.
+ *
+ * @return ESP_OK on success, ESP_ERR_INVALID_STATE if already running or
+ *         motion_detector_init() not called.
+ */
+esp_err_t motion_detector_start(void);
+
+/**
+ * @brief Stop the async motion-detection task and release the subscriber.
+ *        Safe to call multiple times; no-op if not running.
+ */
+void motion_detector_stop(void);
+
 /** Free motion detector resources */
 void motion_detector_deinit(void);
