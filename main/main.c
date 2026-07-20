@@ -288,13 +288,19 @@ static void health_monitor_task(void *arg)
 
         uint32_t free_heap = esp_get_free_heap_size();
         uint32_t free_psram = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+        /* Largest contiguous free block: catches fragmentation that total-free
+         * hides. A frame_buf_t alloc of ~50KB JPEG fails if the largest block
+         * is smaller, even when free_psram reports MB available. */
+        uint32_t heap_largest = (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+        uint32_t psram_largest = (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
         uint32_t rec_hwm = recorder_get_stack_hwm();
         uint32_t nas_hwm = nas_uploader_get_stack_hwm();
 
         temperature_sensor_get_celsius(temp_sensor, &s_chip_temp);
 
-        ESP_LOGI(TAG, "HEALTH: heap=%lu PSRAM=%lu rec_hwm=%lu nas_hwm=%lu temp=%.1f°C rtsp=%d audio=%s",
-                 (unsigned long)free_heap, (unsigned long)free_psram,
+        ESP_LOGI(TAG, "HEALTH: heap=%lu(lb=%lu) PSRAM=%lu(lb=%lu) rec_hwm=%lu nas_hwm=%lu temp=%.1f°C rtsp=%d audio=%s",
+                 (unsigned long)free_heap, (unsigned long)heap_largest,
+                 (unsigned long)free_psram, (unsigned long)psram_largest,
                  (unsigned long)rec_hwm, (unsigned long)nas_hwm, s_chip_temp,
                  rtsp_server_client_count(),
                  audio_driver_is_running() ? "on" : "off");
@@ -304,6 +310,12 @@ static void health_monitor_task(void *arg)
         }
         if (free_psram < 500000) {
             ESP_LOGW(TAG, "WARNING: Free PSRAM below 500KB (%lu bytes)", (unsigned long)free_psram);
+        }
+        /* Fragmentation alert: if the largest PSRAM block is <30% of total free,
+         * a large JPEG alloc may fail despite apparently ample free PSRAM. */
+        if (free_psram > 200000 && psram_largest < free_psram / 4) {
+            ESP_LOGW(TAG, "WARNING: PSRAM fragmented — largest block %lu of %lu free",
+                     (unsigned long)psram_largest, (unsigned long)free_psram);
         }
         if (s_chip_temp > 70.0f) {
             ESP_LOGW(TAG, "WARNING: Chip temperature high (%.1f°C)", s_chip_temp);
