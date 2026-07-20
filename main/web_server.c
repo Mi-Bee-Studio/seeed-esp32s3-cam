@@ -815,41 +815,32 @@ static esp_err_t api_download_handler(httpd_req_t *req)
     size_t file_size = (size_t)st.st_size;
     ESP_LOGI(TAG, "DL step 5: file_size=%zu", file_size);
 
-    /* Cap at 4MB to prevent PSRAM exhaustion */
+    /* Cap at 4MB: protects against runaway downloads over slow WiFi. The
+     * cap no longer needs a full-file PSRAM allocation (we stream), so it's
+     * purely a request-size guard. */
     if (file_size > 4 * 1024 * 1024) {
         return json_error(req, "File too large for download", HTTPD_400_BAD_REQUEST);
     }
 
-    uint8_t *file_buf = heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
-    if (!file_buf) {
-        ESP_LOGE(TAG, "DL: PSRAM alloc %zu failed", file_size);
+    /* Stream the file: read an 8KB chunk from SD, send it as an HTTP chunk,
+     * repeat. Avoids the previous ~4MB PSRAM allocation that competed with
+     * the frame broadcaster / RTSP packetizer for memory during downloads. */
+    static const size_t CHUNK = 8192;
+    uint8_t *buf = heap_caps_malloc(CHUNK, MALLOC_CAP_SPIRAM);
+    if (!buf) {
+        ESP_LOGE(TAG, "DL: chunk buf alloc failed");
         return json_error(req, "Out of memory", HTTPD_500_INTERNAL_SERVER_ERROR);
     }
 
     int fd = open(path, O_RDONLY);
     if (fd < 0) {
         ESP_LOGE(TAG, "DL: open failed errno=%d", errno);
-        free(file_buf);
+        free(buf);
         return json_error(req, "File not found", HTTPD_404_NOT_FOUND);
     }
 
-    /* Read entire file in one shot */
-    ssize_t total_read = 0;
-    while ((size_t)total_read < file_size) {
-        ssize_t n = read(fd, file_buf + total_read, file_size - total_read);
-        if (n <= 0) break;
-        total_read += n;
-    }
-    close(fd);
-    ESP_LOGI(TAG, "DL step 6: read %zd/%zu bytes from SD", total_read, file_size);
-
-    if ((size_t)total_read != file_size) {
-        ESP_LOGE(TAG, "DL: incomplete read");
-        free(file_buf);
-        return json_error(req, "Failed to read file", HTTPD_500_INTERNAL_SERVER_ERROR);
-    }
-
-    /* Serve from PSRAM buffer */
+    /* Headers: set Content-Length so clients show progress; chunked transfer
+     * is used internally by httpd_resp_send_chunk. */
     char hdr[32];
     snprintf(hdr, sizeof(hdr), "%zu", file_size);
     httpd_resp_set_hdr(req, "Content-Length", hdr);
@@ -861,22 +852,31 @@ static esp_err_t api_download_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Content-Disposition", disp);
     set_cors_headers(req);
 
-    /* Send in 8KB chunks from PSRAM */
-    size_t offset = 0;
+    size_t sent = 0;
     int chunks = 0;
-    while (offset < file_size) {
-        size_t chunk_size = file_size - offset;
-        if (chunk_size > 8192) chunk_size = 8192;
-        if (httpd_resp_send_chunk(req, (const char *)(file_buf + offset), chunk_size) != ESP_OK) {
-            free(file_buf);
+    while (sent < file_size) {
+        size_t want = file_size - sent;
+        if (want > CHUNK) want = CHUNK;
+        ssize_t n = read(fd, buf, want);
+        if (n <= 0) {
+            ESP_LOGE(TAG, "DL: short read at offset %zu (errno=%d)", sent, errno);
+            close(fd);
+            free(buf);
+            return json_error(req, "Failed to read file", HTTPD_500_INTERNAL_SERVER_ERROR);
+        }
+        if (httpd_resp_send_chunk(req, (const char *)buf, (size_t)n) != ESP_OK) {
+            ESP_LOGE(TAG, "DL: send_chunk failed at offset %zu", sent);
+            close(fd);
+            free(buf);
             return ESP_FAIL;
         }
-        offset += chunk_size;
+        sent += (size_t)n;
         chunks++;
     }
-    free(file_buf);
+    close(fd);
+    free(buf);
     httpd_resp_send_chunk(req, NULL, 0);
-    ESP_LOGI(TAG, "DL step 10: done, %d chunks", chunks);
+    ESP_LOGI(TAG, "DL done: %zu bytes, %d chunks", sent, chunks);
     return ESP_OK;
 }
 
@@ -1542,7 +1542,7 @@ esp_err_t web_server_start(uint16_t port)
     config.max_uri_handlers = 23;   /* 21 static + 2 ONVIF */
     config.stack_size = 16384;   /* 16KB: download handler has ~6KB locals + nested calls */
     config.uri_match_fn = httpd_uri_match_wildcard;
-    config.max_open_sockets = 4;
+    config.max_open_sockets = 8;  /* was 4: /api/audio long-poll + download + ws + browser can saturate it */
     config.recv_wait_timeout = 10;
     config.send_wait_timeout = 10;
     config.keep_alive_enable = false;
