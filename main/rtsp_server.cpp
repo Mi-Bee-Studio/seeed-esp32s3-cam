@@ -121,14 +121,14 @@ extern "C" void video_feed_task(void *arg)
     /* Send cached frame immediately */
     frame_msg_t cache;
     if (fbroadcast_get_latest(&cache)) {
-        s_server->send_frame(0, std::span<const uint8_t>(cache.data, cache.len));
+        s_server->send_frame(0, std::span<const uint8_t>(cache.fb->data, cache.fb->len));
         fbroadcast_release(&cache);
     }
 
     while (s_running) {
         frame_msg_t msg;
         if (fbroadcast_receive(vsub, &msg, FEED_TIMEOUT_MS)) {
-            s_server->send_frame(0, std::span<const uint8_t>(msg.data, msg.len));
+            s_server->send_frame(0, std::span<const uint8_t>(msg.fb->data, msg.fb->len));
             fbroadcast_release(&msg);
         }
     }
@@ -293,12 +293,23 @@ extern "C" esp_err_t rtsp_server_stop(void)
 {
     s_running = false;
 
-    /* Kill feed tasks */
+    /* Let feed tasks exit gracefully so they can release any held frame
+     * reference. Previously vTaskDelete() leaked the in-flight frame_buf
+     * (~30-80KB PSRAM per task). Each feed_task's fbroadcast_receive /
+     * audio_bcast_receive times out within FEED_TIMEOUT_MS (1000ms), so the
+     * loop re-checks s_running and exits promptly. */
+    for (int i = 0; i < 20 && (s_video_task || s_audio_task); i++) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
     if (s_video_task) {
+        /* Timed out (shouldn't happen) — force-kill as last resort. Any
+         * held frame_buf leaks but is bounded to one frame per task. */
+        ESP_LOGW(TAG, "video feed task did not exit in time, force-killing");
         vTaskDelete(s_video_task);
         s_video_task = NULL;
     }
     if (s_audio_task) {
+        ESP_LOGW(TAG, "audio feed task did not exit in time, force-killing");
         vTaskDelete(s_audio_task);
         s_audio_task = NULL;
     }

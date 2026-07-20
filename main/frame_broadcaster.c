@@ -23,6 +23,11 @@
 #include "freertos/semphr.h"
 #include <string.h>
 
+/* Use GCC/Clang __atomic builtins (not <stdatomic.h>) so the same header
+ * compiles cleanly under both C (frame_broadcaster.c, video_recorder.c) and
+ * C++ (rtsp_server.cpp) with a consistent ABI. On Xtensa ESP32-S3 dual-core,
+ * 32-bit atomic inc/dec compile to LOCK-prefixed instructions (lock-free). */
+
 static const char *TAG = "fbcast";
 
 /* ---- Internal subscriber structure ---- */
@@ -36,12 +41,56 @@ struct frame_sub {
 };
 
 static frame_sub_t s_subs[FBROADCAST_MAX_SUBSCRIBERS];
-static SemaphoreHandle_t s_mutex;       /* protects subscribe/unsubscribe */
+static SemaphoreHandle_t s_mutex;       /* protects subscribe/unsubscribe/publish fan-out */
 static SemaphoreHandle_t s_cache_mutex; /* protects latest frame cache */
 
-/* Latest frame cache — allows new subscribers to get a frame immediately */
-static frame_msg_t s_cache = {0};
-static uint32_t    s_seq = 0;
+/* Latest frame cache — holds a reference to the most recently published
+ * frame_buf_t, so new subscribers can get a frame immediately without
+ * waiting for the next capture. */
+static frame_buf_t *s_cache_fb = NULL;
+static uint32_t     s_seq = 0;
+
+/* ---- frame_buf_t lifecycle ---- */
+
+frame_buf_t *frame_buf_alloc(const uint8_t *jpeg_data, size_t jpeg_len)
+{
+    if (!jpeg_data || jpeg_len == 0) return NULL;
+
+    frame_buf_t *fb = heap_caps_malloc(sizeof(*fb), MALLOC_CAP_DEFAULT);
+    if (!fb) {
+        ESP_LOGW(TAG, "frame_buf metadata alloc failed (%zu B)", sizeof(*fb));
+        return NULL;
+    }
+    fb->data = heap_caps_malloc(jpeg_len, MALLOC_CAP_SPIRAM);
+    if (!fb->data) {
+        ESP_LOGW(TAG, "frame_buf PSRAM alloc failed (%zu B)", jpeg_len);
+        free(fb);
+        return NULL;
+    }
+    memcpy(fb->data, jpeg_data, jpeg_len);
+    fb->len = jpeg_len;
+    fb->seq = 0;  /* assigned by publish */
+    __atomic_store_n(&fb->refcount, 1, __ATOMIC_RELEASE);
+    return fb;
+}
+
+void frame_buf_release(frame_buf_t *fb)
+{
+    if (!fb) return;
+    /* fetch_sub returns the previous value; if it was 1, we are the last
+     * holder and must free the payload + metadata. */
+    int32_t prev = __atomic_fetch_sub(&fb->refcount, 1, __ATOMIC_ACQ_REL);
+    if (prev == 1) {
+        free(fb->data);
+        free(fb);
+    } else if (prev <= 0) {
+        /* Defensive: should never happen (double release). Restore to avoid
+         * a dangling free and log loudly. */
+        __atomic_store_n(&fb->refcount, 0, __ATOMIC_RELEASE);
+        ESP_LOGE(TAG, "frame_buf_release: refcount underflow (prev=%ld)",
+                 (long)prev);
+    }
+}
 
 /* ---- Public API ---- */
 
@@ -66,9 +115,9 @@ void fbroadcast_deinit(void)
             fbroadcast_unsubscribe(&s_subs[i]);
         }
     }
-    if (s_cache.data) {
-        free(s_cache.data);
-        s_cache.data = NULL;
+    if (s_cache_fb) {
+        frame_buf_release(s_cache_fb);
+        s_cache_fb = NULL;
     }
     if (s_mutex) {
         vSemaphoreDelete(s_mutex);
@@ -130,10 +179,10 @@ void fbroadcast_unsubscribe(frame_sub_t *sub)
     xSemaphoreTake(s_mutex, portMAX_DELAY);
 
     if (sub->active) {
-        /* Drain and free any pending frame */
+        /* Drain and release any pending frame reference */
         frame_msg_t msg;
         if (xQueueReceive(sub->queue, &msg, 0)) {
-            if (msg.data) free(msg.data);
+            if (msg.fb) frame_buf_release(msg.fb);
         }
         vQueueDelete(sub->queue);
         sub->queue = NULL;
@@ -159,35 +208,31 @@ bool fbroadcast_receive(frame_sub_t *sub, frame_msg_t *msg, uint32_t timeout_ms)
 
 void fbroadcast_release(frame_msg_t *msg)
 {
-    if (msg && msg->data) {
-        free(msg->data);
-        msg->data = NULL;
-        msg->len = 0;
+    if (msg && msg->fb) {
+        frame_buf_release(msg->fb);
+        msg->fb = NULL;
     }
 }
 
-void fbroadcast_publish(const uint8_t *jpeg_data, size_t jpeg_len)
+void fbroadcast_publish_buf(frame_buf_t *fb)
 {
-    if (!jpeg_data || jpeg_len == 0) return;
+    if (!fb) return;
 
     s_seq++;
+    fb->seq = s_seq;
 
-    /* Update latest frame cache */
+    /* Update latest frame cache: replace old reference with this buffer's. */
     if (!s_cache_mutex) return;
     xSemaphoreTake(s_cache_mutex, portMAX_DELAY);
-    if (s_cache.data) {
-        free(s_cache.data);
-        s_cache.data = NULL;
-    }
-    s_cache.data = heap_caps_malloc(jpeg_len, MALLOC_CAP_SPIRAM);
-    if (s_cache.data) {
-        memcpy(s_cache.data, jpeg_data, jpeg_len);
-        s_cache.len = jpeg_len;
-        s_cache.seq = s_seq;
-    }
+    frame_buf_t *old_cache = s_cache_fb;
+    s_cache_fb = fb;
+    __atomic_fetch_add(&fb->refcount, 1, __ATOMIC_ACQ_REL);
     xSemaphoreGive(s_cache_mutex);
+    if (old_cache) {
+        frame_buf_release(old_cache);
+    }
 
-    /* Fan-out to each active subscriber */
+    /* Fan-out to each active subscriber — share a reference, no per-sub copy. */
     if (!s_mutex) return;
     xSemaphoreTake(s_mutex, portMAX_DELAY);
 
@@ -195,57 +240,55 @@ void fbroadcast_publish(const uint8_t *jpeg_data, size_t jpeg_len)
         frame_sub_t *sub = &s_subs[i];
         if (!sub->active) continue;
 
-        /* Allocate per-subscriber PSRAM copy */
-        frame_msg_t msg = {
-            .len = jpeg_len,
-            .seq = s_seq,
-        };
-        msg.data = heap_caps_malloc(jpeg_len, MALLOC_CAP_SPIRAM);
-        if (!msg.data) {
-            sub->drops++;
-            sub->total_drops++;
-            continue;
-        }
-        memcpy(msg.data, jpeg_data, jpeg_len);
-
-        /* Drain old frame if subscriber hasn't consumed it (slow client) */
+        /* Drain old frame if subscriber hasn't consumed it (slow client). */
         frame_msg_t old;
         if (xQueueReceive(sub->queue, &old, 0)) {
-            if (old.data) free(old.data);
+            if (old.fb) frame_buf_release(old.fb);
             sub->drops++;
             sub->total_drops++;
         } else {
             sub->drops = 0;  /* reset consecutive counter on successful drain */
         }
 
-        /* Push new frame */
+        /* Hand a shared reference to this subscriber. If the queue is full
+         * (shouldn't happen since we just drained), drop the new frame. */
+        frame_msg_t msg = { .fb = fb };
         if (xQueueSend(sub->queue, &msg, 0) != pdPASS) {
-            if (msg.data) free(msg.data);
+            sub->drops++;
+            sub->total_drops++;
+        } else {
+            __atomic_fetch_add(&fb->refcount, 1, __ATOMIC_ACQ_REL);
         }
     }
 
     xSemaphoreGive(s_mutex);
 }
 
+void fbroadcast_publish(const uint8_t *jpeg_data, size_t jpeg_len)
+{
+    frame_buf_t *fb = frame_buf_alloc(jpeg_data, jpeg_len);
+    if (!fb) return;
+    /* publish_buf takes references for cache + subscribers; the alloc gave
+     * us refcount=1, which we drop here (publisher does not keep it). */
+    fbroadcast_publish_buf(fb);
+    frame_buf_release(fb);
+}
+
 bool fbroadcast_get_latest(frame_msg_t *msg)
 {
     if (!msg) return false;
+    msg->fb = NULL;
 
     if (!s_cache_mutex) return false;
     xSemaphoreTake(s_cache_mutex, portMAX_DELAY);
-    if (!s_cache.data) {
+    if (!s_cache_fb) {
         xSemaphoreGive(s_cache_mutex);
         return false;
     }
 
-    msg->data = heap_caps_malloc(s_cache.len, MALLOC_CAP_SPIRAM);
-    if (!msg->data) {
-        xSemaphoreGive(s_cache_mutex);
-        return false;
-    }
-    memcpy(msg->data, s_cache.data, s_cache.len);
-    msg->len = s_cache.len;
-    msg->seq = s_cache.seq;
+    /* Return a new reference to the shared cache buffer — zero copy. */
+    __atomic_fetch_add(&s_cache_fb->refcount, 1, __ATOMIC_ACQ_REL);
+    msg->fb = s_cache_fb;
 
     xSemaphoreGive(s_cache_mutex);
     return true;
