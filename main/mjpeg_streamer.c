@@ -153,10 +153,10 @@ static void mjpeg_client_task(void *arg)
             "\r\n--" MJPEG_BOUNDARY "\r\n"
             "Content-Type: image/jpeg\r\n"
             "Content-Length: %zu\r\n"
-            "\r\n", cache_msg.len);
+            "\r\n", cache_msg.fb->len);
         send(client_sock, cache_hdr, cache_hdr_len, 0);
-        const uint8_t *ptr = cache_msg.data;
-        size_t rem = cache_msg.len;
+        const uint8_t *ptr = cache_msg.fb->data;
+        size_t rem = cache_msg.fb->len;
         while (rem > 0) {
             size_t chunk = (rem > CHUNK_SIZE) ? CHUNK_SIZE : rem;
             if (send(client_sock, (const char *)ptr, chunk, 0) <= 0) break;
@@ -193,7 +193,7 @@ static void mjpeg_client_task(void *arg)
             "\r\n--" MJPEG_BOUNDARY "\r\n"
             "Content-Type: image/jpeg\r\n"
             "Content-Length: %zu\r\n"
-            "\r\n", fmsg.len);
+            "\r\n", fmsg.fb->len);
 
         /* Send part header */
         if (send(client_sock, part_hdr, hdrlen, 0) != hdrlen) {
@@ -202,8 +202,8 @@ static void mjpeg_client_task(void *arg)
         }
 
         /* Send JPEG body in CHUNK_SIZE pieces */
-        size_t remaining = fmsg.len;
-        const uint8_t *ptr = fmsg.data;
+        size_t remaining = fmsg.fb->len;
+        const uint8_t *ptr = fmsg.fb->data;
         while (remaining > 0) {
             size_t chunk = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : remaining;
             int sent = send(client_sock, ptr, chunk, 0);

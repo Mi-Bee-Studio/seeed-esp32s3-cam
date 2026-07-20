@@ -747,22 +747,35 @@ prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
         /* Copy frame data to PSRAM and return camera fb immediately.
          * This frees the camera framebuffer for the MJPEG streamer,
          * reducing contention that causes stream disconnects when
-         * motion detection holds the fb for 200-500ms. */
+         * motion detection holds the fb for 200-500ms.
+         *
+         * The copy lives in a refcounted frame_buf_t: publish_buf shares
+         * references with subscribers + cache (zero extra copies), while
+         * this task keeps its own reference for motion detect + SD write. */
         size_t jpeg_data_len = frame.len;
-        uint8_t *jpeg_copy = heap_caps_malloc(frame.len, MALLOC_CAP_SPIRAM);
+        frame_buf_t *fb = frame_buf_alloc(frame.buf, frame.len);
         const uint8_t *jpeg_data;
+        bool holding_camera_fb = false;  /* true if we couldn't alloc and are holding camera fb */
 
-        if (jpeg_copy) {
-            memcpy(jpeg_copy, frame.buf, frame.len);
-            jpeg_data = jpeg_copy;
+        if (fb) {
+            jpeg_data = fb->data;
             camera_return_fb(&frame);
         } else {
             ESP_LOGW(TAG, "PSRAM alloc %zu failed, holding camera fb", frame.len);
             jpeg_data = frame.buf;
+            holding_camera_fb = true;
         }
 
-        /* Publish frame to streamer subscribers (RTSP, MJPEG) */
-        fbroadcast_publish(jpeg_data, jpeg_data_len);
+        /* Publish frame to streamer subscribers (RTSP, MJPEG).
+         * publish_buf adds references for cache + each subscriber; our own
+         * reference (from frame_buf_alloc) is unaffected. */
+        if (fb) {
+            fbroadcast_publish_buf(fb);
+        } else {
+            /* Fallback: camera fb held; do a one-shot copy publish so subscribers
+             * get something. We can't share the camera fb by reference. */
+            fbroadcast_publish(jpeg_data, jpeg_data_len);
+        }
 
 /* Dynamic timelapse: process motion detection */
 uint16_t dynamic_interval_sec = cfg->timelapse_interval_sec;
@@ -787,9 +800,9 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
         int64_t drop_threshold_us = 500000;
         int64_t cycle_elapsed_us = esp_timer_get_time() - cycle_start_us;
         if (cycle_elapsed_us > drop_threshold_us && cfg->frame_drop_enabled) {
-            if (jpeg_copy) {
-                free(jpeg_copy);
-            } else {
+            if (fb) {
+                frame_buf_release(fb);
+            } else if (holding_camera_fb) {
                 camera_return_fb(&frame);
             }
             s_frames_dropped++;
@@ -828,9 +841,9 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
                 }
             }
         }
-        if (jpeg_copy) {
-            free(jpeg_copy);
-        } else {
+        if (fb) {
+            frame_buf_release(fb);
+        } else if (holding_camera_fb) {
             camera_return_fb(&frame);
         }
 
