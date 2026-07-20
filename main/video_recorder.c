@@ -777,21 +777,14 @@ prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
             fbroadcast_publish(jpeg_data, jpeg_data_len);
         }
 
-/* Dynamic timelapse: process motion detection */
+/* Dynamic timelapse: read the interval computed asynchronously by the
+ * motion detector task (FRAMESUB_MOTION subscriber on Core 1). This avoids
+ * blocking the recorder's capture loop on JPEG decode + scoring. The result
+ * is from the most recent motion cycle, so it lags by at most one frame. */
 uint16_t dynamic_interval_sec = cfg->timelapse_interval_sec;
 if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
-    motion_result_t mr;
-    esp_err_t merr = motion_detector_process(
-        jpeg_data, jpeg_data_len,
-        cfg->motion_sensitivity,
-        cfg->motion_active_interval_sec,
-        cfg->motion_idle_interval_sec,
-        &mr);
-    if (merr == ESP_OK) {
-        dynamic_interval_sec = mr.current_interval_sec;
-    } else {
-        dynamic_interval_sec = cfg->motion_idle_interval_sec;
-    }
+    uint16_t md_interval = motion_detector_get_dynamic_interval();
+    dynamic_interval_sec = (md_interval > 0) ? md_interval : cfg->motion_idle_interval_sec;
 }
 
         /* Smart frame dropping: skip write if cycle exceeds threshold.
@@ -997,6 +990,10 @@ esp_err_t recorder_start(void)
 /* Initialize motion detector if dynamic timelapse mode */
 if (config_get()->timelapse_mode == 2) {
     motion_detector_init();
+    /* Start async motion detection task on Core 1. Subscribes to the frame
+     * broadcaster and runs JPEG decode + scoring off the recorder's hot path.
+     * motion_detector_deinit() (in recorder_stop) stops the task. */
+    motion_detector_start();
 }
 
     BaseType_t ret = xTaskCreatePinnedToCore(

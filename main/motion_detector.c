@@ -21,7 +21,10 @@
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "jpeg_decoder.h"
+#include "frame_broadcaster.h"
+#include "config_manager.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -37,6 +40,13 @@ static bool s_motion_active = false;
 static uint8_t s_last_score = 0;
 static bool s_initialized = false;
 static SemaphoreHandle_t s_mutex = NULL;
+
+/* Async task state — motion detection runs on its own task (Core 1),
+ * decoupled from the recorder's hot path. The recorder reads the latest
+ * computed dynamic interval via motion_detector_get_dynamic_interval(). */
+static TaskHandle_t   s_task_handle = NULL;
+static frame_sub_t   *s_sub         = NULL;
+static uint16_t       s_dynamic_interval_sec = 0;  /* guarded by s_mutex */
 
 /* Throttle motion state change logs to once per 5 seconds */
 static TickType_t s_last_log_tick = 0;
@@ -252,6 +262,7 @@ esp_err_t motion_detector_process(
 
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     s_last_score = score;
+    s_dynamic_interval_sec = s_motion_active ? active_interval_sec : idle_interval_sec;
     xSemaphoreGive(s_mutex);
 
     /* Swap buffers: current becomes previous */
@@ -275,8 +286,123 @@ uint8_t motion_detector_get_score(void)
     return score;
 }
 
+uint16_t motion_detector_get_dynamic_interval(void)
+{
+    uint16_t interval = 0;
+    if (s_mutex != NULL) {
+        xSemaphoreTake(s_mutex, portMAX_DELAY);
+        interval = s_dynamic_interval_sec;
+        xSemaphoreGive(s_mutex);
+    }
+    return interval;
+}
+
+/* ---- Async task ------------------------------------------------------- */
+
+static void motion_task(void *arg)
+{
+    (void)arg;
+    ESP_LOGI(TAG, "Motion detection task started on core %d", xPortGetCoreID());
+
+    /* Read live config each cycle — runtime changes take effect immediately.
+     * fbroadcast_receive uses a 1s timeout so motion_detector_stop()'s
+     * notification is observed promptly (within ~1s even if idle). */
+    while (1) {
+        /* Stop signal check (non-blocking). xTaskNotifyGive from stop sets
+         * the notification value; ulTaskNotifyTake(pdTRUE,0) reads+clears it. */
+        if (ulTaskNotifyTake(pdTRUE, 0) != 0) {
+            break;
+        }
+
+        frame_msg_t msg;
+        if (!fbroadcast_receive(s_sub, &msg, 1000)) {
+            /* No frame this second (e.g. recorder paused or idle interval
+             * in timelapse). Loop back and re-check stop signal. */
+            continue;
+        }
+
+        const cam_config_t *cfg = config_get();
+        motion_result_t mr;
+        (void)motion_detector_process(
+            msg.fb->data, msg.fb->len,
+            cfg->motion_sensitivity,
+            cfg->motion_active_interval_sec,
+            cfg->motion_idle_interval_sec,
+            &mr);
+        /* mr.current_interval_sec is also stored into s_dynamic_interval_sec
+         * inside process() under s_mutex — the recorder reads it from there. */
+
+        fbroadcast_release(&msg);
+    }
+
+    ESP_LOGI(TAG, "Motion detection task exiting");
+    s_task_handle = NULL;
+    vTaskDelete(NULL);
+}
+
+esp_err_t motion_detector_start(void)
+{
+    if (!s_initialized) {
+        ESP_LOGE(TAG, "motion_detector_init() not called");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_task_handle != NULL) {
+        ESP_LOGW(TAG, "Motion task already running");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_sub = fbroadcast_subscribe(FRAMESUB_MOTION);
+    if (!s_sub) {
+        ESP_LOGE(TAG, "No free subscriber slot for motion detector");
+        return ESP_FAIL;
+    }
+
+    /* Core 1, priority 2 — same tier as streamer/rtsp feed tasks, off the
+     * recorder's Core 0 hot path. Stack 8192: motion_detector_process puts
+     * temp_gray[4800] (4.8KB) on the stack plus JPEG decode workspace. */
+    BaseType_t ok = xTaskCreatePinnedToCore(motion_task, "motion_det",
+                                            8192, NULL, 2, &s_task_handle, 1);
+    if (ok != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create motion task");
+        fbroadcast_unsubscribe(s_sub);
+        s_sub = NULL;
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+void motion_detector_stop(void)
+{
+    if (s_task_handle != NULL) {
+        /* Unblock the task's fbroadcast_receive and signal exit. */
+        xTaskNotifyGive(s_task_handle);
+        /* Wait up to 1s for graceful exit. */
+        for (int i = 0; i < 10 && s_task_handle != NULL; i++) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+        if (s_task_handle != NULL) {
+            ESP_LOGW(TAG, "Motion task did not exit, force-killing");
+            vTaskDelete(s_task_handle);
+            s_task_handle = NULL;
+        }
+    }
+    if (s_sub != NULL) {
+        fbroadcast_unsubscribe(s_sub);
+        s_sub = NULL;
+    }
+
+    /* Clear the dynamic interval so recorder falls back to its default. */
+    if (s_mutex != NULL) {
+        xSemaphoreTake(s_mutex, portMAX_DELAY);
+        s_dynamic_interval_sec = 0;
+        xSemaphoreGive(s_mutex);
+    }
+}
+
 void motion_detector_deinit(void)
 {
+    motion_detector_stop();
+
     if (s_mutex != NULL) {
         vSemaphoreDelete(s_mutex);
         s_mutex = NULL;
@@ -289,6 +415,7 @@ void motion_detector_deinit(void)
 
     s_motion_active = false;
     s_last_score = 0;
+    s_dynamic_interval_sec = 0;
     s_initialized = false;
     s_last_log_tick = 0;
 }

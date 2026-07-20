@@ -26,11 +26,12 @@
 extern "C" {
 #endif
 
-#define FBROADCAST_MAX_SUBSCRIBERS  3   /* MJPEG + RTSP */
+#define FBROADCAST_MAX_SUBSCRIBERS  4   /* up to 2 MJPEG + 1 RTSP + 1 motion detector */
 
 /** Subscriber type for logging and diagnostics. */
 typedef enum {
     FRAMESUB_MJPEG,
+    FRAMESUB_MOTION,   /* motion detector async task */
 } frame_sub_type_t;
 
 /**
