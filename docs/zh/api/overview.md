@@ -6,7 +6,7 @@
 
 ---
 
-本固件基于 `web_server.c`、`mjpeg_streamer.c`、`config_manager.c` 源码编写，最后更新：2026-06-05。
+本固件基于 `web_server.c`、`mjpeg_streamer.c`、`config_manager.c` 源码编写，最后更新：2026-07-21。
 
 ## 基础地址
 
@@ -181,7 +181,7 @@ Web 界面静态文件存储在 SPIFFS 分区（约 256KB），路径前缀 `/sp
 
     "motion_score": 0,
 
-    "firmware_version": "0.2.0",
+    "firmware_version": "0.4.0",
 
     "upload_queue": 0,
 

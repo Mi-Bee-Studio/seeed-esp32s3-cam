@@ -21,7 +21,7 @@ ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP
 
 | 特性 | 说明 |
 |------|------|
-| 双核分工 | Core 0: 录像；Core 1: 上传、SD 监控、健康检测、ONVIF |
+| 双核分工 | Core 0: 音频采集（优先级 5），录像（优先级 3），RTSP 音频，HTTP/WebSocket；Core 1: MJPEG/RTSP 视频流，SD 写入任务，SD 监控，健康检测，ONVIF |
 | PSRAM 依赖 | 摄像头帧缓冲分配在 PSRAM（双缓冲），无 PSRAM 无法工作 |
 | 循环存储 | SD 卡剩余空间 < 20% 自动删除最旧录像，恢复到 30% |
 | 热插拔 | SD 卡拔出自动停止录像，插入自动恢复 |
@@ -59,6 +59,35 @@ ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP
 | 19 | 看门狗 | 30s TWDT，双核 idle 任务均纳入监控 |
 | 20 | SD 监控任务 | Core 1，每 10 秒轮询 SD 卡状态，处理热插拔 |
 | 21 | 健康监控任务 | Core 1，每 60 秒输出堆/栈水位信息 |
+
+### RTOS 任务优先级布局
+
+| 任务 | 核心 | 优先级 | 职责 |
+|------|------|----------|------|
+| `audio_capture` | 0 | 5 | I2S PDM 麦克风采集，G.711 编码，音频广播（Core 0 上最高优先级用户任务） |
+| `recorder` | 0 | 3 | 摄像头采集，运动检测，帧缓冲分配/发布，入队到 sd_writer |
+| `mjpeg_cli` | 1 | 2 | MJPEG HTTP 流客户端任务（端口 81） |
+| `rtsp_video` | 1 | 2 | RTSP 视频流（espp） |
+| `rtsp_audio` | 0 | 2 | RTSP 音频流（G.711）— Core 0 以降低 I2S 采集的延迟 |
+| `sd_writer` | 1 | 2 | 专用 SD 写入任务。从录像器消耗写队列，执行异步 write_avi_frame + 音频复用 |
+| WebSocket/httpd | 0/1 | 1 | HTTP 服务器 + WebSocket 处理程序 |
+
+**设计原因：**
+- 音频采集优先级 5 是最高用户任务 — 不会被 SD 写入抢占。
+- 录像器优先级 3（原为 5）— 保持在 Core 0，低于音频以避免抢占 Core 1 上的流媒体任务。
+- sd_writer 在 Core 1 — I/O 密集型，无需与摄像头保持 CPU 邻近性。
+
+### 异步 SD 写入架构 (v0.4.0)
+
+录像器采集帧并将 `frame_buf` 引用入队到深度为 2 的队列。Core 1 上专用的 `sd_writer_task` 消耗队列并异步执行 `write_avi_frame` + 音频复用。
+
+**关键设计点：**
+- **队列深度 2**：允许录像器在 SD 写入进行时提前采集 1-2 帧
+- **哨兵屏障**：NULL `frame_buf` + `xTaskNotifyGive` 确保分段旋转等待所有排队帧刷新后才执行 `close_segment`
+- **保持帧同步回退**：如果队列已满，录像器同步写入帧（背压）
+- **音频复用**：音频帧（160 字节 G.711）在 SD 写入期间交错到 AVI 容器中
+
+这消除了 SD I/O 上的采集循环阻塞，以前这会在录制期间导致 MJPEG 流卡顿和音频丢帧。
 
 ---
 
@@ -264,3 +293,17 @@ RTSP Server (端口 554) ← frame_broadcaster + audio_broadcaster
 **Prometheus 集成**：`/metrics` 端点以文本格式提供 15+ 项系统指标。
 
 **温度监控**：ESP32-S3 芯片温度通过 `/api/status` 获取，仪表盘颜色编码指示。
+
+### 性能优化 (v0.4.0)
+
+| 优化 | 影响 |
+|-------------|--------|
+| 异步 SD 写入（sd_writer_task） | 消除 SD I/O 上的采集循环阻塞 |
+| 音频帧使用内部 RAM | 160 字节 G.711 帧使用 MALLOC_CAP_DMA，避免 PSRAM 缓存与 JPEG DMA 的争用 |
+| MJPEG TCP_NODELAY + 8KB 分块 | 降低小块 part-headers 的延迟，提高吞吐量 |
+| 循环相对帧延时 | 实际交付的 FPS 与配置匹配（以前因发送时间加到延迟上而较低） |
+| Gzip 压缩的 HTML | 5 个网页作为 .html.gz 提供，负载减少 60% |
+| WebSocket 互斥锁快照模式 | 防止慢客户端发送期间的连接/断开饥饿 |
+| 运动检测预分配池缓冲区 | 预分配 388800 字节解码缓冲区，避免每帧分配 |
+| TCP 缓冲区 16KB + 接收邮箱 24 | 更大的 TCP 窗口以提高流媒体吞吐量 |
+

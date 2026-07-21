@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/Platform-XIAO%20ESP32--S3%20Sense-EA4C89?logo=seeedstudio)](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/)
 [![CI](https://img.shields.io/github/actions/workflow/status/Mi-Bee-Studio/seeed-esp32s3-cam/release.yml?logo=github&label=CI)](https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam/actions)
 [![Release](https://img.shields.io/github/v/release/Mi-Bee-Studio/seeed-esp32s3-cam?logo=github)](https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam/releases)
-[![Firmware](https://img.shields.io/badge/Firmware-v0.3.0-7C3AED)](https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam/releases)
+[![Firmware](https://img.shields.io/badge/Firmware-v0.4.0-7C3AED)](https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam/releases)
 
 > **Home-grade AI-powered surveillance camera firmware** — Tiny footprint, enterprise-class features.
 > MiBee Cam transforms a $15 XIAO ESP32-S3 Sense board into a fully-featured network surveillance camera.
@@ -27,13 +27,16 @@ Most ESP32 camera projects stop at "it streams video." MiBee Cam goes **all the 
 - **Cloud‑grade NAS upload** — WebDAV or HTTP(S) PUT, queue‑based, 3‑retry backoff, mutually exclusive
 - **Motion detection engine** — Frame‑difference analysis, 0–100 score, triggers dynamic timelapse and webhook alerts
 - **Web dashboard** — 6‑page responsive UI: status, config (accordion), file manager (batch ops), live preview, OTA update, first‑time setup wizard
-- **OTA firmware updates** — Upload via web UI or trigger from URL, SHA‑256 verified
+- **OTA firmware updates** — Three modes: upload via web UI (binary or SPIFFS), trigger from URL, SHA‑256 verified, auto‑rollback on failed boot
 - **WebSocket real‑time push** — Live status updates, motion events pushed to dashboard
 - **Webhook notifications** — HTTP callbacks for motion, recording errors, system events
 - **Prometheus `/metrics`** — 15+ system metrics for Grafana / home‑lab monitoring
 - **Circular storage** — Auto‑cleans when SD < 20% free, stops at 30%, crash‑recovery cleanup on boot
 - **Hot‑plug SD** — Removal stops recording, insertion resumes automatically (10‑second polling)
 - **Dual‑band WiFi** — AP mode for setup, STA for production, backup SSID + auto‑fallback
+- **WiFi roaming** — Configurable RSSI threshold and gap for proactive AP roaming, backup SSID + auto‑fallback
+- **Compressed web UI** — Gzip‑served HTML (5 pages), 60% smaller payloads, faster page loads
+- **Async SD write** — Dedicated Core 1 writer task eliminates recording stalls during SD I/O, capture loop never blocks
 - **SNTP time sync** — Dual‑server (cn.pool.ntp.org + ntp.aliyun.com), manual override, TZ config
 - **Health watchdog** — 30s TWDT + 60s health monitor (heap / PSRAM / stack / chip temp)
 - **Purple theme**  — Mi&Bee branding across all pages
@@ -54,7 +57,7 @@ Most ESP32 camera projects stop at "it streams video." MiBee Cam goes **all the 
 | **Config** (`/config.html`) | All settings: WiFi, video, recording modes, NAS, webhooks, motion detection |
 | **Files** (`/files.html`) | Browse, download, batch-delete recordings by date group |
 | **Preview** (`/preview.html`) | Live MJPEG stream with fullscreen & screenshot |
-| **OTA** (`/ota.html`) | Firmware upload & update from URL |
+| **OTA** (`/ota.html`) | Firmware update: URL trigger, binary upload, or SPIFFS web UI upload |
 | **Setup** (`/setup.html`) | First-time WiFi configuration wizard |
 
 ![File Manager](docs/images/files-page.png)
@@ -130,7 +133,7 @@ Default password: `admin` 👉 [Complete API docs](docs/en/api/overview.md)
 main/  —  27 C modules + main.c + cJSON (flat layout)
 ├── main.c                 # Entry, 20-step boot, watchdog
 ├── camera_driver.c/h      # OV2640/OV3660 + JPEG capture
-├── video_recorder.c/h     # AVI MJPEG segmented recorder (3 modes)
+├── video_recorder.c/h     # AVI MJPEG segmented recorder (3 modes), async SD write via dedicated Core 1 task
 ├── motion_detector.c/h    # Frame-difference motion analysis
 ├── mjpeg_streamer.c/h     # HTTP MJPEG live stream
 ├── frame_broadcaster.c/h  # Frame buffer distributor (decouples FB consumers)
@@ -138,7 +141,7 @@ main/  —  27 C modules + main.c + cJSON (flat layout)
 ├── onvif_discovery.c/h    # ONVIF WS-Discovery multicast
 ├── web_server.c/h         # HTTP server + REST API (16 endpoints)
 ├── ws_server.c/h          # WebSocket real-time push
-├── ota_updater.c/h        # OTA firmware update (esp_https_ota)
+├── ota_updater.c/h        # OTA firmware update, 3-mode (URL/binary/SPIFFS), auto‑rollback self‑test
 ├── sha256.c/h             # SHA-256 for OTA verification
 ├── webhook.c/h            # HTTP event notifications
 ├── nas_uploader.c/h       # Upload dispatcher (WebDAV | HTTPS)

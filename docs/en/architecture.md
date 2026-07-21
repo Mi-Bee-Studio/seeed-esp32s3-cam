@@ -21,7 +21,7 @@ The ESP32-S3 camera monitoring system is based on the FreeRTOS real-time operati
 
 | Feature | Description |
 |---------|-------------|
-| Dual-core division | Core 0: Recording; Core 1: Upload, SD monitoring, health detection, ONVIF |
+| Dual-core division | Core 0: Audio capture (prio 5), Recording (prio 3), RTSP audio, HTTP/WebSocket; Core 1: MJPEG/RTSP video streamers, SD writer task, SD monitoring, health, ONVIF |
 | PSRAM dependency | Camera frame buffers allocated in PSRAM (dual buffer), won't work without PSRAM |
 | Circular storage | SD card free space < 20% automatically deletes oldest recordings, restores to 30% |
 | Hot-plug | SD card removal automatically stops recording, insertion automatically resumes |
@@ -59,6 +59,35 @@ The ESP32-S3 camera monitoring system is based on the FreeRTOS real-time operati
 | 19 | Watchdog | 30s TWDT, includes both cores' idle tasks in monitoring |
 | 20 | SD Monitor Task | Core 1, polls SD card status every 10 seconds, handles hot-plug |
 | 21 | Health Monitor Task | Core 1, outputs heap/stack watermark info every 60 seconds |
+
+### RTOS Task Priority Layout
+
+| Task | Core | Priority | Role |
+|------|------|----------|------|
+| `audio_capture` | 0 | 5 | I2S PDM mic capture, G.711 encode, audio_bcast_publish (HIGHEST user task on Core 0) |
+| `recorder` | 0 | 3 | Camera capture, motion detect, frame_buf alloc/publish, enqueue to sd_writer |
+| `mjpeg_cli` | 1 | 2 | MJPEG HTTP streamer per-client task (port 81) |
+| `rtsp_video` | 1 | 2 | RTSP video feed (espp) |
+| `rtsp_audio` | 0 | 2 | RTSP audio feed (G.711) — Core 0 for low-latency near I2S capture |
+| `sd_writer` | 1 | 2 | Dedicated SD write task. Drains write queue from recorder, performs async write_avi_frame + audio mux |
+| WebSocket/httpd | 0/1 | 1 | HTTP server + WebSocket handlers |
+
+**Design Rationale:**
+- Audio capture at prio 5 is the highest user task — never preempted by SD writes.
+- Recorder at prio 3 (was 5) — stays on Core 0, lower than audio to avoid preempting streamers on Core 1.
+- sd_writer on Core 1 — I/O bound, doesn't need CPU proximity to camera.
+
+### Async SD Write Architecture (v0.4.0)
+
+The recorder captures frames and enqueues `frame_buf` references to a depth-2 queue. A dedicated `sd_writer_task` on Core 1 drains the queue and performs `write_avi_frame` + audio mux asynchronously.
+
+**Key design points:**
+- **Queue depth 2**: Allows recorder to capture 1-2 frames ahead while SD write is in progress
+- **Sentinel barrier**: NULL `frame_buf` + `xTaskNotifyGive` ensures segment rotation waits for all queued frames to flush before `close_segment`
+- **Holding fb sync fallback**: If queue is full, recorder synchronously writes the frame (backpressure)
+- **Audio mux**: Audio frames (160-byte G.711) are interleaved into the AVI container during SD write
+
+This eliminates capture-loop blocking on SD I/O, which previously caused MJPEG stream stutter and audio dropouts during recording.
 
 ---
 
@@ -305,3 +334,17 @@ Authentication: Pass management password via `X-Password` request header or `?pa
 **Prometheus Integration**: `/metrics` endpoint provides 15+ system metrics in text exposition format.
 
 **Temperature Monitoring**: ESP32-S3 chip temperature available via `/api/status` with color-coded dashboard indicators.
+
+### Performance Optimizations (v0.4.0)
+
+| Optimization | Impact |
+|-------------|--------|
+| Async SD write (sd_writer_task) | Eliminates capture-loop blocking on SD I/O |
+| Audio frames in internal RAM | 160-byte G.711 frames use MALLOC_CAP_DMA, avoids PSRAM cache contention with JPEG DMA |
+| MJPEG TCP_NODELAY + 8KB chunks | Lower latency on small part-headers, higher throughput |
+| Cycle-relative frame delay | Actual delivered FPS matches config (was lower due to send time added to delay) |
+| Gzip-compressed HTML | 5 web pages served as .html.gz, 60% smaller payloads |
+| WS mutex snapshot pattern | Prevents connect/disconnect starvation during slow client sends |
+| Motion detector pool buffer | Pre-allocated 388800-byte decode buffer, avoids per-frame allocation |
+| TCP buffer 16KB + recv mbox 24 | Larger TCP window for streaming throughput |
+

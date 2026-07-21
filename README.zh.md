@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/Platform-XIAO%20ESP32--S3%20Sense-EA4C89)](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/)
 [![CI](https://img.shields.io/github/actions/workflow/status/Mi-Bee-Studio/seeed-esp32s3-cam/release.yml?logo=github&label=CI)](https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam/actions)
 [![Release](https://img.shields.io/github/v/release/Mi-Bee-Studio/seeed-esp32s3-cam?logo=github)](https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam/releases)
-[![Firmware](https://img.shields.io/badge/%E5%9B%BA%E4%BB%B6-v0.3.0-7C3AED)](https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam/releases)
+[![Firmware](https://img.shields.io/badge/%E5%9B%BA%E4%BB%B6-v0.4.0-7C3AED)](https://github.com/Mi-Bee-Studio/seeed-esp32s3-cam/releases)
 
 > **家用级 AI 增强监控摄像头固件** — 巴掌大的身躯，企业级的能耐。
 > 一块 15 美元的 XIAO ESP32-S3 Sense 开发板，变身全功能网络监控摄像头。
@@ -27,13 +27,16 @@
 - **NAS 上传** — WebDAV 或 HTTP(S) PUT，队列调度，3 次重试退避，互斥选择
 - **运动检测** — 帧差分析，0–100 评分，触发动态延时和 Webhook 告警
 - **Web 仪表盘** — 6 页响应式界面：状态总览、配置管理、文件管理、实时预览、OTA 升级、首次配置向导
-- **OTA 远程升级** — 网页上传固件或从 URL 触发更新，SHA‑256 校验
+- **OTA 固件升级** — 三种模式：Web 上传（固件 bin 或 SPIFFS）、URL 触发、SHA‑256 校验、启动失败自动回滚
 - **WebSocket 实时推送** — 状态更新、运动事件实时推送到仪表盘
 - **Webhook 通知** — 运动检测、录像异常、系统事件 HTTP 回调
 - **Prometheus `/metrics`** — 15+ 项系统指标，接入 Grafana / 家庭实验室监控
 - **循环存储** — SD 卡剩余 < 20% 自动清理，恢复至 30%，开机崩溃恢复清理
 - **TF 卡热插拔** — 拔出自动暂停录像，插入自动恢复（10 秒轮询）
 - **双模 WiFi** — AP 模式用于配置，STA 模式用于生产，支持备用 SSID + 自动回退
+- **WiFi 漫游** — 可配置 RSSI 阈值与差值，主动切换 AP，备用 SSID + 自动回退
+- **压缩 Web UI** — Gzip HTML（5 个页面），体积减少 60%，加载更快
+- **异步 SD 写入** — 独立 Core 1 写入任务，消除 SD I/O 期间的录制卡顿，采集循环永不阻塞
 - **SNTP 时间同步** — 双 NTP 服务器、手动设置、时区配置
 - **健康看门狗** — 30s TWDT + 60s 健康监控（堆 / PSRAM / 栈 / 芯片温度）
 - **紫色主题** — Mi&Bee 品牌视觉，全站统一
@@ -54,7 +57,7 @@
 | **配置** (`/config.html`) | 全部设置：WiFi、视频、录像模式、NAS、Webhook、运动检测 |
 | **文件** (`/files.html`) | 按日期分组浏览、下载、批量删除录像文件 |
 | **预览** (`/preview.html`) | 实时 MJPEG 视频流，支持全屏和截图 |
-| **OTA** (`/ota.html`) | 固件远程升级，支持 URL 和文件上传 |
+| **OTA** (`/ota.html`) | 固件升级：URL 触发、bin 上传、或 SPIFFS Web UI 上传 |
 | **首次配置** (`/setup.html`) | WiFi 配置向导，首次开机自动引导 |
 
 ![文件管理](docs/images/files-page.png)
@@ -130,7 +133,7 @@ idf.py -p COM3 flash monitor
 main/  —  27 个 C 模块 + main.c + cJSON（平面布局）
 ├── main.c                 # 入口，20 步启动流程，看门狗
 ├── camera_driver.c/h      # OV2640/OV3660 摄像头驱动
-├── video_recorder.c/h     # AVI MJPEG 分段录像（3 种模式）
+├── video_recorder.c/h     # AVI MJPEG 分段录像（3 种模式），异步 SD 写入，独立 Core 1 任务
 ├── motion_detector.c/h    # 帧差运动检测分析
 ├── mjpeg_streamer.c/h     # HTTP MJPEG 实时推流
 ├── frame_broadcaster.c/h  # 帧缓冲分发器（解耦 FB 消费者）
@@ -138,7 +141,7 @@ main/  —  27 个 C 模块 + main.c + cJSON（平面布局）
 ├── onvif_discovery.c/h    # ONVIF WS-Discovery 多播
 ├── web_server.c/h         # HTTP 服务器 + REST API（16 个端点）
 ├── ws_server.c/h          # WebSocket 实时推送
-├── ota_updater.c/h        # OTA 远程固件升级
+├── ota_updater.c/h        # OTA 固件升级，3 种模式（URL/bin/SPIFFS），启动失败自动回滚
 ├── sha256.c/h             # SHA-256 哈希校验
 ├── webhook.c/h            # HTTP 事件通知
 ├── nas_uploader.c/h       # 上传调度（WebDAV / HTTPS 互斥）
