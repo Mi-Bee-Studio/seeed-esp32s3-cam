@@ -25,6 +25,7 @@
 #include <errno.h>
 #include <time.h>
 #include "esp_task_wdt.h"
+#include "esp_timer.h"
 #include "status_led.h"
 
 #include "esp_log.h"
@@ -55,6 +56,11 @@ static bool s_sd_io_error  = false;   /* true when SD has I/O errors (not physic
 static SemaphoreHandle_t s_sd_mutex = NULL;
 static sdmmc_card_t *s_card = NULL;
 
+/* ---- f_getfree cache: avoid repeated FatFs free-space queries (50-200ms each) ---- */
+static uint64_t s_total_bytes_cached   = 0;  /* one-shot fill at mount */
+static int64_t  s_usage_delta_bytes    = 0;  /* +write/-delete delta since mount */
+static int64_t  s_last_f_getfree_us    = 0;  /* monotonic us of last f_getfree */
+
 /* ---- In-memory file cache (ring buffer) ---- */
 #define FILE_CACHE_SIZE  64  /* max cached file entries */
 static file_info_t s_file_cache[FILE_CACHE_SIZE];
@@ -65,6 +71,7 @@ static int s_file_cache_head = 0;  /* oldest entry index (for ring eviction) */
 /* Forward declarations */
 static void list_files_recursive(const char *dirpath, file_info_t *files, int max_count, int *count);
 static void storage_rebuild_cache(void);
+static void cache_sd_info(void);
 
 
 /**
@@ -75,6 +82,38 @@ static int compare_file_info(const void *a, const void *b)
     // Sort by name ascending (oldest timestamp first)
     return strcmp(((const file_info_t *)a)->name, ((const file_info_t *)b)->name);
 }
+
+/* ---- internal helpers ---- */
+/**
+ * @brief One-shot f_getfree at mount to cache SD total bytes and compute initial used space.
+ *
+ * Avoids repeated 50-200ms f_getfree calls during cleanup loop.
+ * Also updates s_last_f_getfree_us for throttling in storage_get_info().
+ */
+static void cache_sd_info(void)
+{
+    if (!s_sd_available || !s_card) return;
+
+    DWORD free_clusters = 0;
+    FATFS *fs = NULL;
+    FRESULT res = f_getfree("0:", &free_clusters, &fs);
+    if (res != FR_OK || !fs) {
+        ESP_LOGW(TAG, "cache_sd_info: f_getfree failed: %d", res);
+        return;
+    }
+    uint32_t total_clusters = (fs->n_fatent - 2);
+    uint64_t total_bytes = (uint64_t)total_clusters * fs->csize * fs->ssize;
+    uint64_t free_bytes  = (uint64_t)free_clusters * fs->csize * fs->ssize;
+
+    s_total_bytes_cached = total_bytes;
+    s_usage_delta_bytes  = (int64_t)(total_bytes - free_bytes);  /* initial used bytes */
+    s_last_f_getfree_us  = esp_timer_get_time();
+
+    ESP_LOGI(TAG, "SD total cached: %llu MB, initial used: %lld MB",
+             total_bytes / (1024 * 1024),
+             (long long)(s_usage_delta_bytes / (1024 * 1024)));
+}
+
 
 /* ---- public API ---- */
 
@@ -174,6 +213,9 @@ esp_err_t storage_init(void)
 
     s_sd_available = true;
 
+    /* Cache SD total bytes for fast free-space estimation */
+    cache_sd_info();
+
     // Print card info
     ESP_LOGI(TAG, "SD card mounted OK (SPI mode)");
     LOG_EVENT(LOG_EVENT_SD_INSERTED, "card_init name=%s", s_card->cid.name);
@@ -221,6 +263,22 @@ float storage_get_free_percent(void)
 }
 
 /**
+ * @brief Fast usage estimate using cached total + delta counter. No SD I/O.
+ *
+ * Used by storage_cleanup() to avoid repeated f_getfree calls.
+ * The delta counter is initialized at mount and updated on write/delete,
+ * so it tracks absolute used space (approximately).
+ */
+static float storage_get_usage_pct_fast(void)
+{
+    if (s_total_bytes_cached == 0) return 0.0f;
+    int64_t used_bytes = s_usage_delta_bytes;
+    if (used_bytes < 0) used_bytes = 0;
+    float pct = (float)used_bytes * 100.0f / (float)s_total_bytes_cached;
+    return pct > 100.0f ? 100.0f : pct;
+}
+
+/**
  * @brief 获取SD卡存储信息（总容量和剩余空间）
  */
 esp_err_t storage_get_info(storage_info_t *info)
@@ -228,23 +286,35 @@ esp_err_t storage_get_info(storage_info_t *info)
     if (!s_sd_available || !s_card || !info) {
         return ESP_ERR_INVALID_STATE;
     }
-    
-    /* Use FatFs f_getfree to get total and free space */
+    int64_t now_us = esp_timer_get_time();
     DWORD free_clusters = 0;
     FATFS *fs = NULL;
-    FRESULT res = f_getfree("0:", &free_clusters, &fs);
-    if (res != FR_OK || !fs) {
-        ESP_LOGE(TAG, "f_getfree failed: %d", res);
-        return ESP_FAIL;
+
+    if (s_last_f_getfree_us == 0 || (now_us - s_last_f_getfree_us) > 60 * 1000000) {
+        /* Re-query via f_getfree and update cache */
+        FRESULT res = f_getfree("0:", &free_clusters, &fs);
+        if (res != FR_OK || !fs) {
+            ESP_LOGE(TAG, "f_getfree failed: %d", res);
+            return ESP_FAIL;
+        }
+        uint32_t total_clusters = (fs->n_fatent - 2);
+        uint64_t sector_size = fs->ssize;
+        uint64_t sectors_per_cluster = fs->csize;
+        uint64_t cluster_size = sector_size * sectors_per_cluster;
+
+        info->total_bytes = (uint64_t)total_clusters * cluster_size;
+        info->free_bytes = (uint64_t)free_clusters * cluster_size;
+
+        s_last_f_getfree_us = now_us;
+        s_total_bytes_cached = info->total_bytes;
+        s_usage_delta_bytes = (int64_t)(info->total_bytes - info->free_bytes);
+    } else {
+        /* Use cached values — no SD I/O */
+        info->total_bytes = s_total_bytes_cached;
+        int64_t used = s_usage_delta_bytes;
+        if (used < 0) used = 0;
+        info->free_bytes = ((uint64_t)used > info->total_bytes) ? 0 : info->total_bytes - (uint64_t)used;
     }
-    
-    uint32_t total_clusters = (fs->n_fatent - 2);  /* FAT has 2 reserved entries */
-    uint64_t sector_size = fs->ssize;
-    uint64_t sectors_per_cluster = fs->csize;
-    uint64_t cluster_size = sector_size * sectors_per_cluster;
-    
-    info->total_bytes = (uint64_t)total_clusters * cluster_size;
-    info->free_bytes = (uint64_t)free_clusters * cluster_size;
     
     return ESP_OK;
 }
@@ -372,6 +442,7 @@ void storage_register_file(const char *filepath, size_t size)
     strncpy(s_file_cache[idx].name, relpath, sizeof(s_file_cache[idx].name) - 1);
     s_file_cache[idx].name[sizeof(s_file_cache[idx].name) - 1] = '\0';
     s_file_cache[idx].size = (uint32_t)size;
+    s_usage_delta_bytes += size;   /* track used space increase */
 
     /* Extract timestamp from filename REC_YYYYMMDD_HHMMSS.avi */
     int y = 0, m = 0, d = 0, H = 0, M = 0, S = 0;
@@ -393,6 +464,7 @@ void storage_unregister_file(const char *name)
     xSemaphoreTake(s_sd_mutex, portMAX_DELAY);
     for (int i = 0; i < s_file_cache_count; i++) {
         if (strcmp(s_file_cache[i].name, name) == 0) {
+            s_usage_delta_bytes -= s_file_cache[i].size;  /* track freed space */
             for (int j = i; j < s_file_cache_count - 1; j++) {
                 s_file_cache[j] = s_file_cache[j + 1];
             }
@@ -500,6 +572,7 @@ static esp_err_t storage_delete_oldest_locked(void)
     esp_err_t result;
     if (remove(oldest_fullpath) == 0) {
         ESP_LOGI(TAG, "Deleted oldest: %s (%lu bytes)", oldest_name, (unsigned long)oldest_size);
+        s_usage_delta_bytes -= oldest_size;   /* track freed space */
         /* Evict from in-memory cache */
         for (int i = 0; i < s_file_cache_count; i++) {
             if (strcmp(s_file_cache[i].name, oldest_name) == 0) {
@@ -540,7 +613,7 @@ esp_err_t storage_cleanup(void)
 
     xSemaphoreTake(s_sd_mutex, portMAX_DELAY);
 
-    float free_pct = storage_get_free_percent();
+    float free_pct = 100.0f - storage_get_usage_pct_fast();
     ESP_LOGI(TAG, "Storage free: %.1f%%", free_pct);
     LOG_EVENT(LOG_EVENT_SD_CLEANUP_STARTED, "free=%.1f%% threshold=%d", free_pct, config_get()->cleanup_low_pct);
 
@@ -552,7 +625,7 @@ esp_err_t storage_cleanup(void)
     ESP_LOGW(TAG, "Storage low (%.1f%%), starting cleanup", free_pct);
 
     int deleted = 0;
-    while (storage_get_free_percent() < (float)config_get()->cleanup_high_pct) {
+    while ((100.0f - storage_get_usage_pct_fast()) < (float)config_get()->cleanup_high_pct) {
         esp_err_t err = storage_delete_oldest_locked();
         if (err != ESP_OK) break;
         deleted++;
@@ -561,7 +634,7 @@ esp_err_t storage_cleanup(void)
         if (deleted > 100) break;   // safety limit
     }
 
-    float new_pct = storage_get_free_percent();
+    float new_pct = 100.0f - storage_get_usage_pct_fast();
     ESP_LOGI(TAG, "Cleanup done: deleted %d files, free now %.1f%%", deleted, new_pct);
     LOG_EVENT(LOG_EVENT_SD_CLEANUP_DONE, "deleted=%d free=%.1f%%", deleted, new_pct);
     xSemaphoreGive(s_sd_mutex);
@@ -604,7 +677,10 @@ esp_err_t storage_check(void)
  */
 void storage_set_unavailable(void)
 {
-    }
+    s_sd_available = false;
+    ESP_LOGW(TAG, "SD card marked unavailable");
+    LOG_EVENT(LOG_EVENT_SD_REMOVED, "set_unavailable");
+}
 
 /**
  * @brief 标记SD卡出现I/O错误（不可写）
@@ -709,6 +785,9 @@ esp_err_t storage_format(void)
 
     s_sd_available = true;
 
+    /* Re-cache SD info after format */
+    cache_sd_info();
+
     /* Recreate recordings directory */
     mkdir(RECORDINGS_PATH, 0775);
     ESP_LOGI(TAG, "SD card formatted and remounted OK");
@@ -740,6 +819,9 @@ esp_err_t storage_remount(void)
     }
 
     s_sd_available = true;
+
+    /* Re-cache SD info after successful remount */
+    cache_sd_info();
     s_sd_io_error = false;   /* Clear I/O error on successful remount */
     ESP_LOGI(TAG, "SD card remounted successfully");
     return ESP_OK;

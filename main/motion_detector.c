@@ -34,8 +34,11 @@ static const char *TAG = "motion";
 #define DETECT_W  80
 #define DETECT_H  60
 #define DETECT_PIXELS (DETECT_W * DETECT_H)
+/* Max: FHD 1920x1080 at JPEG_IMAGE_SCALE_1_4 = 480x270x3 = 388800 bytes */
+#define MOTION_DECODE_BUF_MAX  (480 * 270 * 3)
 
 static uint8_t *s_prev_gray = NULL;
+static uint8_t *s_decode_buf = NULL;
 static bool s_motion_active = false;
 static uint8_t s_last_score = 0;
 static bool s_initialized = false;
@@ -153,6 +156,16 @@ esp_err_t motion_detector_init(void)
         return ESP_FAIL;
     }
 
+    s_decode_buf = heap_caps_malloc(MOTION_DECODE_BUF_MAX, MALLOC_CAP_SPIRAM);
+    if (s_decode_buf == NULL) {
+        ESP_LOGE(TAG, "Failed to alloc decode buf pool (%d bytes)", MOTION_DECODE_BUF_MAX);
+        vSemaphoreDelete(s_mutex);
+        s_mutex = NULL;
+        free(s_prev_gray);
+        s_prev_gray = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+
     s_motion_active = false;
     s_last_score = 0;
     s_initialized = true;
@@ -200,15 +213,22 @@ esp_err_t motion_detector_process(
         return ESP_FAIL;
     }
 
-    /* Allocate decode buffer in PSRAM (large) */
+    /* Reuse pooled decode buffer (avoids per-frame PSRAM malloc/free churn) */
     size_t decode_buf_size = outimg.width * outimg.height * 3;
-    uint8_t *decode_buf = (uint8_t *)heap_caps_malloc(decode_buf_size, MALLOC_CAP_SPIRAM);
-    if (decode_buf == NULL) {
-        ESP_LOGW(TAG, "Failed to allocate decode buffer (%zu bytes), using idle interval", decode_buf_size);
-        result->motion_detected = false;
-        result->motion_score = 0;
-        result->current_interval_sec = idle_interval_sec;
-        return ESP_FAIL;
+    bool using_pool = (decode_buf_size <= MOTION_DECODE_BUF_MAX);
+    uint8_t *decode_buf;
+    if (using_pool) {
+        decode_buf = s_decode_buf;
+    } else {
+        /* Resolution higher than FHD — fall back to dynamic alloc */
+        decode_buf = (uint8_t *)heap_caps_malloc(decode_buf_size, MALLOC_CAP_SPIRAM);
+        if (decode_buf == NULL) {
+            ESP_LOGW(TAG, "Failed to allocate decode buffer (%zu bytes), using idle interval", decode_buf_size);
+            result->motion_detected = false;
+            result->motion_score = 0;
+            result->current_interval_sec = idle_interval_sec;
+            return ESP_FAIL;
+        }
     }
 
     jpeg_cfg.outbuf = decode_buf;
@@ -217,7 +237,7 @@ esp_err_t motion_detector_process(
     err = esp_jpeg_decode(&jpeg_cfg, &outimg);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "JPEG decode failed, using idle interval");
-        heap_caps_free(decode_buf);
+        if (!using_pool) { heap_caps_free(decode_buf); }
         result->motion_detected = false;
         result->motion_score = 0;
         result->current_interval_sec = idle_interval_sec;
@@ -229,7 +249,7 @@ esp_err_t motion_detector_process(
     downsample_to_gray(decode_buf, outimg.width, outimg.height,
                        temp_gray, DETECT_W, DETECT_H);
 
-    heap_caps_free(decode_buf);
+    if (!using_pool) { heap_caps_free(decode_buf); }
 
     /* Compute motion score against previous frame */
     uint8_t pixel_thresh = compute_pixel_threshold(sensitivity);
@@ -411,6 +431,11 @@ void motion_detector_deinit(void)
     if (s_prev_gray != NULL) {
         free(s_prev_gray);
         s_prev_gray = NULL;
+    }
+
+    if (s_decode_buf != NULL) {
+        free(s_decode_buf);
+        s_decode_buf = NULL;
     }
 
     s_motion_active = false;

@@ -71,6 +71,7 @@ frame_buf_t *frame_buf_alloc(const uint8_t *jpeg_data, size_t jpeg_len)
     }
     memcpy(fb->data, jpeg_data, jpeg_len);
     fb->len = jpeg_len;
+    fb->capture_us = 0;
     fb->seq = 0;  /* assigned by publish */
     __atomic_store_n(&fb->refcount, 1, __ATOMIC_RELEASE);
     return fb;

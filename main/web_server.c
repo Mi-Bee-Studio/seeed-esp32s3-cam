@@ -126,6 +126,18 @@ esp_err_t json_error(httpd_req_t *req, const char *msg, int status)
     return ESP_FAIL;
 }
 
+/** @brief Send JSON error with string status line for codes not in httpd_err_code_t (e.g., "409 Conflict") */
+esp_err_t json_error_status(httpd_req_t *req, const char *msg, const char *status_line)
+{
+    char json[256];
+    int len = snprintf(json, sizeof(json), "{\"ok\":false,\"error\":\"%s\"}", msg);
+    if (len >= (int)sizeof(json)) len = (int)sizeof(json) - 1;
+    httpd_resp_set_status(req, status_line);
+    httpd_resp_set_type(req, "application/json");
+    set_cors_headers(req);
+    return httpd_resp_send(req, json, len);
+}
+
 /* Read the full request body into a heap-allocated buffer (caller frees). */
 /** @brief 读取HTTP请求体到堆分配的缓冲区（调用者负责释放内存） */
 char *read_body(httpd_req_t *req, size_t max_len)
@@ -272,8 +284,6 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddStringToObject(data, "wifi_ssid", cfg->wifi_ssid);
     /* Mask password */
     cJSON_AddStringToObject(data, "wifi_pass", cfg->wifi_pass[0] ? "****" : "");
-    cJSON_AddStringToObject(data, "wifi_ssid", cfg->wifi_ssid);
-    cJSON_AddStringToObject(data, "wifi_pass", cfg->wifi_pass[0] ? "****" : "");
     cJSON_AddStringToObject(data, "wifi_ssid_2", cfg->wifi_ssid_2);
     cJSON_AddStringToObject(data, "wifi_pass_2", cfg->wifi_pass_2[0] ? "****" : "");
     cJSON_AddBoolToObject(data, "allow_ap_fallback", cfg->allow_ap_fallback);
@@ -308,6 +318,8 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(data, "audio_record_to_sd", cfg->audio_record_to_sd);
     cJSON_AddBoolToObject(data, "sd_log_enabled", cfg->sd_log_enabled);
     cJSON_AddNumberToObject(data, "xclk_freq_mhz", cfg->xclk_freq_mhz);
+    cJSON_AddNumberToObject(data, "wifi_roam_rssi_threshold", cfg->wifi_roam_rssi_threshold);
+    cJSON_AddNumberToObject(data, "wifi_roam_rssi_gap", cfg->wifi_roam_rssi_gap);
     cJSON_AddBoolToObject(data, "sd_present", storage_is_available());
 
     /* Add mDNS hostname for display in web UI */
@@ -346,10 +358,6 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     if ((item = cJSON_GetObjectItem(json, "wifi_ssid"))) {
         strncpy(cfg->wifi_ssid, item->valuestring, sizeof(cfg->wifi_ssid) - 1);
         cfg->wifi_ssid[sizeof(cfg->wifi_ssid) - 1] = '\0';
-    }
-    if ((item = cJSON_GetObjectItem(json, "wifi_pass")) && strcmp(item->valuestring, "****") != 0) {
-        strncpy(cfg->wifi_pass, item->valuestring, sizeof(cfg->wifi_pass) - 1);
-        cfg->wifi_pass[sizeof(cfg->wifi_pass) - 1] = '\0';
     }
     if ((item = cJSON_GetObjectItem(json, "wifi_pass")) && strcmp(item->valuestring, "****") != 0) {
         strncpy(cfg->wifi_pass, item->valuestring, sizeof(cfg->wifi_pass) - 1);
@@ -452,6 +460,26 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
             return json_error(req, "Invalid xclk_freq_mhz (must be 10/16/20)", HTTPD_400_BAD_REQUEST);
         }
     }
+    if ((item = cJSON_GetObjectItem(json, "wifi_roam_rssi_threshold"))) {
+        int val = item->valueint;
+        /* Allow 0 (disabled) or -90 to -50 */
+        if (val != 0 && (val < -90 || val > -50)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid wifi_roam_rssi_threshold (must be 0 or -90 to -50)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->wifi_roam_rssi_threshold = (int8_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "wifi_roam_rssi_gap"))) {
+        int val = item->valueint;
+        if (val < 5 || val > 15) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid wifi_roam_rssi_gap (must be 5-15)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->wifi_roam_rssi_gap = (uint8_t)val;
+    }
+
     
     /* Apply camera flip/mirror immediately */
     camera_set_flip(cfg->vflip, cfg->hmirror);
@@ -751,8 +779,7 @@ static esp_err_t api_download_handler(httpd_req_t *req)
     recorder_state_t state = recorder_get_state();
     if (state == RECORDER_RECORDING || state == RECORDER_PAUSED) {
         ESP_LOGW(TAG, "DL: recording active, must stop first");
-        httpd_resp_set_status(req, "409 Conflict");
-        return json_error(req, "Please stop recording before downloading files", 0);
+        return json_error_status(req, "Please stop recording before downloading files", "409 Conflict");
     }
     /* Check if file is currently being recorded */
     const char *current_file = recorder_get_current_file();
@@ -763,8 +790,7 @@ static esp_err_t api_download_handler(httpd_req_t *req)
             relpath = current_file + strlen(prefix);
         }
         if (strcmp(name, relpath) == 0) {
-            httpd_resp_set_status(req, "409 Conflict");
-            return json_error(req, "File is currently being recorded", 0);
+            return json_error_status(req, "File is currently being recorded", "409 Conflict");
         }
     }
 
@@ -1102,6 +1128,23 @@ static esp_err_t static_file_handler(httpd_req_t *req)
     else if (strstr(uri, ".png"))  type = "image/png";
     else if (strstr(uri, ".ico"))  type = "image/x-icon";
 
+    /* Check if client accepts gzip -- serve .gz variant if available */
+    char accept_enc[64] = {0};
+    bool accepts_gzip = false;
+    bool serving_gz = false;
+    if (httpd_req_get_hdr_value_str(req, "Accept-Encoding", accept_enc, sizeof(accept_enc)) == ESP_OK) {
+        accepts_gzip = (strstr(accept_enc, "gzip") != NULL);
+    }
+    if (accepts_gzip) {
+        char gz_path[600];
+        snprintf(gz_path, sizeof(gz_path), "%s.gz", filepath);
+        struct stat st;
+        if (stat(gz_path, &st) == 0) {
+            strcpy(filepath, gz_path);
+            serving_gz = true;
+        }
+    }
+
     FILE *f = fopen(filepath, "r");
     if (!f) {
         httpd_resp_send_404(req);
@@ -1110,6 +1153,9 @@ static esp_err_t static_file_handler(httpd_req_t *req)
 
     httpd_resp_set_type(req, type);
     set_cors_headers(req);
+    if (serving_gz) {
+        httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    }
 
     /* Cache-Control: HTML 不缓存（OTA 后必须拉新页面），其他静态资源缓存 1 小时 */
     if (strstr(uri, ".html")) {

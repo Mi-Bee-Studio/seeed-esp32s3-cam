@@ -20,10 +20,11 @@
 #include "esp_log.h"
 #include <string.h>
 #include <stdlib.h>
+#include "freertos/semphr.h"
 
 static const char *TAG = "ws";
 
-#define MAX_WS_CLIENTS 10
+#define MAX_WS_CLIENTS 4  /* 4 is realistic for ESP32-S3 alongside streaming; was 10 */
 
 /* ------------------------------------------------------------------ */
 /*  Client tracking                                                     */
@@ -36,11 +37,14 @@ typedef struct {
 
 static ws_client_t s_clients[MAX_WS_CLIENTS];
 static int s_client_count = 0;
+static SemaphoreHandle_t s_mutex = NULL;
 
 static void add_client(httpd_req_t *req)
 {
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
     if (s_client_count >= MAX_WS_CLIENTS) {
         ESP_LOGW(TAG, "Max WS clients reached (%d)", MAX_WS_CLIENTS);
+        xSemaphoreGive(s_mutex);
         return;
     }
     s_clients[s_client_count].req = req;
@@ -48,18 +52,22 @@ static void add_client(httpd_req_t *req)
     s_client_count++;
     ESP_LOGI(TAG, "WS client added, fd=%d (total=%d)",
              s_clients[s_client_count - 1].fd, s_client_count);
+    xSemaphoreGive(s_mutex);
 }
 
 static void remove_client(httpd_req_t *req)
 {
     int fd = httpd_req_to_sockfd(req);
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
     for (int i = 0; i < s_client_count; i++) {
         if (s_clients[i].fd == fd) {
             s_clients[i] = s_clients[--s_client_count];
             ESP_LOGI(TAG, "WS client removed, fd=%d (total=%d)", fd, s_client_count);
+            xSemaphoreGive(s_mutex);
             return;
         }
     }
+    xSemaphoreGive(s_mutex);
 }
 
 /* ------------------------------------------------------------------ */
@@ -99,6 +107,11 @@ esp_err_t ws_server_init(httpd_handle_t server)
     if (s_initialized) return ESP_OK;
     s_initialized = true;
 
+    s_mutex = xSemaphoreCreateMutex();
+    if (s_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create mutex");
+        return ESP_FAIL;
+    }
     httpd_uri_t ws_uri = {
         .uri          = "/ws",
         .method       = HTTP_GET,
@@ -137,12 +150,31 @@ void ws_broadcast(const char *type, const char *data)
         .len     = len,
     };
 
-    /* Iterate backwards so swap-with-last removal doesn't skip anyone */
-    for (int i = s_client_count - 1; i >= 0; i--) {
-        esp_err_t ret = httpd_ws_send_frame(s_clients[i].req, &pkt);
+    /* Snapshot client list under mutex, then send without holding mutex */
+    httpd_req_t *reqs[MAX_WS_CLIENTS];
+    int count;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    count = s_client_count;
+    for (int i = 0; i < count; i++) {
+        reqs[i] = s_clients[i].req;
+    }
+    xSemaphoreGive(s_mutex);
+
+    /* Send to all snapshot clients without holding mutex */
+    for (int i = 0; i < count; i++) {
+        esp_err_t ret = httpd_ws_send_frame(reqs[i], &pkt);
         if (ret != ESP_OK) {
-            /* Client disconnected — remove silently */
-            s_clients[i] = s_clients[--s_client_count];
+            /* Client disconnected — remove under mutex */
+            int fd = httpd_req_to_sockfd(reqs[i]);
+            xSemaphoreTake(s_mutex, portMAX_DELAY);
+            for (int j = 0; j < s_client_count; j++) {
+                if (s_clients[j].fd == fd) {
+                    s_clients[j] = s_clients[--s_client_count];
+                    ESP_LOGI(TAG, "WS client removed (send failed), fd=%d (total=%d)", fd, s_client_count);
+                    break;
+                }
+            }
+            xSemaphoreGive(s_mutex);
         }
     }
 }

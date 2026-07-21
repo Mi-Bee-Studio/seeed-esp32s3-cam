@@ -267,7 +267,7 @@ extern "C" esp_err_t rtsp_server_start(void)
             return ESP_FAIL;
         }
 
-        /* Spawn audio feed task on Core 1 */
+        /* Spawn audio feed task on Core 0 — low-latency audio near I2S capture */
         created = xTaskCreatePinnedToCore(
             audio_feed_task,
             "rtsp_audio",
@@ -275,7 +275,7 @@ extern "C" esp_err_t rtsp_server_start(void)
             NULL,
             AUDIO_TASK_PRIORITY,
             &s_audio_task,
-            1);
+            0);
         if (created != pdPASS) {
             ESP_LOGE(TAG, "Failed to create audio feed task");
             s_running = false;

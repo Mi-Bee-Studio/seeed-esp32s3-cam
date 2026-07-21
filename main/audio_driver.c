@@ -90,7 +90,7 @@ static uint8_t s_g711_frame[G711_FRAME_BYTES];
 static void audio_capture_task(void *arg);
 
 /* ===================================================================
- * FreeRTOS capture task (Core 0, priority 4)
+ * FreeRTOS capture task (Core 0, priority 5)
  *
  * Reads PCM from I2S at 8 kHz, removes DC offset, applies spectral
  * noise subtraction, applies gain, encodes to μ-law, and publishes
@@ -257,7 +257,7 @@ esp_err_t audio_driver_start(void)
         "audio_capture",
         4096,       /* stack depth in words */
         NULL,       /* task parameters */
-        4,          /* priority */
+        5,          /* priority 5 — highest user task on Core 0, prevents audio dropouts */
         &s_task_handle,
         0);         /* Core 0 */
 

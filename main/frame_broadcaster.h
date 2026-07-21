@@ -50,6 +50,7 @@ typedef struct frame_buf {
     uint8_t       *data;        /* PSRAM JPEG payload */
     size_t         len;         /* JPEG size in bytes */
     uint32_t       seq;         /* monotonic sequence number */
+    int64_t        capture_us;  /* capture timestamp (esp_timer_get_time, μs); 0 if unset. For future AV sync. */
 } frame_buf_t;
 
 /**
