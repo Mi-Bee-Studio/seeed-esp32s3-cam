@@ -30,9 +30,9 @@ Get all current configuration items of the device. Password fields are masked.
     "http_upload_pass": "",
     "http_upload_skip_cert_verify": false,
     "resolution": 1,
-    "fps": 10,
+    "fps": 12,
     "segment_sec": 300,
-    "jpeg_quality": 12,
+    "jpeg_quality": 18,
     "vflip": false,
     "hmirror": false,
     "web_password": "****",
@@ -45,7 +45,9 @@ Get all current configuration items of the device. Password fields are masked.
     "alert_webhook_enabled": false,
     "wifi_ssid_2": "",
     "wifi_pass_2": "****",
-    "allow_ap_fallback": false
+    "allow_ap_fallback": false,
+    "wifi_roam_rssi_threshold": -75,
+    "wifi_roam_rssi_gap": 10
 
 }
 }
@@ -68,9 +70,9 @@ Get all current configuration items of the device. Password fields are masked.
 | `http_upload_pass` | string | HTTP(S) password, shows `"****"` if set, `""` if not set |
 | `http_upload_skip_cert_verify` | bool | Skip HTTPS certificate verification |
 | `resolution` | number | Resolution code: `0`=VGA(640×480), `1`=SVGA(800×600), `2`=XGA(1024×768) |
-| `fps` | number | Recording frame rate (default `10`) |
+| `fps` | number | Recording frame rate (default `12`) |
 | `segment_sec` | number | Video segment duration in seconds (default `300`, i.e., 5 minutes) |
-| `jpeg_quality` | number | JPEG image quality (default `12`, lower value means better quality) |
+| `jpeg_quality` | number | JPEG image quality (default `18`, lower value means better quality) |
 | `vflip` | bool | Vertical flip |
 | `hmirror` | bool | Horizontal mirror |
 | `web_password` | string | Web management password, shows `"****"` if set, `""` if not set |
@@ -83,6 +85,8 @@ Get all current configuration items of the device. Password fields are masked.
 | `wifi_ssid_2` | string | Backup WiFi SSID |
 | `wifi_pass_2` | string | Backup WiFi password, shows `"****"` if set |
 | `allow_ap_fallback` | bool | Allow fallback to AP mode when both WiFi networks fail |
+| `wifi_roam_rssi_threshold` | int8 | WiFi roaming RSSI threshold in dBm (default `-75`, `0` = disabled). When current RSSI drops below this, device proactively roams to a better AP |
+| `wifi_roam_rssi_gap` | uint8 | RSSI gap in dBm required before switching (default `10`). Prevents rapid oscillation between APs |
 > **Important**: `webdav_pass` is **NOT** returned by this endpoint (completely excluded from response). This is a security design consideration.
 | `video_record_to_sd` | bool | Record video to SD card (default: true) |
 | `audio_record_to_sd` | bool | Record audio to SD card, muxed into AVI (default: false) |
@@ -142,7 +146,9 @@ Update device configuration. Request body is JSON format, only need to include f
   "alert_webhook_enabled": false,
   "wifi_ssid_2": "",
   "wifi_pass_2": "",
-  "allow_ap_fallback": false
+  "allow_ap_fallback": false,
+  "wifi_roam_rssi_threshold": -75,
+  "wifi_roam_rssi_gap": 10
 
 }
 ```
@@ -180,6 +186,8 @@ Update device configuration. Request body is JSON format, only need to include f
 | `wifi_ssid_2` | string | Backup WiFi SSID |
 | `wifi_pass_2` | string | Backup WiFi password |
 | `allow_ap_fallback` | bool | Allow AP fallback |
+| `wifi_roam_rssi_threshold` | int8 | WiFi roaming RSSI threshold (`0` = disable roaming) |
+| `wifi_roam_rssi_gap` | uint8 | RSSI gap before switching APs |
 | `video_record_to_sd` | bool | Set false to disable video file writing (streaming/preview still work) |
 | `audio_record_to_sd` | bool | Set true to add G.711 μ-law audio track to AVI recordings |
 | `sd_log_enabled` | bool | Set true to enable SD card logging to /sdcard/logs/ |
@@ -340,9 +348,9 @@ await fetch('/api/config', {
 | `http_upload_pass` | string | `""` | HTTP(S) password |
 | `http_upload_skip_cert_verify` | bool | `false` | Skip HTTPS certificate verification |
 | `resolution` | number | `1` | SVGA (800×600) |
-| `fps` | number | `10` | 10 fps |
+| `fps` | number | `12` | 12 fps |
 | `segment_sec` | number | `300` | 5 minutes/segment |
-| `jpeg_quality` | number | `12` | JPEG quality |
+| `jpeg_quality` | number | `18` | JPEG quality |
 | `vflip` | bool | `false` | Vertical flip |
 | `hmirror` | bool | `false` | Horizontal mirror |
 | `web_password` | string | `"admin"` | Web management password |
@@ -359,3 +367,5 @@ await fetch('/api/config', {
 | `video_record_to_sd` | bool | `true` | Backward compatible — recording works as before |
 | `audio_record_to_sd` | bool | `false` | Opt-in — only when audio recording is needed |
 | `sd_log_enabled` | bool | `false` | Opt-in — only for debugging |
+| `wifi_roam_rssi_threshold` | int8 | `-75` | WiFi roaming RSSI threshold, 0 = disabled |
+| `wifi_roam_rssi_gap` | uint8 | `10` | RSSI gap before switching APs (dBm) |

@@ -6,7 +6,7 @@
 
 ---
 
-This firmware API documentation is based on `web_server.c`, `mjpeg_streamer.c`, `config_manager.c` source code. Last updated: 2026-06-05.
+This firmware API documentation is based on `web_server.c`, `mjpeg_streamer.c`, `config_manager.c` source code. Last updated: 2026-07-21.
 
 ## Base Address
 
@@ -128,7 +128,7 @@ Note: RTSP provides audio+video for NVR integration. MJPEG (port 81) remains vid
     "free_psram": 4194304,
     "timelapse_mode": 0,
     "motion_score": 0,
-    "firmware_version": "0.2.0",
+    "firmware_version": "0.4.0",
     "upload_queue": 0,
     "last_upload": "",
     "frames_dropped": 0

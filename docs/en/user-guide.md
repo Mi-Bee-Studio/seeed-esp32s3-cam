@@ -220,6 +220,19 @@ After configuring `wifi_ssid` and `wifi_pass`, restart the device. Device automa
 
 In STA mode, after disconnection, device automatically attempts to reconnect every 60 seconds without manual intervention.
 
+### WiFi Roaming
+
+The device supports proactive WiFi roaming based on RSSI thresholds:
+
+- **RSSI threshold** (`wifi_roam_rssi_threshold`): When current signal drops below this value (default: -75 dBm), the device attempts to find a better AP. Set to `0` to disable.
+- **RSSI gap** (`wifi_roam_rssi_gap`): Required signal difference before switching (default: 10 dBm). Prevents rapid oscillation between equally strong APs.
+
+Configure via Config page → WiFi section, or via API:
+
+```json
+{"wifi_roam_rssi_threshold": -70, "wifi_roam_rssi_gap": 8}
+```
+
 ## Recording Management
 
 ### Auto Recording
@@ -374,6 +387,28 @@ TF Card Config Files > NVS Flash > Default Values
 
 Configurations read from TF card are synchronized back to NVS to ensure consistency.
 
+Configurations read from TF card are synchronized back to NVS to ensure consistency.
+
+## OTA Firmware Update
+
+The device supports three OTA update modes via the web UI (`/ota.html`):
+
+1. **URL trigger** — Enter a firmware download URL, device fetches and flashes
+2. **Binary upload** — Upload a `.bin` firmware file directly via web browser
+3. **SPIFFS upload** — Upload a `spiffs.bin` image to update web UI pages
+
+All updates are SHA-256 verified. After update, the device reboots and runs a self-test (camera initialization check). If the self-test fails, the firmware automatically rolls back to the previous version.
+
+**API trigger** (URL mode only):
+
+```bash
+curl -X POST http://192.168.4.1/api/ota \
+  -H "Content-Type: application/json" \
+  -H "X-Password: admin" \
+  -d '{"url":"https://example.com/firmware/mibee_cam.bin"}'
+```
+
+Current firmware version: v0.4.0
 ## Video Stream
 
 ### Browser Viewing

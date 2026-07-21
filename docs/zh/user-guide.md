@@ -196,6 +196,20 @@ ON 200ms → OFF 200ms → ON 200ms → OFF 1000ms → 循环
 
 STA 模式下断开后，设备每 60 秒自动尝试重连，无需手动干预。
 
+### WiFi 漫游
+
+设备支持基于 RSSI 阈值的主动 WiFi 漫游：
+
+- **RSSI 阈值**（`wifi_roam_rssi_threshold`）：当当前信号低于此值（默认：-75 dBm）时，设备尝试寻找更好的 AP。设置为 `0` 可禁用漫游。
+- **RSSI 信号差值**（`wifi_roam_rssi_gap`）：切换前所需的信号差值（默认：10 dBm）。防止在信号强度相近的 AP 之间振荡切换。
+
+通过配置页面 → WiFi 部分配置，或通过 API：
+
+```json
+{"wifi_roam_rssi_threshold": -70, "wifi_roam_rssi_gap": 8}
+```
+STA 模式下断开后，设备每 60 秒自动尝试重连，无需手动干预。
+
 ## 录像管理
 
 ### 自动录像
@@ -343,7 +357,7 @@ curl http://192.168.4.1/api/status
 curl -X POST http://192.168.4.1/api/ota -H "Content-Type: application/json" -H "X-Password: admin" -d '{"url":"https://example.com/firmware/mibee_cam.bin"}'
 ```
 
-当前固件版本：v0.3.0，可在仪表盘页面查看。
+当前固件版本：v0.4.0，可在仪表盘页面查看。
 
 ## TF 卡配置覆盖
 
@@ -403,6 +417,27 @@ TF 卡配置文件 > NVS 闪存 > 默认值
 ```
 
 从 TF 卡读取的配置会同步写回 NVS，确保一致性。
+
+## OTA 固件升级
+
+设备通过 Web 界面（`/ota.html`）支持三种 OTA 升级模式：
+
+1. **URL 触发** — 输入固件下载 URL，设备获取并刷新
+2. **固件上传** — 通过 Web 浏览器直接上传 `.bin` 固件文件
+3. **SPIFFS 上传** — 上传 `spiffs.bin` 镜像以更新 Web UI 页面
+
+所有更新均经过 SHA-256 校验。更新后，设备重启并运行自检（摄像头初始化检查）。如果自检失败，固件会自动回滚到上一个版本。
+
+**API 触发**（仅 URL 模式）：
+
+```bash
+curl -X POST http://192.168.4.1/api/ota \
+  -H "Content-Type: application/json" \
+  -H "X-Password: admin" \
+  -d '{"url":"https://example.com/firmware/mibee_cam.bin"}'
+```
+
+当前固件版本：v0.4.0
 
 ## 视频流
 

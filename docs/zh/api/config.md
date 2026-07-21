@@ -30,9 +30,9 @@
     "http_upload_pass": "",
     "http_upload_skip_cert_verify": false,
     "resolution": 1,
-    "fps": 10,
+    "fps": 12,
     "segment_sec": 300,
-    "jpeg_quality": 12,
+    "jpeg_quality": 18,
     "vflip": false,
     "hmirror": false,
     "web_password": "****",
@@ -46,6 +46,8 @@
     "wifi_ssid_2": "",
     "wifi_pass_2": "****",
     "allow_ap_fallback": false
+    "wifi_roam_rssi_threshold": -75,
+    "wifi_roam_rssi_gap": 10
   }
 }
 ```
@@ -67,9 +69,9 @@
 | `http_upload_pass` | string | HTTP(S) 密码，已设置时显示 `"****"`，未设置时显示 `""` |
 | `http_upload_skip_cert_verify` | bool | 跳过 HTTPS 证书验证 |
 | `resolution` | number | 分辨率编号：`0`=VGA(640×480)、`1`=SVGA(800×600)、`2`=XGA(1024×768) |
-| `fps` | number | 录像帧率（默认 `10`） |
+| `fps` | number | 录像帧率（默认 `12`） |
 | `segment_sec` | number | 视频分段时长，单位秒（默认 `300`，即 5 分钟） |
-| `jpeg_quality` | number | JPEG 图像质量（默认 `12`，数值越小质量越好） |
+| `jpeg_quality` | number | JPEG 图像质量（默认 `18`，数值越小质量越好） |
     `vflip` | bool | 垂直翻转 |
     `hmirror` | bool | 水平镜像 |
     `web_password` | string | Web 管理密码，已设置时显示 `"****"`，未设置时显示 `""` |
@@ -82,6 +84,8 @@
     `wifi_ssid_2` | string | 备用 WiFi SSID |
     `wifi_pass_2` | string | 备用 WiFi 密码，已设置时显示 `"****"` |
     `allow_ap_fallback` | bool | 允许在两个 WiFi 网络均失败时回退到 AP 模式
+| `wifi_roam_rssi_threshold` | int8 | WiFi 漫游 RSSI 阈值，单位 dBm（默认 `-75`，`0` = 禁用）。当当前 RSSI 低于此值时，设备主动漫游到信号更好的 AP |
+| `wifi_roam_rssi_gap` | uint8 | 漫游切换信号差值，单位 dBm（默认 `10`）。防止 AP 之间快速振荡切换 |
 | `video_record_to_sd` | bool | 将视频录制到 SD 卡（默认：true） |
 | `audio_record_to_sd` | bool | 将音频录制到 SD 卡，混流进 AVI（默认：false） |
 | `sd_log_enabled` | bool | 将结构化事件日志写入 SD 卡（默认：false） |
@@ -143,6 +147,8 @@ console.log(`设备名: ${data.device_name}, 分辨率: ${data.resolution}`);
   "wifi_ssid_2": "",
   "wifi_pass_2": "",
   "allow_ap_fallback": false
+  "wifi_roam_rssi_threshold": -75,
+  "wifi_roam_rssi_gap": 10
 }
 ```
 
@@ -179,6 +185,8 @@ console.log(`设备名: ${data.device_name}, 分辨率: ${data.resolution}`);
     `wifi_ssid_2` | string | 备用 WiFi SSID |
     `wifi_pass_2` | string | 备用 WiFi 密码 |
     `allow_ap_fallback` | bool | 允许 AP 回退
+| `wifi_roam_rssi_threshold` | int8 | WiFi 漫游 RSSI 阈值（`0` = 禁用漫游） |
+| `wifi_roam_rssi_gap` | uint8 | 漫游切换信号差值 |
 | `video_record_to_sd` | bool | 设置为 false 禁用视频文件写入（流媒体/预览仍可用） |
 | `audio_record_to_sd` | bool | 设置为 true 向 AVI 录像添加 G.711 μ-law 音频轨 |
 | `sd_log_enabled` | bool | 设置为 true 启用 SD 卡日志到 /sdcard/logs/ |
@@ -338,9 +346,9 @@ await fetch('/api/config', {
 | `http_upload_pass` | string | `""` | HTTP(S) 密码 |
 | `http_upload_skip_cert_verify` | bool | `false` | 跳过 HTTPS 证书验证 |
 | `resolution` | number | `1` | SVGA (800×600) |
-| `fps` | number | `10` | 10 帧/秒 |
+| `fps` | number | `12` | 12 帧/秒 |
 | `segment_sec` | number | `300` | 5 分钟/段 |
-| `jpeg_quality` | number | `12` | JPEG 质量 |
+| `jpeg_quality` | number | `18` | JPEG 质量 |
 | `vflip` | bool | `false` | 垂直翻转 |
 | `hmirror` | bool | `false` | 水平镜像 |
     `web_password` | string | `"admin"` | Web 管理密码 |
@@ -355,5 +363,7 @@ await fetch('/api/config', {
     `wifi_pass_2` | string | `""` | 备用 WiFi 密码 |
     `allow_ap_fallback` | bool | `false` | 允许 AP 模式回退
 | `video_record_to_sd` | bool | `true` | 向后兼容 —— 录像功能保持原有行为 |
+| `wifi_roam_rssi_threshold` | int8 | `-75` | WiFi 漫游 RSSI 阈值，0 = 禁用 |
+| `wifi_roam_rssi_gap` | uint8 | `10` | 漫游切换信号差值（dBm） |
 | `audio_record_to_sd` | bool | `false` | 按需启用 —— 仅在需要音频录制时开启 |
 | `sd_log_enabled` | bool | `false` | 按需启用 —— 仅用于调试 |
