@@ -83,11 +83,26 @@ static void mjpeg_client_task(void *arg)
     int flag = 1;
     setsockopt(client_sock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
+    /* Recv timeout — prevents zombie if client connects but never sends HTTP request */
+    struct timeval rcvtv = { .tv_sec = 5, .tv_usec = 0 };
+    setsockopt(client_sock, SOL_SOCKET, SO_RCVTIMEO, &rcvtv, sizeof(rcvtv));
+
+    /* TCP keepalive — detect dead WiFi clients during long MJPEG streams.
+     * Same params as HTTP server's on_http_session_open for consistency. */
+    int keepalive = 1;
+    int keepidle = 10;     /* 10s idle before first probe */
+    int keepintvl = 3;     /* 3s between probes */
+    int keepcnt = 3;       /* 3 failed probes = dead */
+    setsockopt(client_sock, SOL_SOCKET,  SO_KEEPALIVE,  &keepalive, sizeof(keepalive));
+    setsockopt(client_sock, IPPROTO_TCP, TCP_KEEPIDLE,  &keepidle,  sizeof(keepidle));
+    setsockopt(client_sock, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl));
+    setsockopt(client_sock, IPPROTO_TCP, TCP_KEEPCNT,   &keepcnt,   sizeof(keepcnt));
+
     /* Read HTTP request (first 511 bytes is enough to validate) */
     char req_buf[512];
     int req_len = recv(client_sock, req_buf, sizeof(req_buf) - 1, 0);
     if (req_len <= 0) {
-        ESP_LOGW(TAG, "Failed to read HTTP request");
+        ESP_LOGW(TAG, "Failed to read HTTP request (errno %d)", errno);
         close(client_sock);
         xSemaphoreTake(s_mutex, portMAX_DELAY);
         s_client_count--;
