@@ -87,17 +87,12 @@ static void mjpeg_client_task(void *arg)
     struct timeval rcvtv = { .tv_sec = 5, .tv_usec = 0 };
     setsockopt(client_sock, SOL_SOCKET, SO_RCVTIMEO, &rcvtv, sizeof(rcvtv));
 
-    /* TCP keepalive — detect dead WiFi clients during long MJPEG streams.
-     * Less aggressive than HTTP server: long-lived streams have brief flow-control
-     * stalls that are normal over WiFi. 30s idle + 3×10s probes = 60s dead detection. */
-    int keepalive = 1;
-    int keepidle = 30;     /* 30s idle before first probe */
-    int keepintvl = 10;    /* 10s between probes */
-    int keepcnt = 3;       /* 3 failed probes = dead */
-    setsockopt(client_sock, SOL_SOCKET,  SO_KEEPALIVE,  &keepalive, sizeof(keepalive));
-    setsockopt(client_sock, IPPROTO_TCP, TCP_KEEPIDLE,  &keepidle,  sizeof(keepidle));
-    setsockopt(client_sock, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl));
-    setsockopt(client_sock, IPPROTO_TCP, TCP_KEEPCNT,   &keepcnt,   sizeof(keepcnt));
+    /* NOTE: No SO_KEEPALIVE on MJPEG sockets. MJPEG is a one-way stream
+     * (server sends, client only ACKs at TCP level). Over WiFi, LWIP may
+     * not see client ACKs as "received data", causing keepalive to
+     * erroneously probe and RST healthy long-lived connections.
+     * Dead clients are detected by SO_SNDTIMEO (15s) instead: if the client
+     * stops ACKing, send() fails and the stream loop exits cleanly. */
 
     /* Read HTTP request (first 511 bytes is enough to validate) */
     char req_buf[512];

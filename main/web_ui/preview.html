@@ -194,6 +194,7 @@ function tryStreamRecovery(){
 
 function updateConnected(){
  connected=true;
+ streamFailCount=0;
  clearTimeout(retryTimer);
  placeholder.style.display='none';
  img.style.display='block';
