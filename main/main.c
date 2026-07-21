@@ -55,6 +55,7 @@
 #include "driver/gpio.h"
 #include "esp_task_wdt.h"
 #include "esp_heap_caps.h"
+#include "esp_ota_ops.h"
 
 /* Module headers */
 #include "config_manager.h"
@@ -343,6 +344,16 @@ static void health_monitor_task(void *arg)
 
 void app_main(void)
 {
+    /* ---- 0. OTA rollback self-test (PENDING_VERIFY detection) ---- */
+    esp_ota_img_states_t ota_state = ESP_OTA_IMG_UNDEFINED;
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    bool ota_pending = false;
+    if (running && esp_ota_get_state_partition(running, &ota_state) == ESP_OK
+        && ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
+        ota_pending = true;
+        ESP_LOGI(TAG, "First boot after OTA — self-test pending");
+    }
+
     ESP_LOGI(TAG, "MiBee Cam v" FW_VERSION " starting...");
     ESP_LOGI(TAG, "Free heap: %lu  Free PSRAM: %lu",
              (unsigned long)esp_get_free_heap_size(),
@@ -420,6 +431,17 @@ void app_main(void)
     /* ---- 8. WiFi ----------------------------------------------------- */
     /* 第8步：初始化WiFi，根据配置启动AP热点或STA客户端模式 */
     wifi_init();
+
+    /* ---- 8a. OTA self-test validation (commit or rollback) -------- */
+    if (ota_pending) {
+        if (s_camera_ok) {
+            ESP_LOGI(TAG, "OTA self-test passed — marking app valid");
+            esp_ota_mark_app_valid_cancel_rollback();
+        } else {
+            ESP_LOGE(TAG, "OTA self-test FAILED (camera init) — rolling back");
+            esp_ota_mark_app_invalid_rollback_and_reboot();
+        }
+    }
 
     /* ---- 9. Time sync (only if STA connected) ----------------------- */
 

@@ -160,12 +160,12 @@ void audio_bcast_publish(const uint8_t *g711_data, size_t len, uint64_t timestam
         audio_sub_t *sub = &s_subs[i];
         if (!sub->active) continue;
 
-        /* Allocate per-subscriber PSRAM copy */
+        /* Allocate per-subscriber internal RAM copy — faster for 160-byte frames, avoids PSRAM cache contention with JPEG DMA traffic */
         audio_frame_t frame = {
             .len = len,
             .timestamp_us = timestamp_us,
         };
-        frame.data = heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
+        frame.data = heap_caps_malloc(len, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
         if (!frame.data) {
             sub->drops++;
             sub->total_drops++;

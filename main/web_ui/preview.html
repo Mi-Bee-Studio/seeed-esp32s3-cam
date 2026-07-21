@@ -354,52 +354,6 @@ function stopAudio(){
   audioQueue=[];
 }
 window.addEventListener('beforeunload',stopAudio);
-var audioCtx=null,audioOn=false,audioFetchCtrl=null,audioNextTime=0,audioGainNode=null;
-var mulawTable=new Int16Array(256);
-(function(){for(var i=0;i<256;i++){var b=~i&0xff;var sign=b&0x80;var exp=(b>>4)&7;var man=b&0xf;
-var s=((man<<3)+132)<<exp;s-=132;mulawTable[i]=sign?-s:s}})();
-
-function toggleAudio(){
-  if(audioOn){stopAudio();return}
-  audioOn=true;
-  var btn=document.getElementById('audioBtn');
-  btn.textContent='🔊';btn.title='关闭声音';
-  audioCtx=new AudioContext();
-  audioGainNode=audioCtx.createGain();
-  audioGainNode.gain.value=3.0;
-  audioGainNode.connect(audioCtx.destination);
-  audioNextTime=audioCtx.currentTime+0.1;
-  audioFetchCtrl=new AbortController();
-  fetch('/api/audio',{signal:audioFetchCtrl.signal}).then(function(r){
-    var reader=r.body.getReader();
-    function pump(){
-      reader.read().then(function(res){
-        if(res.done){return}
-        var pcm=new Int16Array(res.value.length);
-        for(var i=0;i<res.value.length;i++){pcm[i]=mulawTable[res.value[i]]}
-        var buf=audioCtx.createBuffer(1,pcm.length,8000);
-        var ch=buf.getChannelData(0);
-        for(var i=0;i<pcm.length;i++){ch[i]=pcm[i]/32768}
-        var src=audioCtx.createBufferSource();
-        src.buffer=buf;src.connect(audioGainNode);
-        src.start(audioNextTime);
-        audioNextTime+=buf.duration;
-        if(audioNextTime<audioCtx.currentTime){audioNextTime=audioCtx.currentTime+0.02}
-        pump()
-      }).catch(function(){})
-    }
-    pump()
-  }).catch(function(){})
-}
-
-function stopAudio(){
-  audioOn=false;
-  var btn=document.getElementById('audioBtn');
-  btn.textContent='🔇';btn.title='开启声音';
-  if(audioFetchCtrl){audioFetchCtrl.abort();audioFetchCtrl=null}
-  if(audioCtx){audioCtx.close();audioCtx=null}
-}
-window.addEventListener('beforeunload',stopAudio);
 </script>
 </body>
 </html>

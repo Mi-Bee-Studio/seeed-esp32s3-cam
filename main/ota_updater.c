@@ -64,7 +64,6 @@ static esp_err_t ota_do_update(const char *url)
     esp_err_t ret = esp_https_ota(&ota_config);
     /* If esp_https_ota returns OK, we should restart */
     if (ret == ESP_OK) {
-        esp_ota_mark_app_valid_cancel_rollback();
         vTaskDelay(pdMS_TO_TICKS(500));
         esp_restart();
     }
@@ -86,7 +85,7 @@ static esp_err_t ota_do_update(const char *url)
 esp_err_t api_ota_handler(httpd_req_t *req)
 {
     if (!xSemaphoreTake(s_ota_mutex, 0)) {
-        return json_error(req, "OTA already in progress", 429);
+        return json_error_status(req, "OTA already in progress", "429 Too Many Requests");
     }
 
 
@@ -192,7 +191,7 @@ esp_err_t api_ota_upload_handler(httpd_req_t *req)
     }
 
     if (!xSemaphoreTake(s_ota_mutex, 0)) {
-        return json_error(req, "OTA already in progress", 429);
+        return json_error_status(req, "OTA already in progress", "429 Too Many Requests");
     }
 
     int content_len = req->content_len;
@@ -283,7 +282,7 @@ esp_err_t api_ota_spiffs_handler(httpd_req_t *req)
     }
 
     if (!xSemaphoreTake(s_ota_mutex, 0)) {
-        return json_error(req, "OTA already in progress", 429);
+        return json_error_status(req, "OTA already in progress", "429 Too Many Requests");
     }
 
     int content_len = req->content_len;

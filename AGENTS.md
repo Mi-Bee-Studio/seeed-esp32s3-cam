@@ -20,6 +20,24 @@ MiBee Cam — ESP-IDF firmware that turns a XIAO ESP32-S3 Sense into a surveilla
 └── .github/workflows/release.yml  # Tag-triggered build+release CI
 ```
 
+## RTOS TASK LAYOUT
+
+| Task | Core | Priority | Role |
+|------|------|----------|------|
+| `audio_capture` | 0 | 5 | I2S PDM mic capture, G.711 encode, audio_bcast_publish (HIGHEST user task on Core 0) |
+| `recorder` | 0 | 3 | Camera capture, motion detect, frame_buf alloc/publish, enqueue to sd_writer (was prio 5 - lowered to fix audio dropouts during SD writes) |
+| `mjpeg_cli` | 1 | 2 | MJPEG HTTP streamer per-client task (port 81) |
+| `rtsp_video` | 1 | 2 | RTSP video feed (espp) |
+| `rtsp_audio` | 0 | 2 | RTSP audio feed (G.711) - moved to Core 0 for low-latency near I2S capture (was Core 1) |
+| `sd_writer` | 1 | 2 | NEW: Dedicated SD write task. Drains write queue from recorder, performs async write_avi_frame + audio mux. Eliminates capture-loop blocking on SD I/O |
+| WebSocket/httpd | 0/1 | 1 | HTTP server + WebSocket handlers |
+
+**Rationale:**
+- Audio capture at prio 5 is the highest user task - never preempted by SD writes.
+- Recorder lowered to prio 3 (was 5) - stays on Core 0 to avoid preempting streamers on Core 1.
+- sd_writer on Core 1 - I/O bound, doesn't need CPU proximity to camera.
+
+
 ## WHERE TO LOOK
 
 | Task | Location | Notes |
@@ -42,6 +60,7 @@ MiBee Cam — ESP-IDF firmware that turns a XIAO ESP32-S3 Sense into a surveilla
 | Audio codec | `main/g711_codec.c` | G.711 μ-law encode/decode |
 | RTSP server | `main/rtsp_server.cpp` | MJPEG+G.711, port 554, digest auth |
 | SD logging | `main/sd_log.c` | Event log to /sdcard/logs/, 512KB rotation |
+| SD writer task | `main/video_recorder.c` | Async SD I/O task on Core 1, drains write queue from recorder, performs write_avi_frame + audio mux |
 
 ## BUILD
 
@@ -139,7 +158,23 @@ Key log patterns to watch:
 - **espressif/esp32-camera ~2.1.6** pinned in idf_component.yml
 - **CI container** — `espressif/idf:v6.0`
 - **Audio DSP pipeline** — I2S PDM (DSR_16S) → DC removal (IIR) → spectral noise subtraction (256-pt FFT, Wiener gain α=4.0) → 4× gain → noise gate → G.711 μ-law
-- **Web audio playback** — `AudioContext({sampleRate:8000})`, separate read/schedule loops with 100ms lookahead, μ-law decode via lookup table
+- **Web audio playback** - `AudioContext({sampleRate:8000})`, separate read/schedule loops with 100ms lookahead, mu-law decode via lookup table
+
+### Perf Optimization Architecture (v0.4.0)
+- **Async SD write**: `recording_task` captures and enqueues frame_buf references to a depth-2 queue; `sd_writer_task` on Core 1 drains the queue and performs write_avi_frame. Sentinel barrier (NULL fb + xTaskNotifyGive) ensures segment rotation waits for all queued frames to flush before close_segment.
+- **Audio frames in internal RAM**: 160-byte G.711 frames allocate from `MALLOC_CAP_DMA | MALLOC_CAP_8BIT` (internal SRAM), not PSRAM. Avoids cache contention with JPEG DMA traffic.
+- **MJPEG TCP_NODELAY**: Client sockets have Nagle's algorithm disabled for lower latency on small part-headers. Combined with 16KB TCP buffer (sdkconfig) and 8KB send chunks for throughput.
+- **Cycle-relative frame delay**: MJPEG streamer records cycle_start at loop top, computes target_ticks from fps, only delays if elapsed < target. Actual delivered FPS matches config (was lower because send time was added to absolute delay).
+- **WS mutex snapshot pattern**: `ws_broadcast` snapshots client req[] array under mutex, releases mutex, then sends without holding it. Prevents connect/disconnect starvation during slow client sends.
+- **frame_buf_t.capture_us**: Added int64_t field for future RTSP AV sync (requires espp upstream patch to send_frame_with_ts; currently unused, default 0).
+
+## ANTI-PATTERNS (Don't)
+
+- **Don't raise recording_task above priority 3** - it preempts audio_capture (prio 5) on Core 0 during SD writes, causing audio dropouts.
+- **Don't move recording_task to Core 1** - would make it the highest-prio user task there (prio 3 > streamers' prio 2), preempting MJPEG/RTSP video.
+- **Don't hold the ws_server mutex during httpd_ws_send_frame** - use the snapshot pattern (copy req[] array under mutex, release, then send).
+- **Don't allocate 160-byte audio frames in PSRAM** - use MALLOC_CAP_DMA (internal RAM). PSRAM cache contention with JPEG traffic hurts audio path latency.
+- **Don't reduce TCP_MSS below 1440** - sister repo (ai-thinker-esp32-cam) tried MSS=760, halves throughput. Keep MSS=1440, raise RTO/MAXRTX instead for weak WiFi.
 
 ## RELEASE
 

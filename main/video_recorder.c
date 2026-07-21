@@ -34,6 +34,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -96,6 +97,14 @@ static SemaphoreHandle_t  s_mutex        = NULL;
 static uint32_t           s_stack_hwm    = 0;   /* Stack high-water mark */
 static uint32_t          s_frames_dropped = 0;
 static int64_t           s_last_drop_log_us = 0; /* throttle drop log */
+
+typedef struct {
+    frame_buf_t *fb;       /* refcounted JPEG buffer; NULL = sentinel */
+    int64_t capture_us;    /* capture timestamp for AV sync */
+} write_msg_t;
+
+static QueueHandle_t s_write_q = NULL;
+static TaskHandle_t s_writer_handle = NULL;
 
 /* Resolution → pixel dimensions */
 /**
@@ -393,6 +402,7 @@ typedef struct {
     audio_sub_t *audio_sub;       /* audio subscriber (NULL if mux disabled) */
     uint32_t    hdrl_size;        /* actual hdrl bytes written to file       */
     uint8_t    *stdio_buf;        /* 64KB setvbuf buffer (PSRAM) — cuts SD sector-write count */
+    int         flush_counter;    /* periodic fflush/fsync counter, reset per segment */
 } segment_t;
 
 static segment_t s_seg = {0};
@@ -469,6 +479,7 @@ static esp_err_t open_segment(uint16_t w, uint16_t h, uint8_t playback_fps, cons
     s_seg.frame_count    = 0;
     s_seg.start_ms       = s_seg_elapsed_ms();
     s_seg.hdrl_size      = (uint32_t)hdrl_size;
+    s_seg.flush_counter = 0;
 
     /* Subscribe to audio broadcaster if muxing audio */
     s_seg.audio_sub = NULL;
@@ -698,6 +709,57 @@ static void close_segment(void)
 }
 
 /* ------------------------------------------------------------------ */
+/*  SD writer task — drains write queue, performs async SD I/O       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief Dedicated SD write task running on Core 1 (priority 2).
+ * Consumes frame buffers from s_write_q, writes to AVI via
+ * write_avi_frame, muxes audio, and releases frame_buf references.
+ * The sentinel pattern (.fb == NULL) provides a flush barrier for
+ * segment rotation and shutdown.
+ */
+static void sd_writer_task(void *arg)
+{
+    esp_task_wdt_add(NULL);
+    while (s_state == RECORDER_RECORDING || s_state == RECORDER_PAUSED) {
+        esp_task_wdt_reset();
+        write_msg_t wmsg;
+        if (xQueueReceive(s_write_q, &wmsg, pdMS_TO_TICKS(1000)) != pdPASS)
+            continue;
+        if (wmsg.fb == NULL) {
+            /* Sentinel: ack the barrier, do NOT release NULL */
+            xTaskNotifyGive(s_task_handle);
+            continue;
+        }
+        if (s_seg.fp) {
+            write_avi_frame(wmsg.fb->data, wmsg.fb->len);
+            /* Drain audio and mux — moved here from recording_task */
+            if (s_seg.audio_sub) {
+                audio_frame_t aframe;
+                while (audio_bcast_receive(s_seg.audio_sub, &aframe, 0)) {
+                    write_avi_audio_chunk(aframe.data, aframe.len);
+                    audio_bcast_release(&aframe);
+                }
+            }
+        }
+        frame_buf_release(wmsg.fb);
+    }
+    /* Drain remaining queue on stop */
+    write_msg_t wmsg;
+    while (xQueueReceive(s_write_q, &wmsg, 0)) {
+        if (wmsg.fb == NULL) {
+            xTaskNotifyGive(s_task_handle);
+            continue;
+        }
+        if (s_seg.fp) write_avi_frame(wmsg.fb->data, wmsg.fb->len);
+        frame_buf_release(wmsg.fb);
+    }
+    esp_task_wdt_delete(NULL);
+    vTaskDelete(NULL);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Recording task                                                    */
 /* ------------------------------------------------------------------ */
 
@@ -746,6 +808,12 @@ prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
 
         /* If write_to_sd turned off mid-segment, close the segment */
         if (s_seg.fp && !write_to_sd) {
+            /* Flush pending writes before closing segment */
+            write_msg_t sentinel = { .fb = NULL, .capture_us = 0 };
+            xQueueSend(s_write_q, &sentinel, portMAX_DELAY);
+            if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000)) == 0) {
+                ESP_LOGW(TAG, "Sentinel barrier timeout during segment close");
+            }
             close_segment();
             segment_open = false;
         }
@@ -856,27 +924,61 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
             continue;
         }
 
-        /* Write frame to AVI (only if recording to SD) */
+        /* Write frame to AVI (only if recording to SD).
+         * Normal (fb != NULL): enqueue to sd_writer_task for async SD write.
+         * Fallback (holding_camera_fb): synchronous inline write. */
         if (write_to_sd) {
-            err = write_avi_frame(jpeg_data, jpeg_data_len);
-
-            /* Drain available audio frames and mux into AVI */
-            if (err == ESP_OK && mux_audio && s_seg.audio_sub) {
-                audio_frame_t aframe;
-                while (audio_bcast_receive(s_seg.audio_sub, &aframe, 0)) {
-                    write_avi_audio_chunk(aframe.data, aframe.len);
-                    audio_bcast_release(&aframe);
+            if (fb) {
+                /* Normal path: enqueue for async write */
+                write_msg_t wmsg = { .fb = fb, .capture_us = 0 };
+                __atomic_fetch_add(&fb->refcount, 1, __ATOMIC_ACQ_REL);
+                if (xQueueSend(s_write_q, &wmsg, 0) != pdPASS) {
+                    /* Queue full -- drop frame */
+                    frame_buf_release(fb);
+                    s_frames_dropped++;
+                    if (cycle_start_us - s_last_drop_log_us > 1000000) {
+                        ESP_LOGW(TAG, "SD write dropped: queue full, total_dropped=%lu",
+                                 (unsigned long)s_frames_dropped);
+                        s_last_drop_log_us = cycle_start_us;
+                    }
+                    /* Drain and DISCARD audio to maintain A/V alignment */
+                    if (mux_audio && s_seg.audio_sub) {
+                        audio_frame_t aframe;
+                        while (audio_bcast_receive(s_seg.audio_sub, &aframe, 0)) {
+                            audio_bcast_release(&aframe);
+                        }
+                    }
                 }
+                err = ESP_OK;
+            } else {
+                /* FALLBACK: holding camera fb -- sync inline write (rare, PSRAM alloc failed) */
+                err = write_avi_frame(jpeg_data, jpeg_data_len);
+                if (err == ESP_OK && mux_audio && s_seg.audio_sub) {
+                    audio_frame_t aframe;
+                    while (audio_bcast_receive(s_seg.audio_sub, &aframe, 0)) {
+                        write_avi_audio_chunk(aframe.data, aframe.len);
+                        audio_bcast_release(&aframe);
+                    }
+                }
+                camera_return_fb(&frame);
+                holding_camera_fb = false;
             }
         }
         if (fb) {
             frame_buf_release(fb);
         } else if (holding_camera_fb) {
+            /* Reached when write_to_sd was false */
             camera_return_fb(&frame);
         }
 
         if (write_to_sd && err != ESP_OK) {
             ESP_LOGW(TAG, "SD write failed — closing segment, attempting cleanup");
+            /* Flush pending writes before closing segment */
+            write_msg_t sentinel = { .fb = NULL, .capture_us = 0 };
+            xQueueSend(s_write_q, &sentinel, portMAX_DELAY);
+            if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000)) == 0) {
+                ESP_LOGW(TAG, "Sentinel barrier timeout during error recovery");
+            }
             close_segment();  /* Save what we have */
             segment_open = false;
             cleanup_orphan_zero_byte_files();  /* safety net */
@@ -907,14 +1009,13 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
              * additionally flushes FAT directory/FAT-table entries so a power
              * loss mid-recording leaves a playable, correctly-sized AVI rather
              * than a truncated/zero-length file. */
-            static int flush_counter = 0;
             if (timelapse) {
                 fflush(s_seg.fp);
                 fsync(fileno(s_seg.fp));
-            } else if (++flush_counter >= 10) {
+            } else if (++s_seg.flush_counter >= 10) {
                 fflush(s_seg.fp);
                 fsync(fileno(s_seg.fp));
-                flush_counter = 0;
+                s_seg.flush_counter = 0;
             }
 
             /* Check segment duration */
@@ -926,6 +1027,12 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
                 completed_file[sizeof(completed_file) - 1] = '\0';
                 uint32_t completed_size = total_bytes;
 
+                /* Flush pending writes before closing segment */
+                write_msg_t sentinel = { .fb = NULL, .capture_us = 0 };
+                xQueueSend(s_write_q, &sentinel, portMAX_DELAY);
+                if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000)) == 0) {
+                    ESP_LOGW(TAG, "Sentinel barrier timeout during segment rotation");
+                }
                 close_segment();
                 segment_open = false;
 
@@ -971,6 +1078,12 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
         strncpy(completed_file, s_current_file, sizeof(completed_file) - 1);
         completed_file[sizeof(completed_file) - 1] = '\0';
         uint32_t completed_size = total_bytes;
+        /* Flush pending writes before closing segment */
+        write_msg_t sentinel = { .fb = NULL, .capture_us = 0 };
+        xQueueSend(s_write_q, &sentinel, portMAX_DELAY);
+        if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000)) == 0) {
+            ESP_LOGW(TAG, "Sentinel barrier timeout during cleanup");
+        }
         close_segment();
         if (s_segment_cb && completed_size > 0) {
             s_segment_cb(completed_file, completed_size);
@@ -1042,13 +1155,39 @@ if (config_get()->timelapse_mode == 2) {
         "recorder",
         10240,   /* increased for motion detection JPEG decode */
         NULL,
-        configMAX_PRIORITIES - 2,   /* priority 5 on ESP-IDF default */
+        3,          /* priority 3 — below audio_capture (5) to prevent audio dropouts during SD writes */
         &s_task_handle,
-        0                            /* Core 0 */
-    );
+        0);         /* KEEP Core 0 — moving to Core 1 would make recorder the
+               * highest-prio user task there (prio 3 > streamers' prio 2),
+               * preempting mjpeg_cli/rtsp_video and hurting stream smoothness */
 
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create recording task");
+        s_state = RECORDER_IDLE;
+        xSemaphoreGive(s_mutex);
+        return ESP_FAIL;
+    }
+
+    /* Create write queue and dedicated SD writer task (Core 1, prio 2) */
+    s_write_q = xQueueCreate(2, sizeof(write_msg_t));
+    if (!s_write_q) {
+        ESP_LOGE(TAG, "Failed to create write queue");
+        s_state = RECORDER_IDLE;
+        xSemaphoreGive(s_mutex);
+        return ESP_FAIL;
+    }
+    BaseType_t wret = xTaskCreatePinnedToCore(
+        sd_writer_task,
+        "sd_writer",
+        8192,
+        NULL,
+        2,          /* priority 2 — same as streamers, I/O bound */
+        &s_writer_handle,
+        1);         /* Core 1 — I/O bound, doesn't need camera proximity */
+    if (wret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create sd_writer task");
+        vQueueDelete(s_write_q);
+        s_write_q = NULL;
         s_state = RECORDER_IDLE;
         xSemaphoreGive(s_mutex);
         return ESP_FAIL;
@@ -1077,9 +1216,10 @@ esp_err_t recorder_stop(void)
     s_state = RECORDER_IDLE;   /* task checks this and exits */
     xSemaphoreGive(s_mutex);
 
-    /* Wait for task to finish — recording uses 5s watchdog chunks, so wait at least 8s */
+    /* Wait for both tasks to finish — recording_task uses 5s watchdog chunks,
+     * sd_writer_task drains remaining queue on exit. Extended to 10s total. */
     int waited = 0;
-    while (s_task_handle != NULL && waited < 8000) {
+    while ((s_task_handle != NULL || s_writer_handle != NULL) && waited < 10000) {
         vTaskDelay(pdMS_TO_TICKS(100));
         waited += 100;
     }
@@ -1090,6 +1230,14 @@ motion_detector_deinit();
     if (s_task_handle != NULL) {
         vTaskDelete(s_task_handle);
         s_task_handle = NULL;
+    }
+    if (s_writer_handle != NULL) {
+        vTaskDelete(s_writer_handle);
+        s_writer_handle = NULL;
+    }
+    if (s_write_q) {
+        vQueueDelete(s_write_q);
+        s_write_q = NULL;
     }
 
     ESP_LOGI(TAG, "Recording stopped");

@@ -44,13 +44,14 @@
 #include <lwip/sockets.h>
 #include <lwip/netdb.h>
 #include <errno.h>
+#include <netinet/tcp.h>
 
 static const char *TAG = "mjpeg";
 
 #define STREAM_PORT        81
 #define MJPEG_BOUNDARY     "frame"
 #define MAX_STREAM_CLIENTS 2
-#define CHUNK_SIZE         4096
+#define CHUNK_SIZE         8192
 #define LISTEN_BACKLOG     2
 #define CLIENT_TASK_STACK  4096
 #define SEND_TIMEOUT_MS    5000
@@ -77,6 +78,10 @@ static void mjpeg_client_task(void *arg)
     struct timeval tv = { .tv_sec = SEND_TIMEOUT_MS / 1000,
                           .tv_usec = (SEND_TIMEOUT_MS % 1000) * 1000 };
     setsockopt(client_sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    /* Disable Nagle's algorithm — lower latency for small MJPEG part-headers */
+    int flag = 1;
+    setsockopt(client_sock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
     /* Read HTTP request (first 511 bytes is enough to validate) */
     char req_buf[512];
@@ -168,13 +173,13 @@ static void mjpeg_client_task(void *arg)
 
     /* ---- Stream loop ------------------------------------------------- */
     uint8_t fps;
-    TickType_t frame_delay;
     char part_hdr[128];
     int capture_fails = 0;
 
     while (1) {
+        TickType_t cycle_start = xTaskGetTickCount();
         fps = config_get()->fps;
-        frame_delay = (fps > 0) ? pdMS_TO_TICKS(1000 / fps) : pdMS_TO_TICKS(100);
+        TickType_t target_ticks = (fps > 0) ? pdMS_TO_TICKS(1000 / fps) : pdMS_TO_TICKS(100);
 
         /* Receive frame from broadcaster (up to 3s timeout) */
         frame_msg_t fmsg;
@@ -223,8 +228,12 @@ static void mjpeg_client_task(void *arg)
 
         fbroadcast_release(&fmsg);
 
-        /* Frame-rate throttle */
-        vTaskDelay(frame_delay);
+        /* Frame-rate throttle — cycle-relative delay */
+        TickType_t elapsed = xTaskGetTickCount() - cycle_start;
+        if (elapsed < target_ticks) {
+            vTaskDelay(target_ticks - elapsed);
+        }
+        /* else: behind schedule, skip delay to catch up */
     }
 
 cleanup:

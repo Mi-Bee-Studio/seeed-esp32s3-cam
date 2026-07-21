@@ -133,6 +133,27 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 </label>
 </div>
 <div style="font-size:11px;color:#999;margin-top:2px">主备 WiFi 均失败后，启用则进入 AP 模式，禁用则持续重试主 WiFi
+
+<div class="field">
+  <label for="wifi_roam_rssi_threshold">WiFi 漫游信号阈值</label>
+  <select id="wifi_roam_rssi_threshold">
+    <option value="0">禁用漫游</option>
+    <option value="-70">-70 dBm (强信号，频繁切换)</option>
+    <option value="-75">-75 dBm (默认，平衡)</option>
+    <option value="-80">-80 dBm (弱信号，少切换)</option>
+    <option value="-85">-85 dBm (极弱信号才切换)</option>
+  </select>
+  <small style="display:block;font-size:11px;color:#999;margin-top:2px">当信号低于此阈值且存在更强 AP 时自动切换</small>
+</div>
+
+<div class="field">
+  <label for="wifi_roam_rssi_gap">漫游信号差值: <span id="rssi_gap_value">10</span> dBm</label>
+  <div class="range-row">
+    <input type="range" id="wifi_roam_rssi_gap" min="5" max="15" step="1" value="10" oninput="$('rssi_gap_value').textContent=this.value">
+    <span class="range-val" id="rssi_gap_value_display">10</span>
+  </div>
+  <small style="display:block;font-size:11px;color:#999;margin-top:2px">目标 AP 需比当前强多少 dBm 才触发切换</small>
+</div>
 </div>
 </div>
 </div>
@@ -599,6 +620,10 @@ function loadConfig(){
   $('hmirror').checked=!!v.hmirror;
   $('day_night_mode').value=v.day_night_mode!=null?v.day_night_mode:0;
   $('xclk_freq_mhz').value=v.xclk_freq_mhz||16;
+  $('wifi_roam_rssi_threshold').value=v.wifi_roam_rssi_threshold??-75;
+  $('wifi_roam_rssi_gap').value=v.wifi_roam_rssi_gap??10;
+  $('rssi_gap_value').textContent=v.wifi_roam_rssi_gap??10;
+  $('rssi_gap_value_display').textContent=v.wifi_roam_rssi_gap??10;
   onUploadMethodChange();
   $('resolution').value=v.resolution!=null?v.resolution:1;
   /* If current resolution isn't in supported list, default to first option */
@@ -702,6 +727,8 @@ var interval = tlMode === 1 ? parseInt($('timelapseInterval').value) : 0;
   fps: (tlMode >= 1) ? getOptimalFps(interval) : parseInt($('fps').value),
   segment_sec: (tlMode >= 1) ? (tlMode === 2 ? 1800 : getOptimalSegmentSec(parseInt($('timelapseInterval').value))) : parseInt($('segment_sec').value),
   jpeg_quality:parseInt($('jpeg_quality').value),
+  wifi_roam_rssi_threshold:parseInt($('wifi_roam_rssi_threshold').value),
+  wifi_roam_rssi_gap:parseInt($('wifi_roam_rssi_gap').value),
   vflip:$('vflip').checked,
   hmirror:$('hmirror').checked,
   day_night_mode:parseInt($('day_night_mode').value),

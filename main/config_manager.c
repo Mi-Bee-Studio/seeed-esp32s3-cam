@@ -45,9 +45,10 @@ static const cam_config_t s_defaults = {
     .webdav_pass    = "",
     .webdav_enabled = false,
     .resolution     = 1,
-    .fps            = 10,
+    /* tuned defaults: fps=12 smoother, quality=18 halves JPEG size */
+    .fps            = 12,
     .segment_sec    = 300,
-    .jpeg_quality   = 12,
+    .jpeg_quality   = 18,
     .vflip          = false,
     .hmirror         = false,
     .device_name    = "MiBee Cam",
