@@ -482,13 +482,9 @@ static bool find_oldest_recursive(const char *dirpath, char *oldest_name, size_t
 /**
  * @brief 删除最旧的录像文件，线程安全
  */
-esp_err_t storage_delete_oldest(void)
+static esp_err_t storage_delete_oldest_locked(void)
 {
-    /* Don't check s_sd_available — FAT may still be mounted. */
-    if (!s_card) return ESP_ERR_INVALID_STATE;
-
-    xSemaphoreTake(s_sd_mutex, portMAX_DELAY);
-
+    /* 内部版本：调用者必须已持有 s_sd_mutex */
     char oldest_name[64] = {0};
     char oldest_fullpath[300] = {0};
     uint32_t oldest_size = 0;
@@ -497,7 +493,6 @@ esp_err_t storage_delete_oldest(void)
                                        oldest_fullpath, sizeof(oldest_fullpath), &oldest_size);
 
     if (!found) {
-        xSemaphoreGive(s_sd_mutex);
         ESP_LOGW(TAG, "No recordings to delete");
         return ESP_ERR_NOT_FOUND;
     }
@@ -520,9 +515,18 @@ esp_err_t storage_delete_oldest(void)
         ESP_LOGE(TAG, "Failed to delete %s: %s", oldest_name, strerror(errno));
         result = ESP_FAIL;
     }
-
-    xSemaphoreGive(s_sd_mutex);
     return result;
+}
+
+esp_err_t storage_delete_oldest(void)
+{
+    /* Don't check s_sd_available — FAT may still be mounted. */
+    if (!s_card) return ESP_ERR_INVALID_STATE;
+
+    xSemaphoreTake(s_sd_mutex, portMAX_DELAY);
+    esp_err_t ret = storage_delete_oldest_locked();
+    xSemaphoreGive(s_sd_mutex);
+    return ret;
 }
 
 /**
@@ -546,11 +550,10 @@ esp_err_t storage_cleanup(void)
     }
 
     ESP_LOGW(TAG, "Storage low (%.1f%%), starting cleanup", free_pct);
-    xSemaphoreGive(s_sd_mutex);
 
     int deleted = 0;
     while (storage_get_free_percent() < (float)config_get()->cleanup_high_pct) {
-        esp_err_t err = storage_delete_oldest();
+        esp_err_t err = storage_delete_oldest_locked();
         if (err != ESP_OK) break;
         deleted++;
         /* Feed watchdog during long cleanup to avoid TWDT panic */
@@ -561,6 +564,8 @@ esp_err_t storage_cleanup(void)
     float new_pct = storage_get_free_percent();
     ESP_LOGI(TAG, "Cleanup done: deleted %d files, free now %.1f%%", deleted, new_pct);
     LOG_EVENT(LOG_EVENT_SD_CLEANUP_DONE, "deleted=%d free=%.1f%%", deleted, new_pct);
+    xSemaphoreGive(s_sd_mutex);
+
     return ESP_OK;
 }
 

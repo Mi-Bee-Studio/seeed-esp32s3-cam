@@ -45,6 +45,9 @@
 #include <errno.h>
 #include "sha256.h"
 #include "onvif_service.h"
+#include "lwip/sockets.h"
+#include "lwip/tcp.h"
+#include "frame_broadcaster.h"
 
 static const char *TAG = "web";
 
@@ -78,6 +81,11 @@ static bool check_password(httpd_req_t *req)
     }
 
     return false;
+}
+
+/* 公开 wrapper，供 ota_updater.c 复用 */
+bool web_server_check_auth(httpd_req_t *req) {
+    return check_password(req);
 }
 
 /** @brief 设置跨域资源共享(CORS)响应头，允许所有来源访问 */
@@ -299,6 +307,7 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(data, "video_record_to_sd", cfg->video_record_to_sd);
     cJSON_AddBoolToObject(data, "audio_record_to_sd", cfg->audio_record_to_sd);
     cJSON_AddBoolToObject(data, "sd_log_enabled", cfg->sd_log_enabled);
+    cJSON_AddNumberToObject(data, "xclk_freq_mhz", cfg->xclk_freq_mhz);
     cJSON_AddBoolToObject(data, "sd_present", storage_is_available());
 
     /* Add mDNS hostname for display in web UI */
@@ -431,6 +440,16 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         int val = item->valueint;
         if (val >= 0 && val <= 2) {
             cfg->day_night_mode = (uint8_t)val;
+        }
+    }
+    if ((item = cJSON_GetObjectItem(json, "xclk_freq_mhz"))) {
+        int val = item->valueint;
+        if (val == 10 || val == 16 || val == 20) {
+            cfg->xclk_freq_mhz = (uint8_t)val;
+        } else {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid xclk_freq_mhz (must be 10/16/20)", HTTPD_400_BAD_REQUEST);
         }
     }
     
@@ -1065,6 +1084,14 @@ static esp_err_t static_file_handler(httpd_req_t *req)
     const char *uri = req->uri;
     if (strcmp(uri, "/") == 0) uri = "/index.html";
 
+    /* 去掉 query string (?xxx=yyy) 用于 SPIFFS 文件查找 */
+    char uri_path[256];
+    strncpy(uri_path, uri, sizeof(uri_path) - 1);
+    uri_path[sizeof(uri_path) - 1] = '\0';
+    char *q = strchr(uri_path, '?');
+    if (q) *q = '\0';
+    uri = uri_path;
+
     char filepath[580];
     snprintf(filepath, sizeof(filepath), "/spiffs%s", uri);
 
@@ -1083,6 +1110,13 @@ static esp_err_t static_file_handler(httpd_req_t *req)
 
     httpd_resp_set_type(req, type);
     set_cors_headers(req);
+
+    /* Cache-Control: HTML 不缓存（OTA 后必须拉新页面），其他静态资源缓存 1 小时 */
+    if (strstr(uri, ".html")) {
+        httpd_resp_set_hdr(req, "Cache-Control", "no-cache, must-revalidate");
+    } else {
+        httpd_resp_set_hdr(req, "Cache-Control", "public, max-age=3600");
+    }
 
     char buf[4096];
     size_t n;
@@ -1492,6 +1526,28 @@ static esp_err_t api_audio_stream_handler(httpd_req_t *req)
     audio_bcast_unsubscribe(sub);
     return ESP_OK;
 }
+/* ------------------------------------------------------------------ */
+/*  GET /api/capture — single JPEG snapshot                             */
+/* ------------------------------------------------------------------ */
+
+/** @brief 处理GET /api/capture请求，返回单帧JPEG快照 */
+static esp_err_t api_capture_handler(httpd_req_t *req)
+{
+    /* 使用帧广播器的最新缓存帧（零拷贝），避免和录像任务竞争 camera */
+    frame_msg_t msg = {0};
+    if (!fbroadcast_get_latest(&msg) || !msg.fb) {
+        ESP_LOGW(TAG, "No frame available for /api/capture");
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    httpd_resp_set_type(req, "image/jpeg");
+    httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache, must-revalidate");
+    httpd_resp_send(req, (const char *)msg.fb->data, msg.fb->len);
+    fbroadcast_release(&msg);
+    return ESP_OK;
+}
+
 
 typedef struct {
     const char  *uri;
@@ -1516,8 +1572,12 @@ static const uri_entry_t s_uris[] = {
     { "/api/reset",    HTTP_POST,   api_reset_handler         },
     { "/api/format",   HTTP_POST,   api_format_handler        },
     { "/api/ota",     HTTP_POST,   api_ota_handler           },
+    { "/api/ota/info",   HTTP_GET,   api_ota_info_handler    },
+    { "/api/ota/upload", HTTP_POST,  api_ota_upload_handler  },
+    { "/api/ota/spiffs", HTTP_POST,  api_ota_spiffs_handler  },
     { "/metrics",      HTTP_GET,    metrics_handler           },
     { "/api/audio",   HTTP_GET,    api_audio_stream_handler  },
+    { "/api/capture", HTTP_GET,    api_capture_handler       },
     /* CORS preflight — wildcard */
     { "/*",            HTTP_OPTIONS, options_handler           },
     /* Static files — catch-all (lowest priority) */
@@ -1528,6 +1588,23 @@ static const uri_entry_t s_uris[] = {
 
 /* ------------------------------------------------------------------ */
 /*  Public API                                                         */
+/* 每个新 HTTP 连接打开时设置 TCP 选项（弱链路优化） */
+static esp_err_t on_http_session_open(httpd_handle_t hd, int sockfd)
+{
+    int enable = 1;
+    setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &enable, sizeof(enable));
+
+    int keepalive = 1;
+    int keepidle = 10;     /* 10s 空闲后开始 keepalive 探测 */
+    int keepintvl = 3;     /* 3s 探测间隔 */
+    int keepcnt = 3;       /* 3 次探测失败才断开 */
+    setsockopt(sockfd, SOL_SOCKET,  SO_KEEPALIVE,  &keepalive, sizeof(keepalive));
+    setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPIDLE,  &keepidle,  sizeof(keepidle));
+    setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl));
+    setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPCNT,   &keepcnt,   sizeof(keepcnt));
+    return ESP_OK;
+}
+
 /* ------------------------------------------------------------------ */
 
 /** @brief 启动HTTP Web服务器，注册所有URI处理程序，配置通配符路由匹配 */
@@ -1539,7 +1616,7 @@ esp_err_t web_server_start(uint16_t port)
     }
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 23;   /* 21 static + 2 ONVIF */
+    config.max_uri_handlers = 27;   /* 25 static + 2 ONVIF (added 3 OTA endpoints) */
     config.stack_size = 16384;   /* 16KB: download handler has ~6KB locals + nested calls */
     config.uri_match_fn = httpd_uri_match_wildcard;
     /* httpd caps max_open_sockets at LWIP_MAX_SOCKETS (10) minus 3 internal = 7.
@@ -1547,7 +1624,9 @@ esp_err_t web_server_start(uint16_t port)
      * 7 is the max allowed without bumping LWIP_MAX_SOCKETS in sdkconfig. */
     config.max_open_sockets = 7;
     config.recv_wait_timeout = 10;
-    config.send_wait_timeout = 10;
+    config.send_wait_timeout = 5;    /* 弱链路下更快超时（原 10s） */
+    config.keep_alive_enable = false;
+    config.open_fn = on_http_session_open;   /* TCP_NODELAY + keepalive per socket */
     config.keep_alive_enable = false;
     esp_err_t ret = httpd_start(&s_server, &config);
     if (ret != ESP_OK) {

@@ -159,6 +159,13 @@ esp_err_t fbroadcast_init(void);
  */
 void fbroadcast_deinit(void);
 
+/**
+ * @brief 计算推荐的帧间延迟（毫秒）。
+ * 无 MJPEG 客户端时降到 2fps 节省资源；有客户端用配置 fps。
+ * @return 延迟毫秒数
+ */
+int broker_frame_delay(void);
+
 #ifdef __cplusplus
 }
 #endif

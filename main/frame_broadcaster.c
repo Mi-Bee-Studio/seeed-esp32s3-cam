@@ -22,6 +22,8 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include <string.h>
+#include "mjpeg_streamer.h"
+#include "config_manager.h"
 
 /* Use GCC/Clang __atomic builtins (not <stdatomic.h>) so the same header
  * compiles cleanly under both C (frame_broadcaster.c, video_recorder.c) and
@@ -292,4 +294,20 @@ bool fbroadcast_get_latest(frame_msg_t *msg)
 
     xSemaphoreGive(s_cache_mutex);
     return true;
+}
+
+/* 推荐的帧间延迟（毫秒）
+ * 无 MJPEG 客户端时降到 2fps 节省 CPU/PSRAM/传感器功耗
+ * 有客户端时用配置的 fps
+ */
+int broker_frame_delay(void)
+{
+    uint8_t fps = config_get()->fps;
+    if (fps == 0) fps = 15;
+
+    /* Idle 模式：无 MJPEG 客户端时降到 2fps */
+    if (mjpeg_streamer_client_count() == 0) {
+        fps = 2;
+    }
+    return 1000 / fps;
 }

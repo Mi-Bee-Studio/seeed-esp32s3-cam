@@ -139,6 +139,59 @@ var frameCount=0;
 var lastTime=Date.now();
 var retryTimer=null;
 
+/* ---- Snapshot Fallback State Machine ---- */
+var snapshotMode=false;
+var streamFailCount=0;
+var STREAM_FAIL_THRESH=2;
+var SNAPSHOT_INTERVAL=1500;
+var RECOVERY_INTERVAL=30000;
+var snapshotTimer=null;
+var recoveryTimer=null;
+
+function onStreamError(){
+ streamFailCount++;
+ if(streamFailCount>=STREAM_FAIL_THRESH&&!snapshotMode){
+  startSnapshotMode();
+ }
+}
+
+function startSnapshotMode(){
+ snapshotMode=true;
+ clearTimeout(retryTimer);
+ clearInterval(snapshotTimer);
+ clearInterval(recoveryTimer);
+ fetchSnapshot();
+ snapshotTimer=setInterval(fetchSnapshot,SNAPSHOT_INTERVAL);
+ recoveryTimer=setInterval(tryStreamRecovery,RECOVERY_INTERVAL);
+ statusDot.className='dot off';
+ statusText.textContent='快照模式';
+ statusText.style.color='#e67e22';
+}
+
+function fetchSnapshot(){
+ fetch('/api/capture?t='+Date.now())
+  .then(function(r){return r.blob()})
+  .then(function(b){
+   var url=URL.createObjectURL(b);
+   var oldUrl=img.src;
+   img.src=url;
+   if(oldUrl&&oldUrl.indexOf('blob:')===0)URL.revokeObjectURL(oldUrl);
+  })
+  .catch(function(err){console.warn('Snapshot fetch failed:',err)});
+}
+
+function tryStreamRecovery(){
+ if(!snapshotMode)return;
+ snapshotMode=false;
+ clearInterval(snapshotTimer);
+ clearInterval(recoveryTimer);
+ streamFailCount=0;
+ statusDot.className='dot loading';
+ statusText.textContent='恢复流中';
+ statusText.style.color='#e67e22';
+ img.src='http://'+location.hostname+':81/stream?t='+Date.now();
+}
+
 function updateConnected(){
  connected=true;
  clearTimeout(retryTimer);
@@ -169,6 +222,11 @@ img.onload=function(){
 };
 
 img.onerror=function(){
+ if(!snapshotMode){
+  onStreamError();
+ }
+ updateDisconnected('连接断开');
+};
  updateDisconnected('连接断开');
 };
 
