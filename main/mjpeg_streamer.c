@@ -54,7 +54,7 @@ static const char *TAG = "mjpeg";
 #define CHUNK_SIZE         8192
 #define LISTEN_BACKLOG     2
 #define CLIENT_TASK_STACK  4096
-#define SEND_TIMEOUT_MS    5000
+#define SEND_TIMEOUT_MS    15000  /* was 5s — WiFi stalls of 5-10s are normal */
 
 static int s_client_count = 0;
 static SemaphoreHandle_t s_mutex = NULL;
@@ -88,10 +88,11 @@ static void mjpeg_client_task(void *arg)
     setsockopt(client_sock, SOL_SOCKET, SO_RCVTIMEO, &rcvtv, sizeof(rcvtv));
 
     /* TCP keepalive — detect dead WiFi clients during long MJPEG streams.
-     * Same params as HTTP server's on_http_session_open for consistency. */
+     * Less aggressive than HTTP server: long-lived streams have brief flow-control
+     * stalls that are normal over WiFi. 30s idle + 3×10s probes = 60s dead detection. */
     int keepalive = 1;
-    int keepidle = 10;     /* 10s idle before first probe */
-    int keepintvl = 3;     /* 3s between probes */
+    int keepidle = 30;     /* 30s idle before first probe */
+    int keepintvl = 10;    /* 10s between probes */
     int keepcnt = 3;       /* 3 failed probes = dead */
     setsockopt(client_sock, SOL_SOCKET,  SO_KEEPALIVE,  &keepalive, sizeof(keepalive));
     setsockopt(client_sock, IPPROTO_TCP, TCP_KEEPIDLE,  &keepidle,  sizeof(keepidle));
@@ -200,7 +201,7 @@ static void mjpeg_client_task(void *arg)
         frame_msg_t fmsg;
         if (!fbroadcast_receive(sub, &fmsg, 3000)) {
             capture_fails++;
-            if (capture_fails >= 6) {
+            if (capture_fails >= 10) {
                 ESP_LOGW(TAG, "No frames for %d tries, ending stream", capture_fails);
                 break;
             }
