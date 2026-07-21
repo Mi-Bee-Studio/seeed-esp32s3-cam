@@ -479,6 +479,16 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 		<div class="upload-pct" id="fwPct">0%</div>
 	</div>
 	<button class="btn btn-save" id="fwBtn" onclick="uploadFirmware()" style="margin-top:8px">上传固件</button>
+	<div class="field" style="margin-top:12px">
+		<label>SPIFFS 镜像 (.bin)</label>
+		<input type="file" id="spiffsFile" accept=".bin" style="font-size:12px;padding:8px">
+		<div style="font-size:11px;color:#999;margin-top:3px">上传 spiffs.bin 更新 Web 页面，设备不重启</div>
+	</div>
+	<div class="upload-progress" id="spiffsProgress">
+		<div class="upload-track"><div class="upload-fill" id="spiffsFill"></div></div>
+		<div class="upload-pct" id="spiffsPct">0%</div>
+	</div>
+	<button class="btn btn-save" id="spiffsBtn" onclick="uploadSpiffs()" style="margin-top:8px">上传 SPIFFS</button>
 	</div>
 </div>
 <div class="btn-row" style="margin:16px 0 24px">
@@ -901,6 +911,27 @@ function uploadFirmware(){
   }else{var m='上传失败 ('+xhr.status+')';try{var r=JSON.parse(xhr.responseText);if(r.error)m=r.error}catch(e){}showToast(m,'error');btn.disabled=false;btn.textContent='上传固件';prog.classList.remove('active')}
  };
  xhr.onerror=function(){showToast('网络错误','error');btn.disabled=false;btn.textContent='上传固件';prog.classList.remove('active')};
+ var fd=new FormData();fd.append('file',f);xhr.send(fd);
+}
+/* SPIFFS 上传 */
+function uploadSpiffs(){
+ var f=document.getElementById('spiffsFile').files[0];
+ if(!f){showToast('请选择 SPIFFS 镜像文件','error');return}
+ var btn=document.getElementById('spiffsBtn'),prog=document.getElementById('spiffsProgress');
+ var fill=document.getElementById('spiffsFill'),pct=document.getElementById('spiffsPct');
+ btn.disabled=true;btn.textContent='上传中...';
+ prog.classList.add('active');fill.style.width='0%';pct.textContent='0%';
+ var xhr=new XMLHttpRequest();
+ xhr.open('POST','/api/ota/spiffs',true);
+ xhr.setRequestHeader('X-Password',getStoredPassword()||'admin');
+ xhr.upload.onprogress=function(e){if(e.lengthComputable){var p=Math.round(e.loaded/e.total*100);fill.style.width=p+'%';pct.textContent=p+'% ('+Math.round(e.loaded/1024)+'/'+Math.round(e.total/1024)+' KB)'}};
+ xhr.onload=function(){
+  if(xhr.status>=200&&xhr.status<300){
+   showToast('SPIFFS 上传成功，重新加载页面...','success');
+   setTimeout(function(){location.reload(true)},1500);
+  }else{var m='上传失败 ('+xhr.status+')';try{var r=JSON.parse(xhr.responseText);if(r.error)m=r.error}catch(e){}showToast(m,'error');btn.disabled=false;btn.textContent='上传 SPIFFS';prog.classList.remove('active')}
+ };
+ xhr.onerror=function(){showToast('网络错误','error');btn.disabled=false;btn.textContent='上传 SPIFFS';prog.classList.remove('active')};
  var fd=new FormData();fd.append('file',f);xhr.send(fd);
 }
 
