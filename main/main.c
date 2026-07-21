@@ -321,6 +321,24 @@ static void health_monitor_task(void *arg)
         if (s_chip_temp > 70.0f) {
             ESP_LOGW(TAG, "WARNING: Chip temperature high (%.1f°C)", s_chip_temp);
         }
+
+        /* MJPEG zombie detection: if clients are stuck at MAX_STREAM_CLIENTS (2)
+         * for multiple consecutive cycles, connections are leaking (likely
+         * WiFi-disconnected browsers whose TCP FIN was lost).  Soft-reboot
+         * to recover the slots. */
+        static int mjpeg_stuck_count = 0;
+        int mjpeg_clients = mjpeg_streamer_client_count();
+        if (mjpeg_clients >= 2) {
+            mjpeg_stuck_count++;
+            ESP_LOGW(TAG, "MJPEG at max clients (%d) for %d cycles",
+                     mjpeg_clients, mjpeg_stuck_count);
+            if (mjpeg_stuck_count >= 5) {
+                ESP_LOGE(TAG, "MJPEG stuck at max clients for 5 min — rebooting");
+                esp_restart();
+            }
+        } else {
+            mjpeg_stuck_count = 0;
+        }
     }
 }
 

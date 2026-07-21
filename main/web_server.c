@@ -1665,15 +1665,15 @@ esp_err_t web_server_start(uint16_t port)
     config.max_uri_handlers = 27;   /* 25 static + 2 ONVIF (added 3 OTA endpoints) */
     config.stack_size = 16384;   /* 16KB: download handler has ~6KB locals + nested calls */
     config.uri_match_fn = httpd_uri_match_wildcard;
-    /* httpd caps max_open_sockets at LWIP_MAX_SOCKETS (10) minus 3 internal = 7.
-     * Was 4 (too tight: /api/audio long-poll + download + ws + browser saturate).
-     * 7 is the max allowed without bumping LWIP_MAX_SOCKETS in sdkconfig. */
-    config.max_open_sockets = 7;
+    /* LWIP_MAX_SOCKETS=14 minus 3 internal = 11 user sockets.
+     * With LRU purge (below), full-capacity situations auto-recycle
+     * the oldest idle connection instead of refusing new ones. */
+    config.max_open_sockets = 11;
     config.recv_wait_timeout = 10;
     config.send_wait_timeout = 5;    /* 弱链路下更快超时（原 10s） */
-    config.keep_alive_enable = false;
+    config.keep_alive_enable = false;   /* socket-level keepalive set in open_fn */
+    config.lru_purge_enable = true;     /* auto-close LRU session when full */
     config.open_fn = on_http_session_open;   /* TCP_NODELAY + keepalive per socket */
-    config.keep_alive_enable = false;
     esp_err_t ret = httpd_start(&s_server, &config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start web server: %s", esp_err_to_name(ret));
