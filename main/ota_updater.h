@@ -31,3 +31,10 @@ esp_err_t ota_updater_init(void);
  * @brief HTTP handler for POST /api/ota — parses {"url":"..."}, performs update.
  */
 esp_err_t api_ota_handler(httpd_req_t *req);
+
+/** @brief GET /api/ota/info — 固件版本和分区信息 */
+esp_err_t api_ota_info_handler(httpd_req_t *req);
+/** @brief POST /api/ota/upload — 流式上传固件二进制 */
+esp_err_t api_ota_upload_handler(httpd_req_t *req);
+/** @brief POST /api/ota/spiffs — 流式上传 SPIFFS 镜像 */
+esp_err_t api_ota_spiffs_handler(httpd_req_t *req);

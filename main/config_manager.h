@@ -25,8 +25,11 @@
 extern "C" {
 #endif
 
+#define CONFIG_CURRENT_VERSION 2
+
 /** @brief 摄像头全局配置结构体，持久化到 NVS 闪存 */
 typedef struct {
+    uint8_t schema_version;              /* 配置 schema 版本号，用于 NVS 迁移（首字段） */
     char wifi_ssid[33];
     // WiFi 路由器 SSID 名称
     char wifi_pass[64];
@@ -74,6 +77,9 @@ typedef struct {
     bool audio_record_to_sd;     // 是否录制音频到 SD 卡（默认 false，合并进视频音轨）
     bool sd_log_enabled;         // 是否启用 SD 卡日志（默认 false，/sdcard/logs/）
     uint8_t day_night_mode;   // 日夜模式：0=彩色, 1=黑白, 2=自动(预留)
+    uint8_t xclk_freq_mhz;              /* 摄像头 XCLK 频率 MHz，可选 10/16/20，默认 16 */
+    int8_t  wifi_roam_rssi_threshold;   /* WiFi 漫游 RSSI 阈值，默认 -75，0=禁用 */
+    uint8_t wifi_roam_rssi_gap;         /* 漫游切换信号差值，默认 10 dBm */
 } cam_config_t;
 
 /** @brief 初始化配置模块，从 NVS 加载配置，无存储则使用默认值 */

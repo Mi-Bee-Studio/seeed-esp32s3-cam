@@ -845,7 +845,7 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
                 s_last_drop_log_us = cycle_start_us;
             }
             {
-                int drop_delay_ms = tl_mode == 2 ? dynamic_interval_sec * 1000 : 1000 / fps;
+                int drop_delay_ms = tl_mode == 2 ? dynamic_interval_sec * 1000 : broker_frame_delay();
                 while (drop_delay_ms > 0 && s_state == RECORDER_RECORDING) {
                     int chunk_ms = (drop_delay_ms > 5000) ? 5000 : drop_delay_ms;
                     esp_task_wdt_reset();
@@ -953,7 +953,7 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
             } else if (timelapse) {
                 delay_ms = (cfg->timelapse_interval_sec > 0) ? cfg->timelapse_interval_sec * 1000 : 30000;
             } else {
-                delay_ms = 1000 / fps;
+                delay_ms = broker_frame_delay();
             }
             /* Sleep in 5-second chunks, feeding watchdog each iteration */
             while (delay_ms > 0 && s_state == RECORDER_RECORDING) {

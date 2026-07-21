@@ -33,3 +33,5 @@ httpd_handle_t web_server_get_handle(void);
 esp_err_t json_ok(httpd_req_t *req, cJSON *data);
 esp_err_t json_error(httpd_req_t *req, const char *msg, int status);
 char *read_body(httpd_req_t *req, size_t max_len);
+/** @brief 密码验证 wrapper（供 OTA handler 复用） */
+bool web_server_check_auth(httpd_req_t *req);

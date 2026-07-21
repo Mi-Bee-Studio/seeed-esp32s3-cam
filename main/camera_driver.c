@@ -23,6 +23,7 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "sensor.h"
+#include "config_manager.h"
 #include "freertos/timers.h"
 
 
@@ -124,7 +125,7 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
         .pin_href     = CAM_PIN_HREF,
         .pin_pclk     = CAM_PIN_PCLK,
 
-        .xclk_freq_hz = 16000000,
+        .xclk_freq_hz = (uint32_t)(config_get()->xclk_freq_mhz ? config_get()->xclk_freq_mhz : 16) * 1000000,
         .ledc_timer   = LEDC_TIMER_0,
         .ledc_channel = LEDC_CHANNEL_0,
 

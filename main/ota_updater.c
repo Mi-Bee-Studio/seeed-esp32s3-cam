@@ -149,3 +149,204 @@ esp_err_t ota_updater_init(void)
     ESP_LOGI(TAG, "OTA updater ready — firmware version: %s", FW_VERSION);
     return ESP_OK;
 }
+
+/* ===== T9a: OTA Upload + SPIFFS OTA + Info Endpoints ===== */
+#include "esp_partition.h"
+#include "esp_app_desc.h"
+
+/** @brief 停止系统外设，为 OTA 写入准备 */
+static void ota_quiesce_system(void)
+{
+    if (recorder_get_state() != RECORDER_IDLE) {
+        recorder_stop();
+        ESP_LOGI(TAG, "Recorder stopped for OTA");
+    }
+    vTaskDelay(pdMS_TO_TICKS(500));  /* 等待录像完全停止 */
+}
+
+/** @brief GET /api/ota/info — 返回固件版本和分区信息 */
+esp_err_t api_ota_info_handler(httpd_req_t *req)
+{
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    const esp_partition_t *next = esp_ota_get_next_update_partition(NULL);
+    const esp_app_desc_t *desc = esp_app_get_description();
+
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddStringToObject(data, "fw_version", FW_VERSION);
+    if (desc && desc->version[0]) {
+        cJSON_AddStringToObject(data, "app_version", desc->version);
+    }
+    cJSON_AddStringToObject(data, "running_partition", running ? running->label : "unknown");
+    cJSON_AddStringToObject(data, "next_partition", next ? next->label : "none");
+    cJSON_AddNumberToObject(data, "max_image_size", (double)(next ? next->size : 0));
+    cJSON_AddNumberToObject(data, "running_size", (double)(running ? running->size : 0));
+
+    return json_ok(req, data);
+}
+
+/** @brief POST /api/ota/upload — 流式上传固件二进制 */
+esp_err_t api_ota_upload_handler(httpd_req_t *req)
+{
+    if (!web_server_check_auth(req)) {
+        return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+    }
+
+    if (!xSemaphoreTake(s_ota_mutex, 0)) {
+        return json_error(req, "OTA already in progress", 429);
+    }
+
+    int content_len = req->content_len;
+    const esp_partition_t *update_part = esp_ota_get_next_update_partition(NULL);
+    if (!update_part) {
+        xSemaphoreGive(s_ota_mutex);
+        return json_error(req, "No OTA partition available", 500);
+    }
+
+    if (content_len <= 0 || (size_t)content_len > update_part->size) {
+        xSemaphoreGive(s_ota_mutex);
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Invalid size: %d (max %u)", content_len, (unsigned)update_part->size);
+        return json_error(req, msg, 400);
+    }
+
+    ESP_LOGI(TAG, "OTA upload: %d bytes to partition '%s'", content_len, update_part->label);
+    ota_quiesce_system();
+
+    esp_ota_handle_t update_handle = 0;
+    esp_err_t err = esp_ota_begin(update_part, OTA_WITH_SEQUENTIAL_WRITES, &update_handle);
+    if (err != ESP_OK) {
+        xSemaphoreGive(s_ota_mutex);
+        return json_error(req, "esp_ota_begin failed", 500);
+    }
+
+    char *buf = malloc(OTA_BUF_SIZE);
+    if (!buf) {
+        esp_ota_abort(update_handle);
+        xSemaphoreGive(s_ota_mutex);
+        return json_error(req, "Out of memory", 500);
+    }
+
+    int received = 0;
+    while (received < content_len) {
+        int to_recv = (content_len - received < OTA_BUF_SIZE) ? (content_len - received) : OTA_BUF_SIZE;
+        int ret = httpd_req_recv(req, buf, to_recv);
+        if (ret <= 0) {
+            if (ret == HTTPD_SOCK_ERR_TIMEOUT) continue;
+            free(buf);
+            esp_ota_abort(update_handle);
+            xSemaphoreGive(s_ota_mutex);
+            return json_error(req, "Connection lost during upload", 500);
+        }
+        err = esp_ota_write(update_handle, buf, ret);
+        if (err != ESP_OK) {
+            free(buf);
+            esp_ota_abort(update_handle);
+            xSemaphoreGive(s_ota_mutex);
+            char msg[128];
+            snprintf(msg, sizeof(msg), "esp_ota_write failed: %s", esp_err_to_name(err));
+            return json_error(req, msg, 500);
+        }
+        received += ret;
+    }
+    free(buf);
+
+    err = esp_ota_end(update_handle);
+    if (err != ESP_OK) {
+        xSemaphoreGive(s_ota_mutex);
+        char msg[128];
+        snprintf(msg, sizeof(msg), "esp_ota_end failed: %s", esp_err_to_name(err));
+        return json_error(req, msg, 500);
+    }
+
+    err = esp_ota_set_boot_partition(update_part);
+    if (err != ESP_OK) {
+        xSemaphoreGive(s_ota_mutex);
+        return json_error(req, "esp_ota_set_boot_partition failed", 500);
+    }
+
+    ESP_LOGI(TAG, "OTA upload complete (%d bytes), restarting...", received);
+    /* 发送成功响应后重启 */
+    httpd_resp_set_type(req, "application/json");
+    const char *resp = "{\"status\":\"ok\",\"msg\":\"Upload complete, restarting\"}";
+    httpd_resp_send(req, resp, strlen(resp));
+    xSemaphoreGive(s_ota_mutex);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    esp_restart();
+    return ESP_OK;
+}
+
+/** @brief POST /api/ota/spiffs — 流式上传 SPIFFS 镜像 */
+esp_err_t api_ota_spiffs_handler(httpd_req_t *req)
+{
+    if (!web_server_check_auth(req)) {
+        return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+    }
+
+    if (!xSemaphoreTake(s_ota_mutex, 0)) {
+        return json_error(req, "OTA already in progress", 429);
+    }
+
+    int content_len = req->content_len;
+    const esp_partition_t *spiffs_part = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, NULL);
+    if (!spiffs_part) {
+        xSemaphoreGive(s_ota_mutex);
+        return json_error(req, "No SPIFFS partition found", 500);
+    }
+
+    if (content_len <= 0 || (size_t)content_len > spiffs_part->size) {
+        xSemaphoreGive(s_ota_mutex);
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Invalid size: %d (max %u)", content_len, (unsigned)spiffs_part->size);
+        return json_error(req, msg, 400);
+    }
+
+    ESP_LOGI(TAG, "SPIFFS OTA: %d bytes to partition '%s'", content_len, spiffs_part->label);
+    ota_quiesce_system();
+
+    /* 全擦除 SPIFFS 分区 */
+    esp_err_t err = esp_partition_erase_range(spiffs_part, 0, spiffs_part->size);
+    if (err != ESP_OK) {
+        xSemaphoreGive(s_ota_mutex);
+        return json_error(req, "SPIFFS erase failed", 500);
+    }
+
+    char *buf = malloc(OTA_BUF_SIZE);
+    if (!buf) {
+        xSemaphoreGive(s_ota_mutex);
+        return json_error(req, "Out of memory", 500);
+    }
+
+    int received = 0;
+    uint32_t offset = 0;
+    while (received < content_len) {
+        int to_recv = (content_len - received < OTA_BUF_SIZE) ? (content_len - received) : OTA_BUF_SIZE;
+        int ret = httpd_req_recv(req, buf, to_recv);
+        if (ret <= 0) {
+            if (ret == HTTPD_SOCK_ERR_TIMEOUT) continue;
+            free(buf);
+            xSemaphoreGive(s_ota_mutex);
+            return json_error(req, "Connection lost during upload", 500);
+        }
+        err = esp_partition_write(spiffs_part, offset, buf, ret);
+        if (err != ESP_OK) {
+            free(buf);
+            xSemaphoreGive(s_ota_mutex);
+            char msg[128];
+            snprintf(msg, sizeof(msg), "esp_partition_write failed: %s", esp_err_to_name(err));
+            return json_error(req, msg, 500);
+        }
+        offset += ret;
+        received += ret;
+    }
+    free(buf);
+
+    ESP_LOGI(TAG, "SPIFFS OTA complete (%d bytes), restarting...", received);
+    httpd_resp_set_type(req, "application/json");
+    const char *resp = "{\"status\":\"ok\",\"msg\":\"SPIFFS update complete, restarting\"}";
+    httpd_resp_send(req, resp, strlen(resp));
+    xSemaphoreGive(s_ota_mutex);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    esp_restart();
+    return ESP_OK;
+}

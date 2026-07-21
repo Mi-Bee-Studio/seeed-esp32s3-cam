@@ -30,6 +30,8 @@ static const char *TAG = "config";
 
 static cam_config_t s_config;
 
+_Static_assert(sizeof(cam_config_t) < 2048, "cam_config_t too large for NVS blob");
+
 static SemaphoreHandle_t s_config_mutex = NULL;
 static const cam_config_t s_defaults = {
     .wifi_ssid      = "",
@@ -65,6 +67,10 @@ static const cam_config_t s_defaults = {
     .sd_log_enabled = false,
     .day_night_mode = 0,
     .web_password   = "admin",
+    .schema_version = CONFIG_CURRENT_VERSION,
+    .xclk_freq_mhz = 16,
+    .wifi_roam_rssi_threshold = -75,
+    .wifi_roam_rssi_gap = 10,
 };
 
 /* ---- internal helpers ---- */
@@ -359,10 +365,37 @@ esp_err_t config_init(void)
         s_config.day_night_mode = 0;
     }
 
+    /* Schema v2 新增字段 */
+    nvs_get_u8(h, "xclk_freq_mhz", &s_config.xclk_freq_mhz);
+    nvs_get_i8(h, "wifi_roam_rssi", &s_config.wifi_roam_rssi_threshold);
+    nvs_get_u8(h, "wifi_roam_gap", &s_config.wifi_roam_rssi_gap);
+    uint8_t stored_schema_version = 0;
+    nvs_get_u8(h, "schema_version", &stored_schema_version);
+
     /* Migration: web_password must not be empty (older firmware defaulted to "") */
     if (s_config.web_password[0] == '\0') {
         ESP_LOGI(TAG, "web_password empty, setting default 'admin'");
         strcpy(s_config.web_password, "admin");
+    }
+
+    /* ---- Schema v1→v2 迁移：旧固件没有这些字段，重置为默认值 ---- */
+    if (stored_schema_version < CONFIG_CURRENT_VERSION) {
+        ESP_LOGI(TAG, "Migrating config schema v%d→v%d", stored_schema_version, CONFIG_CURRENT_VERSION);
+        if (s_config.xclk_freq_mhz == 0 || s_config.xclk_freq_mhz > 20) s_config.xclk_freq_mhz = 16;
+        if (s_config.wifi_roam_rssi_threshold == 0) s_config.wifi_roam_rssi_threshold = -75;
+        if (s_config.wifi_roam_rssi_gap == 0) s_config.wifi_roam_rssi_gap = 10;
+        s_config.schema_version = CONFIG_CURRENT_VERSION;
+        /* 持久化迁移结果 */
+        nvs_handle_t h_m;
+        if (nvs_open("cam_config", NVS_READWRITE, &h_m) == ESP_OK) {
+            nvs_set_u8(h_m, "schema_version", CONFIG_CURRENT_VERSION);
+            nvs_set_u8(h_m, "xclk_freq_mhz", s_config.xclk_freq_mhz);
+            nvs_set_i8(h_m, "wifi_roam_rssi", s_config.wifi_roam_rssi_threshold);
+            nvs_set_u8(h_m, "wifi_roam_gap", s_config.wifi_roam_rssi_gap);
+            nvs_commit(h_m);
+            nvs_close(h_m);
+        }
+        ESP_LOGI(TAG, "Config migrated to schema v%d", CONFIG_CURRENT_VERSION);
     }
 
     /* ---- Legacy FTP config migration check ---- */
@@ -515,6 +548,10 @@ esp_err_t config_save(void)
     nvs_set_u8(h, "audio_record_to_sd", s_config.audio_record_to_sd ? 1 : 0);
     nvs_set_u8(h, "sd_log_enabled", s_config.sd_log_enabled ? 1 : 0);
     nvs_set_u8(h, "day_night", s_config.day_night_mode);
+    nvs_set_u8(h, "schema_version", s_config.schema_version);
+    nvs_set_u8(h, "xclk_freq_mhz", s_config.xclk_freq_mhz);
+    nvs_set_i8(h, "wifi_roam_rssi", s_config.wifi_roam_rssi_threshold);
+    nvs_set_u8(h, "wifi_roam_gap", s_config.wifi_roam_rssi_gap);
 
     err = nvs_commit(h);
     nvs_close(h);

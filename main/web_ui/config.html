@@ -73,6 +73,12 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 .accordion-content.collapsed{max-height:0;padding:0 14px}
 .accordion-indicator{transition:transform 0.3s;font-size:12px;color:#999}
 .accordion-content>.card{background:transparent;box-shadow:none;border-radius:0;padding:0;margin:0}
+.upload-progress{display:none;margin:10px 0}
+.upload-progress.active{display:block}
+.upload-track{width:100%;height:8px;background:#e0e0e0;border-radius:4px;overflow:hidden}
+.upload-fill{height:100%;background:#7C3AED;border-radius:4px;transition:width .3s;width:0%}
+.upload-pct{text-align:center;font-size:12px;color:#666;margin-top:4px}
+
 </style>
 </head>
 <body>
@@ -358,6 +364,14 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 	</select>
 </div>
 <div class="field">
+	<label>XCLK 频率</label>
+	<select id="xclk_freq_mhz">
+		<option value="10">10 MHz (兼容不稳定模块)</option>
+		<option value="16" selected>16 MHz (默认/EDMA)</option>
+		<option value="20">20 MHz (最大带宽)</option>
+	</select>
+</div>
+<div class="field">
 <label>设备名称</label>
 <input type="text" id="device_name" placeholder="MiBee Cam">
 </div>
@@ -427,6 +441,24 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
 配置加载后文件将被自动删除，适用于首次配置。</p>
 </div>
 </div>
+</div>
+<div class="accordion-section">
+	<div class="accordion-header" onclick="toggleSection(this)">
+		<span class="card-title">🔧 固件更新</span>
+		<span class="accordion-indicator">▶</span>
+	</div>
+	<div class="accordion-content collapsed">
+	<div class="field" style="margin-top:12px">
+		<label>固件文件 (.bin)</label>
+		<input type="file" id="fwFile" accept=".bin" style="font-size:12px;padding:8px">
+		<div style="font-size:11px;color:#999;margin-top:3px">选择 mibee_cam.bin 上传后自动重启</div>
+	</div>
+	<div class="upload-progress" id="fwProgress">
+		<div class="upload-track"><div class="upload-fill" id="fwFill"></div></div>
+		<div class="upload-pct" id="fwPct">0%</div>
+	</div>
+	<button class="btn btn-save" id="fwBtn" onclick="uploadFirmware()" style="margin-top:8px">上传固件</button>
+	</div>
 </div>
 <div class="btn-row" style="margin:16px 0 24px">
 <button class="btn btn-save" onclick="saveConfig()">保存配置</button>
@@ -566,6 +598,7 @@ function loadConfig(){
   $('vflip').checked=!!v.vflip;
   $('hmirror').checked=!!v.hmirror;
   $('day_night_mode').value=v.day_night_mode!=null?v.day_night_mode:0;
+  $('xclk_freq_mhz').value=v.xclk_freq_mhz||16;
   onUploadMethodChange();
   $('resolution').value=v.resolution!=null?v.resolution:1;
   /* If current resolution isn't in supported list, default to first option */
@@ -672,6 +705,7 @@ var interval = tlMode === 1 ? parseInt($('timelapseInterval').value) : 0;
   vflip:$('vflip').checked,
   hmirror:$('hmirror').checked,
   day_night_mode:parseInt($('day_night_mode').value),
+  xclk_freq_mhz:parseInt($('xclk_freq_mhz').value),
   timezone:$('timezone').value,
 timelapse_interval_sec: interval,
 timelapse_mode: tlMode,
@@ -821,6 +855,28 @@ function toggleSection(header){
 }
 
 window.onload=function(){loadSupportedResolutions(function(){loadConfig()});updateAuthUI()};
+/* 固件上传 */
+function uploadFirmware(){
+ var f=document.getElementById('fwFile').files[0];
+ if(!f){showToast('请选择固件文件','error');return}
+ var btn=document.getElementById('fwBtn'),prog=document.getElementById('fwProgress');
+ var fill=document.getElementById('fwFill'),pct=document.getElementById('fwPct');
+ btn.disabled=true;btn.textContent='上传中...';
+ prog.classList.add('active');fill.style.width='0%';pct.textContent='0%';
+ var xhr=new XMLHttpRequest();
+ xhr.open('POST','/api/ota/upload',true);
+ xhr.setRequestHeader('X-Password',getStoredPassword()||'admin');
+ xhr.upload.onprogress=function(e){if(e.lengthComputable){var p=Math.round(e.loaded/e.total*100);fill.style.width=p+'%';pct.textContent=p+'% ('+Math.round(e.loaded/1024)+'/'+Math.round(e.total/1024)+' KB)'}};
+ xhr.onload=function(){
+  if(xhr.status>=200&&xhr.status<300){
+   showToast('上传成功，设备重启中...','success');
+   var c=90,t=setInterval(function(){c--;if(c<=0){clearInterval(t);location.reload()}fetch('/api/status',{cache:'no-store'}).then(function(r){if(r.ok){clearInterval(t);location.reload()}}).catch(function(){})},1000);
+  }else{var m='上传失败 ('+xhr.status+')';try{var r=JSON.parse(xhr.responseText);if(r.error)m=r.error}catch(e){}showToast(m,'error');btn.disabled=false;btn.textContent='上传固件';prog.classList.remove('active')}
+ };
+ xhr.onerror=function(){showToast('网络错误','error');btn.disabled=false;btn.textContent='上传固件';prog.classList.remove('active')};
+ var fd=new FormData();fd.append('file',f);xhr.send(fd);
+}
+
 </script>
 </body>
 </html>
