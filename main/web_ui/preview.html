@@ -129,6 +129,12 @@ window.addEventListener('online',function(){
  updateNetDot(true);showToast('网络已恢复','success');
 });
 updateNetDot(navigator.onLine);
+/* 标签页切回时强制刷新 MJPEG 流，防止浏览器后台暂停渲染导致黑屏 */
+document.addEventListener('visibilitychange',function(){
+ if(document.visibilityState==='visible'&&img&&img.src){
+  img.src='http://'+location.hostname+':81/stream?t='+Date.now();
+ }
+});
 var img=document.getElementById('stream');
 var placeholder=document.getElementById('placeholder');
 var statusDot=document.getElementById('statusDot');
