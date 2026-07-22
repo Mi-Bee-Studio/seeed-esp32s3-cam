@@ -328,7 +328,7 @@ static void health_monitor_task(void *arg)
          * to recover the slots. */
         static int mjpeg_stuck_count = 0;
         int mjpeg_clients = mjpeg_streamer_client_count();
-        if (mjpeg_clients >= 2) {
+        if (mjpeg_clients >= 3) {
             mjpeg_stuck_count++;
             ESP_LOGW(TAG, "MJPEG at max clients (%d) for %d cycles",
                      mjpeg_clients, mjpeg_stuck_count);
