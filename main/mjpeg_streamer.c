@@ -50,7 +50,7 @@ static const char *TAG = "mjpeg";
 
 #define STREAM_PORT        81
 #define MJPEG_BOUNDARY     "frame"
-#define MAX_STREAM_CLIENTS 2
+#define MAX_STREAM_CLIENTS 3
 #define CHUNK_SIZE         8192
 #define LISTEN_BACKLOG     2
 #define CLIENT_TASK_STACK  4096
@@ -191,6 +191,18 @@ static void mjpeg_client_task(void *arg)
         TickType_t cycle_start = xTaskGetTickCount();
         fps = config_get()->fps;
         TickType_t target_ticks = (fps > 0) ? pdMS_TO_TICKS(1000 / fps) : pdMS_TO_TICKS(100);
+
+
+        /* Dead-client probe: non-blocking recv detects TCP FIN/RST immediately.
+         * On a healthy one-way MJPEG stream, recv returns -1/EAGAIN (no data from
+         * client, which is expected). On a dead connection it returns 0 (FIN) or
+         * -1/ECONNRESET (RST), and we exit the stream loop to free the slot. */
+        char probe;
+        int pr = recv(client_sock, &probe, 1, MSG_DONTWAIT);
+        if (pr == 0 || (pr < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
+            ESP_LOGW(TAG, "Client disconnected (probe rv=%d errno=%d)", pr, errno);
+            break;
+        }
 
         /* Receive frame from broadcaster (up to 3s timeout) */
         frame_msg_t fmsg;
