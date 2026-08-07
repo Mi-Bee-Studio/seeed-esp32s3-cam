@@ -76,6 +76,8 @@
 #include "sd_log.h"
 #include "rtsp_server.h"
 #include "driver/temperature_sensor.h"
+#include "lwip/sockets.h"
+#include "lwip/inet.h"
 
 static const char *TAG = "main";
 
@@ -257,6 +259,57 @@ static void sd_monitor_task(void *arg)
     }
 }
 
+/* ------------------------------------------------------------------ */
+/*  httpd port-80 health probe (issue #1 self-heal)                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @brief Probe the local httpd on port 80 with a real HTTP request.
+ *
+ * A plain TCP connect is NOT enough: when httpd workers are all stuck on
+ * slow handlers (e.g. ONVIF processing) or sockets are exhausted, LWIP
+ * still accepts the connection at the TCP layer but the app layer never
+ * responds — the exact "pingable but ONVIF-dead" symptom of issue #1.
+ *
+ * This sends a minimal HTTP/1.0 GET to /status and checks for any response
+ * bytes, which requires an httpd worker to actually process the request.
+ *
+ * @return true if httpd responded with any bytes, false on any failure.
+ */
+static bool probe_httpd_port80(void)
+{
+    int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock < 0) {
+        return false;
+    }
+
+    /* 3s timeout — well under the 60s health cycle. */
+    struct timeval tv = { .tv_sec = 3, .tv_usec = 0 };
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    struct sockaddr_in dest = {
+        .sin_family = AF_INET,
+        .sin_port = htons(80),
+        .sin_addr.s_addr = htonl(INADDR_LOOPBACK),
+    };
+
+    bool ok = false;
+    if (connect(sock, (struct sockaddr *)&dest, sizeof(dest)) == 0) {
+        static const char req[] =
+            "GET /status HTTP/1.0\r\n"
+            "Host: 127.0.0.1\r\n"
+            "Connection: close\r\n\r\n";
+        if (send(sock, req, sizeof(req) - 1, 0) > 0) {
+            char buf[32];
+            int n = recv(sock, buf, sizeof(buf), 0);
+            ok = (n > 0);  /* any HTTP response bytes = httpd worker is alive */
+        }
+    }
+    close(sock);
+    return ok;
+}
+
 /**
  * @brief 系统健康状态监控任务
  *
@@ -338,6 +391,22 @@ static void health_monitor_task(void *arg)
             }
         } else {
             mjpeg_stuck_count = 0;
+        }
+
+        /* httpd port-80 self-heal (issue #1): symmetric with the MJPEG check.
+         * If the HTTP/ONVIF server stops responding to a local probe for
+         * multiple consecutive cycles (workers stuck / sockets exhausted),
+         * reboot to recover. 5 cycles * 60s = 5 min of unresponsiveness. */
+        static int httpd_stuck_count = 0;
+        if (!probe_httpd_port80()) {
+            httpd_stuck_count++;
+            ESP_LOGW(TAG, "httpd :80 probe failed for %d cycles", httpd_stuck_count);
+            if (httpd_stuck_count >= 5) {
+                ESP_LOGE(TAG, "httpd :80 unresponsive for 5 cycles — rebooting");
+                esp_restart();
+            }
+        } else {
+            httpd_stuck_count = 0;
         }
     }
 }
