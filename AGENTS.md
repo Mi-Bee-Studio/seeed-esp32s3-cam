@@ -62,6 +62,68 @@ MiBee Cam — ESP-IDF firmware that turns a XIAO ESP32-S3 Sense into a surveilla
 | SD logging | `main/sd_log.c` | Event log to /sdcard/logs/, 512KB rotation |
 | SD writer task | `main/video_recorder.c` | Async SD I/O task on Core 1, drains write queue from recorder, performs write_avi_frame + audio mux |
 
+## REST API Endpoints
+
+All business endpoints use the `/api/` prefix. Returns JSON envelope `{"ok":true,"data":...}` on success, `{"ok":false,"error":"..."}` on failure.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/status` | open | Device status (WiFi, camera, system, storage) |
+| GET | `/api/config` | open | Current configuration (passwords masked) |
+| POST | `/api/config` | write | Partial config update; first-time password setup when `web_password` is empty |
+| GET | `/api/camera` | open | Camera sensor settings |
+| POST | `/api/camera` | write | Update camera settings (framesize/quality may reinit) |
+| GET | `/api/capabilities` | open | Board capability flags (12 booleans) |
+| GET | `/api/capture` | open | Single JPEG snapshot (`image/jpeg`, not JSON) |
+| GET | `/api/scan` | open | WiFi AP scan |
+| POST | `/api/time` | write | Manually set system time |
+| POST | `/api/record` | write | Start/stop recording (`?action=start|stop`) |
+| GET | `/api/record` | open | Recording status |
+| GET | `/api/files` | open | List SD files |
+| DELETE | `/api/files` | write | Delete a file (`?name=...`) |
+| GET | `/api/download` | open | Download file (`?name=...&type=photo|recording`) |
+| POST | `/api/format` | write | Format SD card |
+| GET | `/api/ota/info` | open | OTA status/info |
+| POST | `/api/ota/upload` | write | Upload firmware binary |
+| POST | `/api/ota/spiffs` | write | Upload SPIFFS image |
+| GET | `/api/led` | open | Flash LED state |
+| OPTIONS | `/*` | — | CORS preflight (204 No Content) |
+
+**Auth:** `X-Password` header for write operations. When `web_password` is empty (first boot), all writes return 401 `SET_PASSWORD_FIRST` except `POST /api/config` with a `web_password` field (first-time setup).
+
+**MJPEG stream:** Separate TCP server on port `:81` (independent of main web server on port 80).
+
+**Exempt paths:** `/metrics` (Prometheus), `/ws` (WebSocket), `/onvif/*` (SOAP), `/api/audio` (audio stream) are not under the unified business API surface.
+
+## Web UI
+
+Single-page application served from SPIFFS. Four files:
+- `index.html` — page structure
+- `app.js` — logic and API calls
+- `style.css` — light/dark theme styles
+- `i18n.js` — zh/en bilingual translations (auto-detect, persisted in localStorage)
+
+Controls are shown or hidden based on `GET /api/capabilities`. The SPA baseline originates from `esp32s3-n16r8-cam` and is ported to all boards.
+
+## Capabilities
+
+This board returns the following from `GET /api/capabilities`:
+
+| Capability | Supported |
+|------------|-----------|
+| ai | ❌ |
+| sd | ✅ |
+| audio | ✅ |
+| ota | ✅ |
+| mic | ✅ |
+| flash_led | ❌ |
+| recording | ✅ |
+| timelapse | ❌ |
+| onvif | ✅ |
+| rtsp | ✅ |
+| websocket | ✅ |
+| mdns | ✅ |
+
 ## BUILD
 
 ```bash
