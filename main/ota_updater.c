@@ -84,6 +84,15 @@ static esp_err_t ota_do_update(const char *url)
 
 esp_err_t api_ota_handler(httpd_req_t *req)
 {
+    esp_err_t auth_err = web_server_check_auth(req);
+    if (auth_err != ESP_OK) {
+        return auth_err;
+    }
+    
+    if (!xSemaphoreTake(s_ota_mutex, 0)) {
+        return json_error_status(req, "OTA already in progress", "429 Too Many Requests");
+    }
+{
     if (!xSemaphoreTake(s_ota_mutex, 0)) {
         return json_error_status(req, "OTA already in progress", "429 Too Many Requests");
     }
@@ -186,8 +195,9 @@ esp_err_t api_ota_info_handler(httpd_req_t *req)
 /** @brief POST /api/ota/upload — 流式上传固件二进制 */
 esp_err_t api_ota_upload_handler(httpd_req_t *req)
 {
-    if (!web_server_check_auth(req)) {
-        return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+    esp_err_t auth_err = web_server_check_auth(req);
+    if (auth_err != ESP_OK) {
+        return auth_err;
     }
 
     if (!xSemaphoreTake(s_ota_mutex, 0)) {
@@ -277,8 +287,9 @@ esp_err_t api_ota_upload_handler(httpd_req_t *req)
 /** @brief POST /api/ota/spiffs — 流式上传 SPIFFS 镜像 */
 esp_err_t api_ota_spiffs_handler(httpd_req_t *req)
 {
-    if (!web_server_check_auth(req)) {
-        return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+    esp_err_t auth_err = web_server_check_auth(req);
+    if (auth_err != ESP_OK) {
+        return auth_err;
     }
 
     if (!xSemaphoreTake(s_ota_mutex, 0)) {
