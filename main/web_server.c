@@ -345,12 +345,12 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddStringToObject(data, "webdav_url", cfg->webdav_url);
     cJSON_AddStringToObject(data, "webdav_user", cfg->webdav_user);
 
-    cJSON_AddNumberToObject(data, "resolution", cfg->cam_framesize);
+    cJSON_AddNumberToObject(data, "cam_framesize", cfg->cam_framesize);
     cJSON_AddNumberToObject(data, "fps", cfg->fps);
     cJSON_AddNumberToObject(data, "segment_sec", cfg->segment_sec);
-    cJSON_AddNumberToObject(data, "jpeg_quality", cfg->cam_quality);
-    cJSON_AddBoolToObject(data, "vflip", cfg->cam_vflip);
-    cJSON_AddBoolToObject(data, "hmirror", cfg->cam_hmirror);
+    cJSON_AddNumberToObject(data, "cam_quality", cfg->cam_quality);
+    cJSON_AddBoolToObject(data, "cam_vflip", cfg->cam_vflip);
+    cJSON_AddBoolToObject(data, "cam_hmirror", cfg->cam_hmirror);
     cJSON_AddNumberToObject(data, "day_night_mode", cfg->day_night_mode);
 
     /* Mask web password */
@@ -408,31 +408,31 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
 
     config_lock();
 
-    if ((item = cJSON_GetObjectItem(json, "wifi_ssid"))) {
+    if ((item = cJSON_GetObjectItem(json, "wifi_ssid")) && cJSON_IsString(item)) {
         strncpy(cfg->wifi_ssid, item->valuestring, sizeof(cfg->wifi_ssid) - 1);
         cfg->wifi_ssid[sizeof(cfg->wifi_ssid) - 1] = '\0';
     }
-    if ((item = cJSON_GetObjectItem(json, "wifi_pass")) && strcmp(item->valuestring, "****") != 0) {
+    if ((item = cJSON_GetObjectItem(json, "wifi_pass")) && cJSON_IsString(item) && strcmp(item->valuestring, "****") != 0) {
         strncpy(cfg->wifi_pass, item->valuestring, sizeof(cfg->wifi_pass) - 1);
         cfg->wifi_pass[sizeof(cfg->wifi_pass) - 1] = '\0';
     }
-    if ((item = cJSON_GetObjectItem(json, "wifi_ssid_2"))) {
+    if ((item = cJSON_GetObjectItem(json, "wifi_ssid_2")) && cJSON_IsString(item)) {
         strncpy(cfg->wifi_ssid_2, item->valuestring, sizeof(cfg->wifi_ssid_2) - 1);
         cfg->wifi_ssid_2[sizeof(cfg->wifi_ssid_2) - 1] = '\0';
     }
-    if ((item = cJSON_GetObjectItem(json, "wifi_pass_2")) && strcmp(item->valuestring, "****") != 0) {
+    if ((item = cJSON_GetObjectItem(json, "wifi_pass_2")) && cJSON_IsString(item) && strcmp(item->valuestring, "****") != 0) {
         strncpy(cfg->wifi_pass_2, item->valuestring, sizeof(cfg->wifi_pass_2) - 1);
         cfg->wifi_pass_2[sizeof(cfg->wifi_pass_2) - 1] = '\0';
     }
     if ((item = cJSON_GetObjectItem(json, "allow_ap_fallback"))) {
         cfg->allow_ap_fallback = item->valueint != 0;
     }
-    if ((item = cJSON_GetObjectItem(json, "device_name"))) {
+    if ((item = cJSON_GetObjectItem(json, "device_name")) && cJSON_IsString(item)) {
         strncpy(cfg->device_name, item->valuestring, sizeof(cfg->device_name) - 1);
         cfg->device_name[sizeof(cfg->device_name) - 1] = '\0';
     }
 
-    if ((item = cJSON_GetObjectItem(json, "upload_base_path"))) {
+    if ((item = cJSON_GetObjectItem(json, "upload_base_path")) && cJSON_IsString(item)) {
         if (strstr(item->valuestring, "..") != NULL) {
             cJSON_Delete(json);
             config_unlock();
@@ -443,21 +443,21 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     }
     if ((item = cJSON_GetObjectItem(json, "webdav_enabled")))
         cfg->webdav_enabled = item->valueint;
-    if ((item = cJSON_GetObjectItem(json, "webdav_url"))) {
+    if ((item = cJSON_GetObjectItem(json, "webdav_url")) && cJSON_IsString(item)) {
         strncpy(cfg->webdav_url, item->valuestring, sizeof(cfg->webdav_url) - 1);
         cfg->webdav_url[sizeof(cfg->webdav_url) - 1] = '\0';
     }
-    if ((item = cJSON_GetObjectItem(json, "webdav_user"))) {
+    if ((item = cJSON_GetObjectItem(json, "webdav_user")) && cJSON_IsString(item)) {
         strncpy(cfg->webdav_user, item->valuestring, sizeof(cfg->webdav_user) - 1);
         cfg->webdav_user[sizeof(cfg->webdav_user) - 1] = '\0';
     }
-    if ((item = cJSON_GetObjectItem(json, "webdav_pass")) && strcmp(item->valuestring, "****") != 0) {
+    if ((item = cJSON_GetObjectItem(json, "webdav_pass")) && cJSON_IsString(item) && strcmp(item->valuestring, "****") != 0) {
         strncpy(cfg->webdav_pass, item->valuestring, sizeof(cfg->webdav_pass) - 1);
         cfg->webdav_pass[sizeof(cfg->webdav_pass) - 1] = '\0';
     }
 
     uint8_t prev_resolution = cfg->cam_framesize;
-    if ((item = cJSON_GetObjectItem(json, "resolution"))) {
+    if ((item = cJSON_GetObjectItem(json, "cam_framesize"))) {
         int val = item->valueint;
         if (!validate_uint_range(val, 0, 7)) {
             cJSON_Delete(json);
@@ -484,7 +484,7 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         }
         cfg->segment_sec = (uint16_t)val;
     }
-    if ((item = cJSON_GetObjectItem(json, "jpeg_quality"))) {
+    if ((item = cJSON_GetObjectItem(json, "cam_quality"))) {
         int val = item->valueint;
         if (!validate_uint_range(val, 1, 63)) {
             cJSON_Delete(json);
@@ -493,9 +493,9 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         }
         cfg->cam_quality = (uint8_t)val;
     }
-    if ((item = cJSON_GetObjectItem(json, "vflip")))
+    if ((item = cJSON_GetObjectItem(json, "cam_vflip")))
         cfg->cam_vflip = item->valueint;
-    if ((item = cJSON_GetObjectItem(json, "hmirror")))
+    if ((item = cJSON_GetObjectItem(json, "cam_hmirror")))
         cfg->cam_hmirror = item->valueint;
     if ((item = cJSON_GetObjectItem(json, "day_night_mode"))) {
         int val = item->valueint;
@@ -537,11 +537,11 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     /* Apply camera flip/mirror immediately */
     camera_set_flip(cfg->cam_vflip, cfg->cam_hmirror);
     camera_set_day_night(cfg->day_night_mode);
-    if ((item = cJSON_GetObjectItem(json, "web_password")) && strcmp(item->valuestring, "****") != 0) {
+    if ((item = cJSON_GetObjectItem(json, "web_password")) && cJSON_IsString(item) && strcmp(item->valuestring, "****") != 0) {
         strncpy(cfg->web_password, item->valuestring, sizeof(cfg->web_password) - 1);
         cfg->web_password[sizeof(cfg->web_password) - 1] = '\0';
     }
-    if ((item = cJSON_GetObjectItem(json, "timezone"))) {
+    if ((item = cJSON_GetObjectItem(json, "timezone")) && cJSON_IsString(item)) {
         size_t len = strlen(item->valuestring);
         if (len == 0 || len > 64) {
             cJSON_Delete(json);
@@ -619,7 +619,7 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         }
         cfg->motion_idle_interval_sec = (uint8_t)val;
     }
-    if ((item = cJSON_GetObjectItem(json, "alert_webhook_url"))) {
+    if ((item = cJSON_GetObjectItem(json, "alert_webhook_url")) && cJSON_IsString(item)) {
         size_t len = strlen(item->valuestring);
         if (len < sizeof(cfg->alert_webhook_url)) {
             strncpy(cfg->alert_webhook_url, item->valuestring, sizeof(cfg->alert_webhook_url) - 1);
@@ -1233,46 +1233,6 @@ static esp_err_t static_file_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-/* ---- Setup wizard ---- */
-/** @brief 提供首次配置向导页面 (GET /setup) */
-static esp_err_t setup_handler(httpd_req_t *req)
-{
-    FILE *f = fopen("/spiffs/setup.html", "r");
-    if (!f) {
-        httpd_resp_send_404(req);
-        return ESP_FAIL;
-    }
-    httpd_resp_set_type(req, "text/html");
-    set_cors_headers(req);
-    char buf[4096];
-    size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
-        httpd_resp_send_chunk(req, buf, n);
-    }
-    fclose(f);
-    httpd_resp_send_chunk(req, NULL, 0);
-    return ESP_OK;
-}
-
-/** @brief 提供OTA更新页面 (GET /ota) */
-static esp_err_t ota_page_handler(httpd_req_t *req)
-{
-    FILE *f = fopen("/spiffs/ota.html", "r");
-    if (!f) {
-        httpd_resp_send_404(req);
-        return ESP_FAIL;
-    }
-    httpd_resp_set_type(req, "text/html");
-    set_cors_headers(req);
-    char buf[4096];
-    size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
-        httpd_resp_send_chunk(req, buf, n);
-    }
-    fclose(f);
-    httpd_resp_send_chunk(req, NULL, 0);
-    return ESP_OK;
-}
 /** @brief 标记首次配置已完成 (POST /api/setup/done) */
 static esp_err_t api_setup_done_handler(httpd_req_t *req)
 {
@@ -1663,8 +1623,6 @@ typedef struct {
 static const uri_entry_t s_uris[] = {
     { "/api/status",   HTTP_GET,    api_status_handler        },
     { "/api/capabilities", HTTP_GET,    api_capabilities_handler },
-    { "/setup",        HTTP_GET,    setup_handler            },
-    { "/ota",         HTTP_GET,    ota_page_handler          },
     { "/api/config",   HTTP_POST,   api_config_post_handler   },
     { "/api/setup/done", HTTP_POST,   api_setup_done_handler   },
     { "/api/files",    HTTP_GET,    api_files_get_handler     },
@@ -1721,7 +1679,7 @@ esp_err_t web_server_start(uint16_t port)
     }
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 27;   /* 25 static + 2 ONVIF (added 3 OTA endpoints) */
+    config.max_uri_handlers = 25;   /* 23 static + 2 ONVIF (added 3 OTA endpoints) */
     config.stack_size = 16384;   /* 16KB: download handler has ~6KB locals + nested calls */
     config.uri_match_fn = httpd_uri_match_wildcard;
     /* LWIP_MAX_SOCKETS=14 minus 3 internal = 11 user sockets.

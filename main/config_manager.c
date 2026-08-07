@@ -375,6 +375,10 @@ static void migrate_cam_fields(void)
 /** @brief 初始化配置模块，初始化 NVS 并加载存储的配置，无存储则使用默认值 */
 esp_err_t config_init(void)
 {
+    static bool s_config_initialized = false;
+    if (s_config_initialized) {
+        return ESP_OK;
+    }
     // Initialize NVS
     esp_err_t err = nvs_flash_init();
 
@@ -406,6 +410,8 @@ esp_err_t config_init(void)
     err = nvs_open("cam_config", NVS_READONLY, &h);
     if (err != ESP_OK) {
         ESP_LOGI(TAG, "No stored config, using defaults");
+        s_config_initialized = true;
+        return ESP_OK;  // defaults are already applied
         return ESP_OK;  // defaults are already applied
     }
 
@@ -506,6 +512,7 @@ esp_err_t config_init(void)
             nvs_commit(h_m);
             nvs_close(h_m);
         }
+        s_config_initialized = true;
         ESP_LOGI(TAG, "Migration complete: webdav_enabled=%d", s_config.webdav_enabled);
         return ESP_OK;
     }
@@ -513,6 +520,7 @@ esp_err_t config_init(void)
     /* Apply optimal timelapse parameters after loading */
     config_apply_optimal(&s_config);
 
+    s_config_initialized = true;
     ESP_LOGI(TAG, "Config loaded from NVS");
     return ESP_OK;
 }
