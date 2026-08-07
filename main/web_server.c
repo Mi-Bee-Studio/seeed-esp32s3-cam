@@ -60,40 +60,66 @@ static uint16_t s_port = 0;
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-/** @brief 验证请求中的密码，先检查X-Password头部，再检查password查询参数 */
+
+/** @brief 验证请求中的密码，仅检查X-Password头部（移除了?password=查询参数回退） */
 static bool check_password(httpd_req_t *req)
 {
-    /* Try X-Password header first */
+    /* Only check X-Password header */
     char password[64] = {0};
     if (httpd_req_get_hdr_value_str(req, "X-Password", password, sizeof(password)) == ESP_OK) {
         cam_config_t *cfg = config_get();
         if (strcmp(password, cfg->web_password) == 0) return true;
     }
-
-    /* Try query parameter */
-    char query[128] = {0};
-    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
-        char val[64] = {0};
-        if (httpd_query_key_value(query, "password", val, sizeof(val)) == ESP_OK) {
-            cam_config_t *cfg = config_get();
-            if (strcmp(val, cfg->web_password) == 0) return true;
-        }
-    }
-
     return false;
 }
 
-/* 公开 wrapper，供 ota_updater.c 复用 */
-bool web_server_check_auth(httpd_req_t *req) {
-    return check_password(req);
+/* 公开 wrapper，供 ota_updater.c 复用 - 返回 esp_err_t 以处理 SET_PASSWORD_FIRST 状态 */
+esp_err_t web_server_check_auth(httpd_req_t *req) {
+    cam_config_t *cfg = config_get();
+    
+    /* State A: web_password is empty - return SET_PASSWORD_FIRST for all write ops */
+    if (cfg->web_password[0] == '\0') {
+        return json_error(req, "SET_PASSWORD_FIRST", HTTPD_401_UNAUTHORIZED);
+    }
+    
+    /* State B: web_password is set - require X-Password header */
+    if (!check_password(req)) {
+        return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+    }
+    
+    return ESP_OK;
 }
-
 /** @brief 设置跨域资源共享(CORS)响应头，允许所有来源访问 */
 static void set_cors_headers(httpd_req_t *req)
 {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type, X-Password");
+    httpd_resp_set_hdr(req, "Access-Control-Max-Age", "86400");
+
+/** @brief 检查认证状态，返回错误如果未授权或需要先设置密码 */
+static esp_err_t require_auth(httpd_req_t *req, bool is_config_endpoint)
+{
+    cam_config_t *cfg = config_get();
+    
+    /* State A: web_password is empty - only allow POST /api/config with web_password field */
+    if (cfg->web_password[0] == '\0') {
+        if (is_config_endpoint) {
+            /* This is a first-time password setup - allow it */
+            return ESP_OK;
+        }
+        /* All other write operations blocked until password is set */
+        return json_error(req, "SET_PASSWORD_FIRST", HTTPD_401_UNAUTHORIZED);
+    }
+    
+    /* State B: web_password is set - require X-Password header */
+    if (!check_password(req)) {
+        return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+    }
+    
+    return ESP_OK;
+}
+
 }
 
 /** @brief 发送JSON成功响应，格式为 {"ok":true,"data":...} */
@@ -272,6 +298,33 @@ static esp_err_t api_status_handler(httpd_req_t *req)
 }
 
 /* ------------------------------------------------------------------ */
+/*  GET /api/capabilities                                             */
+/* ------------------------------------------------------------------ */
+
+/** @brief 处理GET /api/capabilities请求，返回设备功能能力标志 */
+static esp_err_t api_capabilities_handler(httpd_req_t *req)
+{
+    cJSON *data = cJSON_CreateObject();
+    
+    /* See esp32-unified-api.md §5 for capability matrix */
+    cJSON_AddBoolToObject(data, "ai", false);           /* On-device AI detection */
+    cJSON_AddBoolToObject(data, "sd", storage_is_available());  /* SD card storage */
+    cJSON_AddBoolToObject(data, "audio", true);         /* Audio streaming/recording */
+    cJSON_AddBoolToObject(data, "ota", true);           /* Over-the-air firmware update */
+    cJSON_AddBoolToObject(data, "mic", true);           /* Microphone present */
+    cJSON_AddBoolToObject(data, "flash_led", false);   /* Flash LED controllable */
+    cJSON_AddBoolToObject(data, "recording", true);    /* Video recording to storage */
+    cJSON_AddBoolToObject(data, "timelapse", false);    /* Timelapse capture */
+    cJSON_AddBoolToObject(data, "onvif", true);        /* ONVIF SOAP service */
+    cJSON_AddBoolToObject(data, "rtsp", true);         /* RTSP server */
+    cJSON_AddBoolToObject(data, "websocket", true);    /* WebSocket push */
+    cJSON_AddBoolToObject(data, "mdns", true);         /* mDNS hostname advertisement */
+    
+    return json_ok(req, data);
+}
+
+
+/* ------------------------------------------------------------------ */
 /*  GET /api/config                                                    */
 /* ------------------------------------------------------------------ */
 
@@ -341,7 +394,8 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     {
         return (val >= min && val <= max);
     }
-    if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+    esp_err_t auth_err = require_auth(req, true);  /* true = is_config_endpoint for SET_PASSWORD_FIRST handling */
+    if (auth_err != ESP_OK) return auth_err;
 
     char *body = read_body(req, 2048);
     if (!body) return json_error(req, "Empty or too large body", HTTPD_400_BAD_REQUEST);
@@ -647,7 +701,8 @@ static esp_err_t api_files_get_handler(httpd_req_t *req)
 /** @brief 处理DELETE /api/files请求，删除指定录像文件（含路径遍历攻击防护） */
 static esp_err_t api_files_delete_handler(httpd_req_t *req)
 {
-    if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+    esp_err_t auth_err = require_auth(req, false);
+    if (auth_err != ESP_OK) return auth_err;
 
     char query[256] = {0};
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK)
@@ -678,7 +733,8 @@ static esp_err_t api_files_delete_handler(httpd_req_t *req)
 /** @brief Batch delete multiple recording files */
 static esp_err_t api_files_batch_handler(httpd_req_t *req)
 {
-    if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+    esp_err_t auth_err = require_auth(req, false);
+    if (auth_err != ESP_OK) return auth_err;
 
     int content_len = req->content_len;
     if (content_len <= 0 || content_len > 8192) {
@@ -960,7 +1016,8 @@ static esp_err_t api_scan_handler(httpd_req_t *req)
 /** @brief 处理POST /api/time请求，手动设置系统时间（需密码认证） */
 static esp_err_t api_time_handler(httpd_req_t *req)
 {
-    if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+    esp_err_t auth_err = require_auth(req, false);
+    if (auth_err != ESP_OK) return auth_err;
 
     char *body = read_body(req, 512);
     if (!body) return json_error(req, "Empty body", HTTPD_400_BAD_REQUEST);
@@ -1000,7 +1057,8 @@ static esp_err_t api_time_handler(httpd_req_t *req)
 /** @brief 处理POST /api/record请求，通过action参数控制录像开始或停止（需密码认证） */
 static esp_err_t api_record_handler(httpd_req_t *req)
 {
-    if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+    esp_err_t auth_err = require_auth(req, false);
+    if (auth_err != ESP_OK) return auth_err;
 
     char query[64] = {0};
     char action[16] = {0};
@@ -1039,7 +1097,8 @@ static esp_err_t api_record_handler(httpd_req_t *req)
 /** @brief 处理POST /api/reset请求，执行恢复出厂设置（需密码认证，会清空所有配置） */
 static esp_err_t api_reset_handler(httpd_req_t *req)
 {
-    if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+    esp_err_t auth_err = require_auth(req, false);
+    if (auth_err != ESP_OK) return auth_err;
 
     ESP_LOGW(TAG, "Factory reset requested via web API");
     config_reset();
@@ -1056,7 +1115,8 @@ static esp_err_t api_reset_handler(httpd_req_t *req)
 /** @brief 处理POST /api/format请求，格式化SD卡（需密码认证，会擦除所有数据） */
 static esp_err_t api_format_handler(httpd_req_t *req)
 {
-    if (!check_password(req)) return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+    esp_err_t auth_err = require_auth(req, false);
+    if (auth_err != ESP_OK) return auth_err;
 
     /* Stop recording if active */
     bool was_recording = (recorder_get_state() == RECORDER_RECORDING ||
@@ -1603,7 +1663,7 @@ typedef struct {
 
 static const uri_entry_t s_uris[] = {
     { "/api/status",   HTTP_GET,    api_status_handler        },
-    { "/api/config",   HTTP_GET,    api_config_get_handler    },
+    { "/api/capabilities", HTTP_GET,    api_capabilities_handler },
     { "/setup",        HTTP_GET,    setup_handler            },
     { "/ota",         HTTP_GET,    ota_page_handler          },
     { "/api/config",   HTTP_POST,   api_config_post_handler   },

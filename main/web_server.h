@@ -34,5 +34,5 @@ esp_err_t json_ok(httpd_req_t *req, cJSON *data);
 esp_err_t json_error(httpd_req_t *req, const char *msg, int status);
 esp_err_t json_error_status(httpd_req_t *req, const char *msg, const char *status_line);
 char *read_body(httpd_req_t *req, size_t max_len);
-/** @brief 密码验证 wrapper（供 OTA handler 复用） */
-bool web_server_check_auth(httpd_req_t *req);
+/** @brief 密码验证 wrapper（供 OTA handler 复用）- 处理 SET_PASSWORD_FIRST 状态 */
+esp_err_t web_server_check_auth(httpd_req_t *req);
