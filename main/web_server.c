@@ -21,6 +21,7 @@
 #include "cJSON.h"
 #include "config_manager.h"
 #include "wifi_manager.h"
+#include "device_id.h"
 #include "storage_manager.h"
 #include "time_sync.h"
 #include "camera_driver.h"
@@ -1306,9 +1307,9 @@ static esp_err_t metrics_handler(httpd_req_t *req)
     cam_config_t *cfg = config_get();
     const char *nodename = cfg->device_name[0] ? cfg->device_name : "mibee_cam";
 
-    /* === MAC address === */
+    /* === MAC address === (factory eFuse MAC, stable & WiFi-independent) */
     uint8_t mac[6] = {0};
-    esp_wifi_get_mac(WIFI_IF_STA, mac);
+    device_get_mac(mac);
 
     /* === Time === */
     time_t now = time(NULL);
