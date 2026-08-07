@@ -20,7 +20,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
-
+#include "cJSON.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -47,16 +47,20 @@ typedef struct {
     char webdav_user[32];
     // WebDAV 登录用户名
     char webdav_pass[32];
-    uint8_t resolution;    // 0=VGA, 1=SVGA, 2=XGA
+    uint8_t cam_framesize;  // 0=VGA, 1=SVGA, 2=XGA
     // 摄像头分辨率：0=VGA, 1=SVGA, 2=XGA
     uint8_t fps;            // 1-30
     // 帧率，范围 1-30
     uint16_t segment_sec;   // seconds per segment
     // 录像分段时长（秒）
-    uint8_t jpeg_quality;   // 1-63
+    uint8_t cam_quality;    // 1-63
     // JPEG 压缩质量，范围 1-63
-    bool vflip;             // 垂直翻转（上下翻转）
-    bool hmirror;            // 水平镜像（左右翻转）
+    bool cam_vflip;          // 垂直翻转（上下翻转）
+    bool cam_hmirror;        // 水平镜像（左右翻转）
+    int8_t cam_brightness;   // 摄像头亮度：-2..+2
+    int8_t cam_contrast;     // 摄像头对比度：-2..+2
+    int8_t cam_saturation;   // 摄像头饱和度：-2..+2
+    int8_t cam_sharpness;    // 摄像头锐度：-2..+2
     char web_password[32];
     // Web 管理界面登录密码
     char device_name[32];
@@ -104,7 +108,10 @@ esp_err_t config_get_copy(cam_config_t *out);
 bool config_validate(const cam_config_t *cfg);
 /** @brief 根据拍摄间隔和录制模式计算最优片段时长和帧率，覆盖 fps 和 segment_sec 字段 */
 void config_apply_optimal(cam_config_t *cfg);
-
+/** @brief 获取 Web 管理界面登录密码 */
+const char *config_get_web_password(void);
+/** @brief 生成当前配置的 JSON 对象（调用方负责 cJSON_Delete 释放） */
+cJSON *config_get_json(void);
 #ifdef __cplusplus
 }
 #endif

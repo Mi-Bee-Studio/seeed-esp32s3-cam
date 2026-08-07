@@ -96,6 +96,7 @@ static void set_cors_headers(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type, X-Password");
     httpd_resp_set_hdr(req, "Access-Control-Max-Age", "86400");
+}
 
 /** @brief 检查认证状态，返回错误如果未授权或需要先设置密码 */
 static esp_err_t require_auth(httpd_req_t *req, bool is_config_endpoint)
@@ -118,8 +119,6 @@ static esp_err_t require_auth(httpd_req_t *req, bool is_config_endpoint)
     }
     
     return ESP_OK;
-}
-
 }
 
 /** @brief 发送JSON成功响应，格式为 {"ok":true,"data":...} */
@@ -346,12 +345,12 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddStringToObject(data, "webdav_url", cfg->webdav_url);
     cJSON_AddStringToObject(data, "webdav_user", cfg->webdav_user);
 
-    cJSON_AddNumberToObject(data, "resolution", cfg->resolution);
+    cJSON_AddNumberToObject(data, "resolution", cfg->cam_framesize);
     cJSON_AddNumberToObject(data, "fps", cfg->fps);
     cJSON_AddNumberToObject(data, "segment_sec", cfg->segment_sec);
-    cJSON_AddNumberToObject(data, "jpeg_quality", cfg->jpeg_quality);
-    cJSON_AddBoolToObject(data, "vflip", cfg->vflip);
-    cJSON_AddBoolToObject(data, "hmirror", cfg->hmirror);
+    cJSON_AddNumberToObject(data, "jpeg_quality", cfg->cam_quality);
+    cJSON_AddBoolToObject(data, "vflip", cfg->cam_vflip);
+    cJSON_AddBoolToObject(data, "hmirror", cfg->cam_hmirror);
     cJSON_AddNumberToObject(data, "day_night_mode", cfg->day_night_mode);
 
     /* Mask web password */
@@ -457,7 +456,7 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         cfg->webdav_pass[sizeof(cfg->webdav_pass) - 1] = '\0';
     }
 
-    uint8_t prev_resolution = cfg->resolution;
+    uint8_t prev_resolution = cfg->cam_framesize;
     if ((item = cJSON_GetObjectItem(json, "resolution"))) {
         int val = item->valueint;
         if (!validate_uint_range(val, 0, 7)) {
@@ -465,7 +464,7 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
             config_unlock();
             return json_error(req, "Invalid resolution (must be 0-7)", HTTPD_400_BAD_REQUEST);
         }
-        cfg->resolution = (uint8_t)val;
+        cfg->cam_framesize = (uint8_t)val;
     }
     if ((item = cJSON_GetObjectItem(json, "fps"))) {
         int val = item->valueint;
@@ -492,12 +491,12 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
             config_unlock();
             return json_error(req, "Invalid jpeg_quality (must be 1-63)", HTTPD_400_BAD_REQUEST);
         }
-        cfg->jpeg_quality = (uint8_t)val;
+        cfg->cam_quality = (uint8_t)val;
     }
     if ((item = cJSON_GetObjectItem(json, "vflip")))
-        cfg->vflip = item->valueint;
+        cfg->cam_vflip = item->valueint;
     if ((item = cJSON_GetObjectItem(json, "hmirror")))
-        cfg->hmirror = item->valueint;
+        cfg->cam_hmirror = item->valueint;
     if ((item = cJSON_GetObjectItem(json, "day_night_mode"))) {
         int val = item->valueint;
         if (val >= 0 && val <= 2) {
@@ -536,7 +535,7 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
 
     
     /* Apply camera flip/mirror immediately */
-    camera_set_flip(cfg->vflip, cfg->hmirror);
+    camera_set_flip(cfg->cam_vflip, cfg->cam_hmirror);
     camera_set_day_night(cfg->day_night_mode);
     if ((item = cJSON_GetObjectItem(json, "web_password")) && strcmp(item->valuestring, "****") != 0) {
         strncpy(cfg->web_password, item->valuestring, sizeof(cfg->web_password) - 1);
@@ -649,8 +648,8 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     config_unlock();
 
     /* Apply resolution change to camera sensor + restart recorder for correct AVI dimensions */
-    if (cfg->resolution != prev_resolution) {
-        camera_set_resolution((camera_res_t)cfg->resolution);
+    if (cfg->cam_framesize != prev_resolution) {
+        camera_set_resolution((camera_res_t)cfg->cam_framesize);
         if (recorder_get_state() == RECORDER_RECORDING) {
             recorder_stop();
             vTaskDelay(pdMS_TO_TICKS(200));

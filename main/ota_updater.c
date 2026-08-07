@@ -92,10 +92,6 @@ esp_err_t api_ota_handler(httpd_req_t *req)
     if (!xSemaphoreTake(s_ota_mutex, 0)) {
         return json_error_status(req, "OTA already in progress", "429 Too Many Requests");
     }
-{
-    if (!xSemaphoreTake(s_ota_mutex, 0)) {
-        return json_error_status(req, "OTA already in progress", "429 Too Many Requests");
-    }
 
 
     char *body = read_body(req, 1024);

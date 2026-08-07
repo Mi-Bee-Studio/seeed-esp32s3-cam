@@ -770,7 +770,7 @@ static void recording_task(void *arg)
 {
     cam_config_t *cfg = config_get();
     uint16_t w, h;
-    resolution_dims(cfg->resolution, &w, &h);
+    resolution_dims(cfg->cam_framesize, &w, &h);
 uint8_t fps = cfg->fps > 0 ? cfg->fps : 10;
 uint8_t tl_mode = cfg->timelapse_mode;
 bool timelapse = tl_mode > 0;

@@ -404,9 +404,9 @@ void app_main(void)
     /* 第5步：初始化摄像头（必须在SD卡之前，避免GDMA通道冲突） */
     {
         camera_res_t res = CAMERA_RES_VGA; /* Force VGA for initial bring-up */
-        uint8_t quality = cfg->jpeg_quality;
+        uint8_t quality = cfg->cam_quality;
         if (quality < 10) quality = 10; // Floor to prevent oversized frames
-        switch (cfg->resolution) {
+        switch (cfg->cam_framesize) {
             case 0:  res = CAMERA_RES_VGA;  break;
             case 1:  res = CAMERA_RES_SVGA; break;
         case 2:  res = CAMERA_RES_XGA;  break;
@@ -427,7 +427,7 @@ void app_main(void)
 
     /* Apply camera flip/mirror from config */
     if (s_camera_ok) {
-        camera_set_flip(cfg->vflip, cfg->hmirror);
+        camera_set_flip(cfg->cam_vflip, cfg->cam_hmirror);
         camera_set_day_night(cfg->day_night_mode);
     }
 

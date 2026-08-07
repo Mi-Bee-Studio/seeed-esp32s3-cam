@@ -1,260 +1,207 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MiBee Cam 仪表盘</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%237C3AED'/%3E%3Cpath d='M10 22V10l16 6-16 6z' fill='white'/%3E%3C/svg%3E">
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#FAFAFA;color:#333;font-size:14px}
-.header{background:#7C3AED;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:8px}
-.header h1{font-size:16px;font-weight:600}
-.header .ver{font-size:12px;opacity:.7}
-.main{padding:12px;max-width:600px;margin:0 auto;padding-bottom:80px}
-.card{background:#fff;border-radius:8px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(124,58,237,.08)}
-.card-title{font-size:13px;color:#888;margin-bottom:8px;font-weight:500}
-.status-row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
-.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
-.dot.rec{background:#e74c3c;animation:pulse 1s infinite}
-.dot.idle{background:#bbb}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-.status-text{font-size:15px;font-weight:600}
-.status-text.rec{color:#e74c3c}
-.status-text.idle{color:#999}
-.filename{font-size:12px;color:#666;margin-top:4px;word-break:break-all}
-.grid{display:grid;grid-template-columns:1fr;gap:10px}
-@media(min-width:480px){.grid{grid-template-columns:1fr 1fr}}
-.row{display:flex;justify-content:space-between;padding:3px 0;font-size:13px}
-.row .label{color:#888}
-.row .val{font-weight:500;color:#333}
-.bar-wrap{background:#e0e0e0;border-radius:4px;height:10px;margin:6px 0;overflow:hidden}
-.bar-fill{height:100%;border-radius:4px;transition:width .5s}
-.bar-fill.ok{background:#7C3AED}
-.bar-fill.warn{background:#e67e22}
-.bar-fill.crit{background:#e74c3c}
-.bar-text{font-size:12px;color:#666}
-.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #ddd;display:flex;z-index:10}
-.bottom-nav a{flex:1;text-align:center;padding:10px 0;font-size:12px;color:#888;text-decoration:none}
-.bottom-nav a.active{color:#7C3AED;font-weight:600}
-.bottom-nav a:hover{background:#f5f5f5}
-.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500}
-.badge.ok{background:#F3F0F6;color:#7C3AED}
-.badge.err{background:#fce4ec;color:#c0392b}
-.badge.info{background:#e3f2fd;color:#1565c0}
-.sync{font-size:13px}
-.sync.ok{color:#7C3AED}
-.sync.no{color:#999}
-.btn-rec{padding:6px 16px;border:none;border-radius:4px;font-size:13px;cursor:pointer;font-family:inherit;font-weight:500;transition:background .15s}
-.btn-rec.start{background:#7C3AED;color:#fff}
-.btn-rec.start:hover{background:#5B21B6}
-.btn-rec.stop{background:#e74c3c;color:#fff}
-.btn-rec.stop:hover{background:#c0392b}
-.btn-rec:disabled{opacity:.5;cursor:not-allowed}
-.rec-actions{display:flex;gap:8px;margin-top:8px}
-.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);padding:10px 24px;border-radius:8px;font-size:14px;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none;font-weight:500}
-.toast.show{opacity:1}
-.toast.success,.toast.ok{background:#7C3AED;color:#fff}
-.toast.error,.toast.err{background:#e74c3c;color:#fff}
-.toast.warning{background:#e67e22;color:#fff}
-.toast.info{background:#1565c0;color:#fff}
-.net-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:6px;background:#4CAF50;box-shadow:0 0 4px rgba(76,175,80,.5);transition:background .3s,box-shadow .3s}
-.net-dot.offline{background:#e74c3c;box-shadow:0 0 4px rgba(231,76,60,.5);animation:pulse 1s infinite}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MiBee Cam</title>
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<div class="header">
-<span>&#128247;</span>
-<h1>MiBee Cam <span class="ver">v0.1</span></h1>
-<span class="net-dot" id="netDot"></span>
-<span style="margin-left:auto;cursor:pointer;font-size:12px;opacity:.8" id="authBtn" onclick="toggleAuth()">🔒 登录</span>
-</div>
-<div class="main">
+    <div class="app">
+        <!-- Status Bar -->
+        <div id="status-bar" class="status-bar">
+            <span class="badge" id="badge-wifi" data-i18n="status.wifi">WiFi</span>
+            <span class="badge" id="badge-ip">--</span>
+            <span class="badge" id="badge-resolution" data-i18n="status.resolution">--</span>
+            <span class="badge" id="badge-quality" data-i18n="status.quality">--</span>
+            <span class="badge" id="badge-heap" data-i18n="status.heap">--</span>
+            <span class="badge" id="badge-psram" data-i18n="status.psram">--</span>
+            <span class="badge" id="badge-clients" data-i18n="status.clients">0</span>
+            <span class="badge" id="badge-ai" data-i18n="status.ai">AI</span>
+        </div>
 
-<div class="card">
-<div class="status-row">
-<span class="dot idle" id="recDot"></span>
-<span class="status-text idle" id="recText">空闲</span>
-</div>
-<div class="filename" id="recFile"></div>
-<div class="rec-actions" id="recActions"></div>
-<div id="timelapseMode" style="display:none;margin-top:8px;color:#7C3AED;font-size:13px;"></div>
-</div>
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Stream Area -->
+            <div class="stream-area" id="stream-area">
+                <img id="stream-img" class="stream-img" src="" alt="Camera Stream">
+                <canvas id="stream-overlay" class="stream-overlay" width="640" height="480"></canvas>
+                <div id="stream-status" class="hidden" data-i18n="stream.connecting">Connecting&hellip;</div>
+            </div>
 
-<div class="grid">
-<div class="card">
-<div class="card-title">💾 SD卡存储</div>
-<div class="bar-wrap"><div class="bar-fill ok" id="sdBar" style="width:0%"></div></div>
-<div class="bar-text" id="sdText">--</div>
-</div>
-<div class="card">
-<div class="card-title">📡 WiFi状态</div>
-<div class="row"><span class="label">SSID</span><span class="val" id="wfSsid">--</span></div>
-<div class="row"><span class="label">RSSI</span><span class="val" id="wfRssi">--</span></div>
-<div class="row"><span class="label">Channel</span><span class="val" id="wfChannel">--</span></div>
-<div class="row"><span class="label">Gateway</span><span class="val" id="wfGateway">--</span></div>
-<div class="row"><span class="label">IP</span><span class="val" id="wfIp">--</span></div>
-</div>
-</div>
-<div class="grid">
-<div class="card">
-<div class="card-title">📷 摄像头信息</div>
-<div class="row"><span class="label">型号</span><span class="val" id="camModel">--</span></div>
-<div class="row"><span class="label">分辨率</span><span class="val" id="camRes">--</span></div>
-</div>
-<div class="card">
-<div class="card-title">ℹ️ 系统信息</div>
-<div class="row"><span class="label">⏱ 运行时间</span><span class="val" id="sysUp">--</span></div>
-<div class="row"><span class="label">🕐 时间同步</span><span class="val" id="sysSync">--</span></div>
-<div class="row"><span class="label">🕐 当前时间</span><span class="val" id="currentTime">--</span></div>
-<div class="row"><span class="label">🌡 芯片温度</span><span class="val" id="chip_temp">--</span></div>
-</div>
-</div>
+            <!-- Settings Panel -->
+            <div class="settings-panel" id="settings-panel">
+                <!-- Tab Navigation -->
+                <div class="settings-tabs" id="settings-tabs">
+                    <button class="settings-tab active" data-tab="camera" data-i18n="section.camera">Camera</button>
+                    <button class="settings-tab" data-tab="ai" data-i18n="section.ai_features">AI Features</button>
+                    <button class="settings-tab" data-tab="flash" data-i18n="section.flash_led">Flash LED</button>
+                    <button class="settings-tab" data-tab="network" data-i18n="section.wifi_config">WiFi</button>
+                    <button class="settings-tab" data-tab="streaming" data-i18n="section.streaming">Streaming</button>
+                    <button class="settings-tab" data-tab="system" data-i18n="section.system">System</button>
+                </div>
 
-<div class="card">
-<div class="card-title">☁️ NAS上传</div>
-<div class="row"><span class="label">状态</span><span class="val" id="nasStatus">--</span></div>
-<div class="row"><span class="label">最近上传</span><span class="val" id="nasLast">--</span></div>
-<div class="row"><span class="label">队列</span><span class="val" id="nasQueue">--</span></div>
-</div>
+                <!-- Camera Section -->
+                <div class="settings-section active" id="section-camera">
+                    <div class="setting-group">
+                        <label class="setting-label" data-i18n="camera.framesize">Resolution</label>
+                        <select id="cam-framesize">
+                            <option value="0">96x96</option>
+                            <option value="1">QQVGA 160x120</option>
+                            <option value="2">128x128</option>
+                            <option value="3">QCIF 176x144</option>
+                            <option value="4">HQVGA 240x176</option>
+                            <option value="5">240x240</option>
+                            <option value="6">QVGA 320x240</option>
+                            <option value="7">320x320</option>
+                            <option value="8">CIF 400x296</option>
+                            <option value="9">HVGA 480x320</option>
+                            <option value="10" selected>VGA 640x480</option>
+                            <option value="11">SVGA 800x600</option>
+                            <option value="12">XGA 1024x768</option>
+                            <option value="13">HD 1280x720</option>
+                            <option value="14">SXGA 1280x1024</option>
+                            <option value="15">UXGA 1600x1200</option>
+                        </select>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label" data-i18n="camera.quality">JPEG Quality</label>
+                        <div class="slider-row">
+                            <input type="range" id="cam-quality" min="0" max="63" value="12">
+                            <span class="slider-value" id="cam-quality-val">12</span>
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label" data-i18n="camera.brightness">Brightness</label>
+                        <div class="slider-row">
+                            <input type="range" id="cam-brightness" min="-2" max="2" value="0" step="1">
+                            <span class="slider-value" id="cam-brightness-val">0</span>
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label" data-i18n="camera.contrast">Contrast</label>
+                        <div class="slider-row">
+                            <input type="range" id="cam-contrast" min="-2" max="2" value="0" step="1">
+                            <span class="slider-value" id="cam-contrast-val">0</span>
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label" data-i18n="camera.saturation">Saturation</label>
+                        <div class="slider-row">
+                            <input type="range" id="cam-saturation" min="-2" max="2" value="0" step="1">
+                            <span class="slider-value" id="cam-saturation-val">0</span>
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label" data-i18n="camera.sharpness">Sharpness</label>
+                        <div class="slider-row">
+                            <input type="range" id="cam-sharpness" min="-2" max="2" value="0" step="1">
+                            <span class="slider-value" id="cam-sharpness-val">0</span>
+                        </div>
+                    </div>
+                    <div class="setting-group flex-row flex-between">
+                        <label class="setting-label" data-i18n="camera.hmirror">Horizontal Mirror</label>
+                        <div class="toggle" id="cam-hmirror" role="switch" aria-checked="false" tabindex="0"></div>
+                    </div>
+                    <div class="setting-group flex-row flex-between">
+                        <label class="setting-label" data-i18n="camera.vflip">Vertical Flip</label>
+                        <div class="toggle" id="cam-vflip" role="switch" aria-checked="false" tabindex="0"></div>
+                    </div>
+                </div>
 
-</div>
-<div class="toast" id="toast"></div>
+                <!-- AI Section -->
+                <div class="settings-section" id="section-ai">
+                    <div class="setting-group flex-row flex-between">
+                        <label class="setting-label" data-i18n="ai.face">Face Detection</label>
+                        <div class="toggle" id="ai-face" role="switch" aria-checked="false" tabindex="0"></div>
+                    </div>
+                    <div class="setting-group flex-row flex-between">
+                        <label class="setting-label" data-i18n="ai.motion">Motion Detection</label>
+                        <div class="toggle" id="ai-motion" role="switch" aria-checked="false" tabindex="0"></div>
+                    </div>
+                    <div class="setting-group flex-row flex-between">
+                        <label class="setting-label" data-i18n="ai.qr">QR Code</label>
+                        <div class="toggle" id="ai-qr" role="switch" aria-checked="false" tabindex="0"></div>
+                    </div>
+                    <div class="setting-group">
+                        <p class="setting-description" data-i18n="ai.note">AI requires VGA resolution (640x480)</p>
+                    </div>
+                </div>
 
-<nav class="bottom-nav">
-<a href="/" class="active">&#128202; 仪表盘</a>
-<a href="/config.html">&#9881; 配置</a>
-<a href="/files.html">&#128193; 文件</a>
-<a href="/preview.html">&#128249; 预览</a>
-</nav>
+                <!-- Flash LED Section -->
+                <div class="settings-section" id="section-flash">
+                    <div class="setting-group">
+                        <label class="setting-label" data-i18n="flash.brightness">LED Brightness</label>
+                        <div class="slider-row">
+                            <input type="range" id="led-brightness" min="0" max="100" value="0">
+                            <span class="slider-value" id="led-brightness-val">0</span>
+                        </div>
+                    </div>
+                </div>
 
-<script>
-function $(s){return document.getElementById(s)}
+                <!-- Network Section -->
+                <div class="settings-section" id="section-network">
+                    <div class="setting-group">
+                        <label data-i18n="network.ssid_label">SSID</label>
+                        <input type="text" id="wifi-ssid" data-i18n-placeholder="network.ssid_placeholder" placeholder="Network name">
+                    </div>
+                    <div class="setting-group">
+                        <label data-i18n="network.password_label">Password</label>
+                        <input type="password" id="wifi-pass" data-i18n-placeholder="network.password_placeholder" placeholder="Leave blank to keep current">
+                    </div>
+                    <button class="btn-primary" id="btn-wifi-save" data-i18n="network.save">Save &amp; Reboot</button>
+                </div>
 
-/* ---- Auth Helper ---- */
-function getStoredPassword(){return localStorage.getItem('cam_password')||''}
-function setStoredPassword(p){localStorage.setItem('cam_password',p)}
-function clearStoredPassword(){localStorage.removeItem('cam_password')}
-function authHeaders(){var p=getStoredPassword();return p?{'X-Password':p}:{}}
-function authFetch(url,opts){opts=opts||{};opts.headers=Object.assign({},opts.headers||{},authHeaders());return fetch(url,opts).then(function(r){if(r.status===401){clearStoredPassword();showLoginDialog();throw new Error('Unauthorized')}return r})}
-function showLoginDialog(cb){var p=prompt('请输入管理密码:');if(!p)return;fetch('/api/status',{headers:{'X-Password':p}}).then(function(r){if(r.ok){setStoredPassword(p);updateAuthUI();if(cb)cb()}else{showToast('密码错误','error');showLoginDialog(cb)}})}
-function requireAuth(cb){if(getStoredPassword())cb();else showLoginDialog(cb)}
-function updateAuthUI(){var btn=document.getElementById('authBtn');if(btn)btn.textContent=getStoredPassword()?'🔓 登出':'🔒 登录'}
-function toggleAuth(){if(getStoredPassword()){clearStoredPassword();updateAuthUI()}else showLoginDialog()}
+                <!-- Streaming Section -->
+                <div class="settings-section" id="section-streaming">
+                    <div class="setting-group">
+                        <label class="setting-label" data-i18n="streaming.rtsp_user">RTSP Username</label>
+                        <input type="text" id="rtsp-user" placeholder="admin">
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label" data-i18n="streaming.rtsp_pass">RTSP Password</label>
+                        <input type="password" id="rtsp-pass" placeholder="Password">
+                    </div>
+                    <div class="setting-group flex-row flex-between">
+                        <label class="setting-label" data-i18n="streaming.onvif">ONVIF Discovery</label>
+                        <div class="toggle" id="onvif-enable" role="switch" aria-checked="false" tabindex="0"></div>
+                    </div>
+                    <button class="btn-primary" id="btn-streaming-save" data-i18n="btn.save">Save</button>
+                </div>
 
-/* ---- Toast & Network Status ---- */
-var toastTimer=null;
-function showToast(msg,type,duration){
- type=type||'success';duration=duration||3000;
- var t=document.getElementById('toast');if(!t)return;
- t.textContent=msg;t.className='toast show '+type;
- clearTimeout(toastTimer);
- toastTimer=setTimeout(function(){t.className='toast'},duration);
-}
+                <!-- System Section -->
+                <div class="settings-section" id="section-system">
+                    <div class="setting-group">
+                        <label class="setting-label" data-i18n="system.uptime">Uptime</label>
+                        <span id="sys-uptime">--</span>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label" data-i18n="system.free_heap">Free Heap</label>
+                        <span id="sys-heap">--</span>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label" data-i18n="system.free_psram">Free PSRAM</label>
+                        <span id="sys-psram">--</span>
+                    </div>
+                    <!-- Theme toggle -->
+                    <div class="setting-group flex-row flex-between">
+                        <label class="setting-label" data-i18n="theme.toggle">Dark / Light</label>
+                        <div class="toggle" id="toggle-theme" role="switch" aria-checked="false" tabindex="0"></div>
+                    </div>
+                    <!-- Language toggle -->
+                    <div class="setting-group flex-row flex-between">
+                        <label class="setting-label" data-i18n="lang.toggle">EN / 中文</label>
+                        <div class="toggle" id="toggle-lang" role="switch" aria-checked="false" tabindex="0"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
-function updateNetDot(online){
- var d=document.getElementById('netDot');if(!d)return;
- d.className='net-dot '+(online?'online':'offline');
- d.title=online?'网络已连接':'网络已断开';
-}
-window.addEventListener('offline',function(){
- updateNetDot(false);showToast('网络已断开','error',5000);
-});
-window.addEventListener('online',function(){
- updateNetDot(true);showToast('网络已恢复','success');
-});
-updateNetDot(navigator.onLine);
+    <!-- Toast -->
+    <div id="toast" class="toast"></div>
 
-/* ---- Recording Control ---- */
-var _recBusy=false;
-function toggleRec(){
- if(_recBusy)return;
- var v=window._lastStatus;if(!v)return;
- if(!getStoredPassword()){showLoginDialog(toggleRec);return}
- var action=v.recording==='recording'?'stop':'start';
- if(action==='stop'){
-  if(!confirm('确定停止录制？'))return;
- }
- _recBusy=true;
- authFetch('/api/record?action='+action,{method:'POST'}).then(function(r){return r.json()}).then(function(d){
-  _recBusy=false;
-  if(d.ok)refresh();
-  else showToast('操作失败: '+(d.error||'未知错误'),'error');
- }).catch(function(e){_recBusy=false;showToast('操作失败: '+(e.message||'网络错误'),'error');console.error(e)})
-}
-
-function fmtTime(s){
- var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
- if(d>0)return d+' 天 '+h+' 小时';
- if(h>0)return h+' 小时 '+m+' 分钟';
- return m+' 分钟';
-}
-function fmtSize(bytes){
- if(bytes<1024)return bytes+'B';
- if(bytes<1048576)return (bytes/1024).toFixed(1)+'KB';
- if(bytes<1073741824)return (bytes/1048576).toFixed(1)+'MB';
- return (bytes/1073741824).toFixed(2)+'GB';
-}
-function refresh(){
- fetch('/api/status').then(function(r){return r.json()}).then(function(d){
-  if(!d.ok)return;
-  var v=d.data;
-  window._lastStatus=v;
-  var rec=$('recDot'),rt=$('recText'),rf=$('recFile'),ra=$('recActions');
-  if(v.recording==='recording'){
-   rec.className='dot rec';rt.className='status-text rec';rt.textContent='录制中';
-   rf.textContent=v.current_file?v.current_file.split('/').pop():'';
-   ra.innerHTML='<button class="btn-rec stop" onclick="toggleRec()">⏹ 停止录制</button>';
-  }else{
-   rec.className='dot idle';rt.className='status-text idle';rt.textContent='空闲';rf.textContent='';
-   ra.innerHTML='<button class="btn-rec start" onclick="toggleRec()">⏺ 开始录制</button>';
-  }
-  if(v.timelapse_interval_sec>0){
-   var tl=$('timelapseMode');
-   if(tl){
-    tl.textContent='⏱ 延时摄影 (间隔 '+v.timelapse_interval_sec+'秒)';
-    tl.style.display='block';
-   }
-  }else{
-   var tl=$('timelapseMode');
-   if(tl)tl.style.display='none';
-  }
-  var bar=$('sdBar'),txt=$('sdText');
-  if(v.sd_total_bytes!=null&&v.sd_free_bytes!=null){
-   var used=v.sd_total_bytes-v.sd_free_bytes;
-   var pct=used*100/v.sd_total_bytes;
-   bar.style.width=pct+'%';
-   bar.className='bar-fill '+(pct>90?'crit':pct>70?'warn':'ok');
-   txt.textContent='已用 '+fmtSize(used)+' / '+fmtSize(v.sd_total_bytes)+' ('+Math.round(pct)+'%)';
-  }else{
-   bar.style.width='0%';txt.textContent='--';
-  }
-
-  $('wfSsid').textContent=v.wifi_ssid||'--';
-  $('wfRssi').textContent=v.wifi_rssi!=null?v.wifi_rssi+'dBm':'--';
-  $('wfChannel').textContent=v.wifi_channel!=null?v.wifi_channel:'--';
-  $('wfGateway').textContent=v.wifi_gateway||'--';
-  $('wfIp').textContent=v.ip||'--';
-
-  $('camModel').textContent=v.camera||'--';
-  $('camRes').textContent=v.resolution||'--';
-  $('sysUp').textContent=v.uptime!=null?fmtTime(v.uptime):'--';
-  var ss=$('sysSync');
-  if(v.time_synced){ss.className='sync ok';ss.textContent='\u2714 已同步'}
-  else{ss.className='sync no';ss.textContent='\u2718 未同步'}
-  $('currentTime').textContent=v.current_time||'--';
-  var ns=$('nasStatus');
-  if(v.upload_queue>=0){ns.className='val';ns.innerHTML='<span class="badge ok">正常</span>'}
-  else{ns.className='val';ns.innerHTML='<span class="badge err">异常</span>'}
-  $('nasLast').textContent=v.last_upload||'暂无上传记录';
- $('nasQueue').textContent=(v.upload_queue||0)+' 个文件';
- var ct=v.chip_temp,ce=$('chip_temp');
- ce.textContent=ct!=null?ct.toFixed(1)+' °C':'--';
- ce.style.color=ct>70?'#e74c3c':ct>55?'#e67e22':'';
- }).catch(function(e){console.error('Status fetch failed:',e)});
-}
-setInterval(refresh,5000);
-window.onload=function(){refresh();updateAuthUI()};
-</script>
+    <script src="/i18n.js"></script>
+    <script src="/app.js"></script>
 </body>
 </html>
