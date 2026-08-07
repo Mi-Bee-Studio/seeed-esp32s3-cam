@@ -326,7 +326,7 @@ static esp_err_t handle_get_profiles(httpd_req_t *req)
 {
     cam_config_t *cfg = config_get();
     int width, height;
-    resolution_to_wh(cfg->resolution, &width, &height);
+    resolution_to_wh(cfg->cam_framesize, &width, &height);
 
     char resp[ONVIF_RESP_MAX];
     int len = snprintf(resp, sizeof(resp),

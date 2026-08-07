@@ -23,6 +23,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_log.h"
+#include "cJSON.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
@@ -44,13 +45,17 @@ static const cam_config_t s_defaults = {
     .webdav_user    = "",
     .webdav_pass    = "",
     .webdav_enabled = false,
-    .resolution     = 1,
+    .cam_framesize  = 1,
     /* tuned defaults: fps=12 smoother, quality=18 halves JPEG size */
     .fps            = 12,
     .segment_sec    = 300,
-    .jpeg_quality   = 18,
-    .vflip          = false,
-    .hmirror         = false,
+    .cam_quality    = 18,
+    .cam_vflip      = false,
+    .cam_hmirror    = false,
+    .cam_brightness = 0,
+    .cam_contrast   = 0,
+    .cam_saturation = 0,
+    .cam_sharpness  = 0,
     .device_name    = "MiBee Cam",
     .timezone       = "CST-8",
     .cleanup_low_pct  = 20,
@@ -67,7 +72,7 @@ static const cam_config_t s_defaults = {
     .audio_record_to_sd = false,
     .sd_log_enabled = false,
     .day_night_mode = 0,
-    .web_password   = "admin",
+    .web_password   = "",
     .schema_version = CONFIG_CURRENT_VERSION,
     .xclk_freq_mhz = 16,
     .wifi_roam_rssi_threshold = -75,
@@ -294,6 +299,79 @@ void config_apply_optimal(cam_config_t *cfg)
 
 /* ---- public API ---- */
 
+/* ---- NVS migration for cam_* field rename ---- */
+
+#define MIGRATION_DONE_KEY "cam_rename_v3"
+
+/** @brief Migrate old field names to new cam_* prefixed names (idempotent) */
+static void migrate_cam_fields(void)
+{
+    nvs_handle_t h;
+    if (nvs_open("cam_config", NVS_READONLY, &h) != ESP_OK) {
+        ESP_LOGD(TAG, "No config to migrate");
+        return;
+    }
+
+    /* Check if migration already completed */
+    uint8_t migration_done = 0;
+    if (nvs_get_u8(h, MIGRATION_DONE_KEY, &migration_done) == ESP_OK && migration_done) {
+        nvs_close(h);
+        ESP_LOGD(TAG, "Cam field migration already done");
+        return;
+    }
+    nvs_close(h);
+
+    /* Open readwrite handle for migration */
+    if (nvs_open("cam_config", NVS_READWRITE, &h) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open NVS for migration");
+        return;
+    }
+
+    uint8_t old_val;
+    bool bool_val;
+    bool migrated = false;
+
+    /* resolution → cam_framesize */
+    if (nvs_get_u8(h, "resolution", &old_val) == ESP_OK) {
+        nvs_set_u8(h, "cam_framesize", old_val);
+        nvs_erase_key(h, "resolution");
+        ESP_LOGI(TAG, "Migrated: resolution → cam_framesize = %u", old_val);
+        migrated = true;
+    }
+
+    /* jpeg_quality → cam_quality */
+    if (nvs_get_u8(h, "jpeg_quality", &old_val) == ESP_OK) {
+        nvs_set_u8(h, "cam_quality", old_val);
+        nvs_erase_key(h, "jpeg_quality");
+        ESP_LOGI(TAG, "Migrated: jpeg_quality → cam_quality = %u", old_val);
+        migrated = true;
+    }
+
+    /* vflip → cam_vflip */
+    if (nvs_get_u8(h, "vflip", (uint8_t *)&bool_val) == ESP_OK) {
+        nvs_set_u8(h, "cam_vflip", bool_val ? 1 : 0);
+        nvs_erase_key(h, "vflip");
+        ESP_LOGI(TAG, "Migrated: vflip → cam_vflip = %d", bool_val);
+        migrated = true;
+    }
+
+    /* hmirror → cam_hmirror */
+    if (nvs_get_u8(h, "hmirror", (uint8_t *)&bool_val) == ESP_OK) {
+        nvs_set_u8(h, "cam_hmirror", bool_val ? 1 : 0);
+        nvs_erase_key(h, "hmirror");
+        ESP_LOGI(TAG, "Migrated: hmirror → cam_hmirror = %d", bool_val);
+        migrated = true;
+    }
+
+    if (migrated) {
+        nvs_set_u8(h, MIGRATION_DONE_KEY, 1);
+        nvs_commit(h);
+        ESP_LOGI(TAG, "Cam field migration completed, marked as done");
+    }
+
+    nvs_close(h);
+}
+
 /** @brief 初始化配置模块，初始化 NVS 并加载存储的配置，无存储则使用默认值 */
 esp_err_t config_init(void)
 {
@@ -320,6 +398,9 @@ esp_err_t config_init(void)
     // Apply defaults first
     s_config = s_defaults;
 
+    // Run NVS migration before reading values
+    migrate_cam_fields();
+
     // Open NVS and read stored values
     nvs_handle_t h;
     err = nvs_open("cam_config", NVS_READONLY, &h);
@@ -338,12 +419,12 @@ esp_err_t config_init(void)
     read_str(h, "webdav_url", s_config.webdav_url, sizeof(s_config.webdav_url));
     read_str(h, "webdav_user", s_config.webdav_user, sizeof(s_config.webdav_user));
     read_str(h, "webdav_pass", s_config.webdav_pass, sizeof(s_config.webdav_pass));
-    nvs_get_u8(h, "resolution", &s_config.resolution);
+    nvs_get_u8(h, "cam_framesize", &s_config.cam_framesize);
     nvs_get_u8(h, "fps", &s_config.fps);
     nvs_get_u16(h, "segment_sec", &s_config.segment_sec);
-    nvs_get_u8(h, "jpeg_quality", &s_config.jpeg_quality);
-    nvs_get_u8(h, "vflip", (uint8_t *)&s_config.vflip);
-    nvs_get_u8(h, "hmirror", (uint8_t *)&s_config.hmirror);
+    nvs_get_u8(h, "cam_quality", &s_config.cam_quality);
+    nvs_get_u8(h, "cam_vflip", (uint8_t *)&s_config.cam_vflip);
+    nvs_get_u8(h, "cam_hmirror", (uint8_t *)&s_config.cam_hmirror);
     read_str(h, "web_password", s_config.web_password, sizeof(s_config.web_password));
     read_str(h, "device_name", s_config.device_name, sizeof(s_config.device_name));
     read_str(h, "timezone", s_config.timezone, sizeof(s_config.timezone));
@@ -373,11 +454,6 @@ esp_err_t config_init(void)
     uint8_t stored_schema_version = 0;
     nvs_get_u8(h, "schema_version", &stored_schema_version);
 
-    /* Migration: web_password must not be empty (older firmware defaulted to "") */
-    if (s_config.web_password[0] == '\0') {
-        ESP_LOGI(TAG, "web_password empty, setting default 'admin'");
-        strcpy(s_config.web_password, "admin");
-    }
 
     /* ---- Schema v1→v2 迁移：旧固件没有这些字段，重置为默认值 ---- */
     if (stored_schema_version < CONFIG_CURRENT_VERSION) {
@@ -469,10 +545,10 @@ bool config_validate(const cam_config_t *cfg)
     if (!cfg) return false;
 
     /* ---- core numeric ranges ---- */
-    if (cfg->resolution > 7)         { ESP_LOGW(TAG, "validate: resolution=%d > 7", cfg->resolution); return false; }
+    if (cfg->cam_framesize > 7)         { ESP_LOGW(TAG, "validate: cam_framesize=%d > 7", cfg->cam_framesize); return false; }
     if (cfg->fps < 1 || cfg->fps > 30) { ESP_LOGW(TAG, "validate: fps=%d out of 1-30", cfg->fps); return false; }
-    if (cfg->jpeg_quality < 1 || cfg->jpeg_quality > 63)
-                                       { ESP_LOGW(TAG, "validate: jpeg_quality=%d out of 1-63", cfg->jpeg_quality); return false; }
+    if (cfg->cam_quality < 1 || cfg->cam_quality > 63)
+                                       { ESP_LOGW(TAG, "validate: cam_quality=%d out of 1-63", cfg->cam_quality); return false; }
     if (cfg->segment_sec < 5 || cfg->segment_sec > 3600)
                                        { ESP_LOGW(TAG, "validate: segment_sec=%d out of 5-3600", cfg->segment_sec); return false; }
     if (cfg->timelapse_mode > 2)       { ESP_LOGW(TAG, "validate: timelapse_mode=%d > 2", cfg->timelapse_mode); return false; }
@@ -526,12 +602,12 @@ esp_err_t config_save(void)
     write_str(h, "webdav_user", s_config.webdav_user);
     write_str(h, "webdav_pass", s_config.webdav_pass);
     nvs_set_u8(h, "webdav_enabled", s_config.webdav_enabled ? 1 : 0);
-    nvs_set_u8(h, "resolution", s_config.resolution);
+    nvs_set_u8(h, "cam_framesize", s_config.cam_framesize);
     nvs_set_u8(h, "fps", s_config.fps);
     nvs_set_u16(h, "segment_sec", s_config.segment_sec);
-    nvs_set_u8(h, "jpeg_quality", s_config.jpeg_quality);
-    nvs_set_u8(h, "vflip", s_config.vflip ? 1 : 0);
-    nvs_set_u8(h, "hmirror", s_config.hmirror ? 1 : 0);
+    nvs_set_u8(h, "cam_quality", s_config.cam_quality);
+    nvs_set_u8(h, "cam_vflip", s_config.cam_vflip ? 1 : 0);
+    nvs_set_u8(h, "cam_hmirror", s_config.cam_hmirror ? 1 : 0);
     write_str(h, "web_password", s_config.web_password);
     write_str(h, "device_name", s_config.device_name);
     write_str(h, "timezone", s_config.timezone);
@@ -593,4 +669,88 @@ void config_unlock(void)
     if (s_config_mutex) {
         xSemaphoreGive(s_config_mutex);
     }
+}
+
+/* ---- new JSON and web_password accessors ---- */
+
+/** @brief Get current web_password value */
+const char *config_get_web_password(void)
+{
+    return s_config.web_password;
+}
+
+/** @brief Get current config as cJSON object with cam_* field names */
+cJSON *config_get_json(void)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        return NULL;
+    }
+
+    /* Camera settings with cam_* prefix */
+    cJSON_AddNumberToObject(root, "cam_framesize", s_config.cam_framesize);
+    cJSON_AddNumberToObject(root, "cam_quality", s_config.cam_quality);
+    cJSON_AddNumberToObject(root, "cam_brightness", s_config.cam_brightness);
+    cJSON_AddNumberToObject(root, "cam_contrast", s_config.cam_contrast);
+    cJSON_AddNumberToObject(root, "cam_saturation", s_config.cam_saturation);
+    cJSON_AddNumberToObject(root, "cam_sharpness", s_config.cam_sharpness);
+    cJSON_AddBoolToObject(root, "cam_hmirror", s_config.cam_hmirror);
+    cJSON_AddBoolToObject(root, "cam_vflip", s_config.cam_vflip);
+
+    /* WiFi */
+    cJSON_AddStringToObject(root, "wifi_ssid", s_config.wifi_ssid);
+    cJSON_AddStringToObject(root, "wifi_pass",
+                            s_config.wifi_pass[0] ? "****" : "");
+
+    /* Web auth */
+    cJSON_AddStringToObject(root, "web_password",
+                            s_config.web_password[0] ? "****" : "");
+
+    /* Device */
+    cJSON_AddStringToObject(root, "device_name", s_config.device_name);
+    cJSON_AddStringToObject(root, "timezone", s_config.timezone);
+
+    /* Recording */
+    cJSON_AddNumberToObject(root, "fps", s_config.fps);
+    cJSON_AddNumberToObject(root, "segment_sec", s_config.segment_sec);
+    cJSON_AddBoolToObject(root, "video_record_to_sd", s_config.video_record_to_sd);
+    cJSON_AddBoolToObject(root, "audio_record_to_sd", s_config.audio_record_to_sd);
+    cJSON_AddBoolToObject(root, "frame_drop_enabled", s_config.frame_drop_enabled);
+
+    /* Storage */
+    cJSON_AddNumberToObject(root, "cleanup_low_pct", s_config.cleanup_low_pct);
+    cJSON_AddNumberToObject(root, "cleanup_high_pct", s_config.cleanup_high_pct);
+
+    /* Motion */
+    cJSON_AddNumberToObject(root, "motion_sensitivity", s_config.motion_sensitivity);
+    cJSON_AddNumberToObject(root, "motion_active_interval_sec", s_config.motion_active_interval_sec);
+    cJSON_AddNumberToObject(root, "motion_idle_interval_sec", s_config.motion_idle_interval_sec);
+
+    /* Timelapse */
+    cJSON_AddNumberToObject(root, "timelapse_interval_sec", s_config.timelapse_interval_sec);
+    cJSON_AddNumberToObject(root, "timelapse_mode", s_config.timelapse_mode);
+
+    /* WebDAV */
+    cJSON_AddBoolToObject(root, "webdav_enabled", s_config.webdav_enabled);
+    cJSON_AddStringToObject(root, "webdav_url", s_config.webdav_url);
+    cJSON_AddStringToObject(root, "webdav_user", s_config.webdav_user);
+    cJSON_AddStringToObject(root, "upload_base_path", s_config.upload_base_path);
+
+    /* Alert */
+    cJSON_AddBoolToObject(root, "alert_webhook_enabled", s_config.alert_webhook_enabled);
+    cJSON_AddStringToObject(root, "alert_webhook_url", s_config.alert_webhook_url);
+
+    /* WiFi fallback */
+    cJSON_AddStringToObject(root, "wifi_ssid_2", s_config.wifi_ssid_2);
+    cJSON_AddStringToObject(root, "wifi_pass_2", s_config.wifi_pass_2);
+    cJSON_AddBoolToObject(root, "allow_ap_fallback", s_config.allow_ap_fallback);
+
+    /* System */
+    cJSON_AddBoolToObject(root, "sd_log_enabled", s_config.sd_log_enabled);
+    cJSON_AddNumberToObject(root, "day_night_mode", s_config.day_night_mode);
+    cJSON_AddNumberToObject(root, "xclk_freq_mhz", s_config.xclk_freq_mhz);
+    cJSON_AddNumberToObject(root, "wifi_roam_rssi_threshold", s_config.wifi_roam_rssi_threshold);
+    cJSON_AddNumberToObject(root, "wifi_roam_rssi_gap", s_config.wifi_roam_rssi_gap);
+
+    return root;
 }
