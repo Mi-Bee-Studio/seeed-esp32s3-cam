@@ -14,7 +14,7 @@ dependencies:
   #   # `public` flag doesn't have an effect dependencies of the `main` component.
   #   # All dependencies of `main` are public by default.
   #   public: true
-  espressif/esp32-camera: ~2.1.6
+  espressif/esp32-camera: ~2.1.7
   espressif/mdns: '*'
   # espp/rtsp is vendored in components/espp__rtsp (patched: digest auth,
   # TCP interleaved, max_sessions, mbedtls REQUIRES) — do not re-add here.
