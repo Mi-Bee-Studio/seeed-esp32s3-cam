@@ -16,4 +16,9 @@ dependencies:
   #   public: true
   espressif/esp32-camera: ~2.1.6
   espressif/mdns: '*'
-  espp/rtsp: "1.1.3"
+  # espp/rtsp is vendored in components/espp__rtsp (patched: digest auth,
+  # TCP interleaved, max_sessions, mbedtls REQUIRES) — do not re-add here.
+  # Its former private dependencies are declared directly instead:
+  espp/base_component: '*'
+  espp/socket: '*'
+  espp/task: '*'

@@ -6,17 +6,7 @@ project(mibee_cam)
 # Embed web UI files into SPIFFS partition
 spiffs_create_partition_image(spiffs main/web_ui FLASH_IN_PROJECT)
 
-# Apply local patches to managed components (managed_components/ is gitignored)
-set(RTSP_PATCH_DIR ${CMAKE_SOURCE_DIR}/patches/espp__rtsp)
-set(RTSP_MANAGED_DIR ${CMAKE_SOURCE_DIR}/managed_components/espp__rtsp)
-if(EXISTS ${RTSP_MANAGED_DIR}/src/rtsp_session.cpp AND EXISTS ${RTSP_PATCH_DIR}/src/rtsp_session.cpp)
-    file(COPY ${RTSP_PATCH_DIR}/src/rtsp_session.cpp DESTINATION ${RTSP_MANAGED_DIR}/src)
-    file(COPY ${RTSP_PATCH_DIR}/include/rtsp_session.hpp DESTINATION ${RTSP_MANAGED_DIR}/include)
-    message(STATUS "Applied RTSP component patches (TCP interleaved + digest auth fix)")
-endif()
-# Patch rtsp_server.{hpp,cpp} to add max_sessions config (concurrent client cap)
-if(EXISTS ${RTSP_MANAGED_DIR}/src/rtsp_server.cpp AND EXISTS ${RTSP_PATCH_DIR}/src/rtsp_server.cpp)
-    file(COPY ${RTSP_PATCH_DIR}/src/rtsp_server.cpp DESTINATION ${RTSP_MANAGED_DIR}/src)
-    file(COPY ${RTSP_PATCH_DIR}/include/rtsp_server.hpp DESTINATION ${RTSP_MANAGED_DIR}/include)
-    message(STATUS "Applied RTSP server patch (max_sessions concurrent client cap)")
-endif()
+# NOTE: espp__rtsp is vendored under components/ (digest auth + TCP interleaved +
+# max_sessions patches). Project components/ shadow managed_components/, so the
+# patches/ copy-at-configure mechanism was removed — builds are deterministic
+# locally and in CI. Do NOT re-add espp/rtsp to idf_component.yml.

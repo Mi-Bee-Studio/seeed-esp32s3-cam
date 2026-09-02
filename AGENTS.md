@@ -160,6 +160,12 @@ idf.py fullclean && idf.py set-target esp32s3 && idf.py build
 - **ESP-IDF**: v6.0.1 installed at `~/.espressif/v6.0.1/esp-idf/`
 - **Serial device path**: `/dev/serial/by-id/usb-Espressif_USB_JTAG_*-if00 → /dev/ttyACM0`
 - **Permission**: User must be in `uucp` group (or dialout on Debian/Ubuntu)
+- **Vendored espp__rtsp**: the RTSP component lives in `components/espp__rtsp/` (NOT
+  managed_components) — heavily patched: digest auth (mbedtls), TCP-interleaved RTP,
+  max_sessions cap. `components/` shadows the registry version, so builds are identical
+  locally and in CI. Do NOT re-add `espp/rtsp` to `main/idf_component.yml`; its deps
+  (base_component/socket/task) are declared directly instead, and `main/CMakeLists.txt`
+  REQUIRES `espp__rtsp` explicitly. Edit the vendored copy in place.
 
 ## SERIAL MONITOR
 

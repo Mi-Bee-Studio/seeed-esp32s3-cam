@@ -1,0 +1,30 @@
+dependencies:
+  espp/base_component: '>=1.0'
+  espp/socket: '>=1.0'
+  espp/task: '>=1.0'
+  idf:
+    version: '>=5.0'
+description: RTSP (Real-Time Streaming Protocol) Client & Server component for ESP-IDF
+documentation: https://esp-cpp.github.io/espp/rtsp.html
+license: MIT
+maintainers:
+- William Emfinger <waemfinger@gmail.com>
+repository: git://github.com/esp-cpp/espp.git
+repository_info:
+  commit_sha: 8590a22a458faf07f8cfcd9bc1710e9a7397065d
+  path: components/rtsp
+tags:
+- cpp
+- Component
+- RTSP
+- RTP
+- TCP
+- UDP
+- Video
+- Audio
+- MJPEG
+- H264
+- Client
+- Server
+url: https://github.com/esp-cpp/espp/tree/main/components/rtsp
+version: 1.1.3

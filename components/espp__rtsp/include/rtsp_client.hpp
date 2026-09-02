@@ -1,0 +1,257 @@
+#pragma once
+
+#include "socket_msvc.hpp"
+
+#include <atomic>
+#include <chrono>
+#include <memory>
+#include <string>
+#include <system_error>
+#include <unordered_map>
+#include <vector>
+
+#include "base_component.hpp"
+#include "tcp_socket.hpp"
+#include "udp_socket.hpp"
+
+#include "jpeg_frame.hpp"
+#include "mjpeg_depacketizer.hpp"
+#include "rtp_depacketizer.hpp"
+
+namespace espp {
+
+/// A class for interacting with an RTSP server using RTP and RTCP over UDP
+///
+/// This class is used to connect to an RTSP server and receive JPEG frames
+/// over RTP. It uses the TCP socket to send RTSP requests and receive RTSP
+/// responses. It uses the UDP socket to receive RTP and RTCP packets.
+///
+/// The RTSP client is designed to be used with the RTSP server in the
+/// [camera-streamer]https://github.com/esp-cpp/camera-streamer) project, but it
+/// should work with any RTSP server that sends JPEG frames over RTP.
+///
+/// \section rtsp_client_ex1 RtspClient Example
+/// \snippet rtsp_example.cpp rtsp_client_example
+class RtspClient : public BaseComponent {
+public:
+  struct TrackInfo {
+    int track_id{0};
+    int payload_type{0};
+    int clock_rate{0};
+    int channels{1};
+    std::string media_type;
+    std::string encoding_name;
+    std::string control_path;
+  };
+
+  /// Function type for the callback to call when a JPEG frame is received
+  typedef std::function<void(std::shared_ptr<espp::JpegFrame> jpeg_frame)> jpeg_frame_callback_t;
+
+  /// Generic frame callback — called for any track/codec with raw frame data
+  using frame_callback_t = std::function<void(int track_id, std::vector<uint8_t> &&data)>;
+
+  /// Callback invoked when the RTSP server disappears after playback starts.
+  using disconnect_callback_t = std::function<void(void)>;
+
+  /// Configuration for the RTSP client
+  struct Config {
+    std::string server_address;   ///< The server IP Address to connect to
+    int rtsp_port{8554};          ///< The port of the RTSP server
+    std::string path{"/mjpeg/1"}; ///< The path to the RTSP stream on the server. Will be appended
+                                  ///< to the server address and port to form the full path of the
+                                  ///< form "rtsp://<server_address>:<rtsp_port><path>"
+
+    /// Generic frame callback for any codec (track_id, raw frame data)
+    frame_callback_t on_frame{nullptr};
+
+    /// JPEG-specific frame callback (backward compatible).
+    /// If set and no depacketizer is registered for PT 26, an MjpegDepacketizer
+    /// is automatically created.
+    jpeg_frame_callback_t on_jpeg_frame{nullptr};
+
+    /// Called once if the client loses the server after playback starts.
+    /// This callback is intended for applications that want to stop playback
+    /// and re-enter service discovery or reconnect logic automatically.
+    disconnect_callback_t on_connection_lost{nullptr};
+
+    espp::Logger::Verbosity log_level =
+        espp::Logger::Verbosity::INFO; ///< The verbosity of the logger
+  };
+
+  /// Constructor
+  /// \param config The configuration for the RTSP client
+  explicit RtspClient(const espp::RtspClient::Config &config);
+
+  /// Destructor
+  /// Disconnects from the RTSP server
+  ~RtspClient();
+
+  /// Send an RTSP request to the server
+  /// \note This is a blocking call
+  /// \note This will parse the response and set the session ID if it is
+  ///      present in the response. If the response is not a 200 OK, then
+  ///      an error code will be set and the response will be returned.
+  ///      If the response is a 200 OK, then the response will be returned
+  ///      and the error code will be set to success.
+  /// \param method The method to use for connecting.
+  ///       Options are "OPTIONS", "DESCRIBE", "SETUP", "PLAY", and "TEARDOWN"
+  /// \param path The path to the RTSP stream on the server.
+  /// \param extra_headers Any extra headers to send with the request. These
+  ///      will be added to the request after the CSeq and Session headers. The
+  ///      key is the header name and the value is the header value. For example,
+  ///      {"Accept": "application/sdp"} will add "Accept: application/sdp" to the
+  ///      request. The "User-Agent" header will be added automatically. The
+  ///      "CSeq" and "Session" headers will be added automatically.
+  ///      The "Accept" header will be added automatically. The "Transport"
+  ///      header will be added automatically for the "SETUP" method. Defaults to
+  ///      an empty map.
+  /// \param ec The error code to set if an error occurs
+  /// \return The response from the server
+  std::string send_request(const std::string &method, const std::string &path,
+                           const std::unordered_map<std::string, std::string> &extra_headers,
+                           std::error_code &ec);
+
+  /// Connect to the RTSP server
+  /// Connects to the RTSP server and sends the OPTIONS request.
+  /// \param ec The error code to set if an error occurs
+  void connect(std::error_code &ec);
+
+  /// Disconnect from the RTSP server
+  /// Disconnects from the RTSP server and sends the TEARDOWN request.
+  /// \param ec The error code to set if an error occurs
+  void disconnect(std::error_code &ec);
+
+  /// Describe the RTSP stream
+  /// Sends the DESCRIBE request to the RTSP server and parses the response.
+  /// \param ec The error code to set if an error occurs
+  void describe(std::error_code &ec);
+
+  /// Setup the RTSP stream
+  /// \note Starts the RTP and RTCP threads.
+  /// Sends the SETUP request to the RTSP server and parses the response.
+  /// \note The default ports are 5000 and 5001 for RTP and RTCP respectively.
+  /// \note The default receive timeout is 5 seconds.
+  /// \param ec The error code to set if an error occurs
+  void setup(std::error_code &ec);
+
+  /// Setup the RTSP stream
+  /// Sends the SETUP request to the RTSP server and parses the response.
+  /// \note Starts the RTP and RTCP threads.
+  /// \param rtp_port The RTP client port
+  /// \param rtcp_port The RTCP client port
+  /// \param receive_timeout The timeout for receiving RTP and RTCP packets
+  /// \param ec The error code to set if an error occurs
+  void setup(size_t rtp_port, size_t rtcp_port, const std::chrono::duration<float> &receive_timeout,
+             std::error_code &ec);
+
+  /// Register a depacketizer for a specific RTP payload type.
+  /// When RTP packets with this payload type are received, they are
+  /// dispatched to the registered depacketizer.
+  /// @param payload_type The RTP payload type (e.g., 26 for MJPEG, 96 for H264)
+  /// @param depacketizer The depacketizer to handle packets of this type
+  void add_depacketizer(int payload_type, std::shared_ptr<RtpDepacketizer> depacketizer);
+
+  /// Play the RTSP stream
+  /// Sends the PLAY request to the RTSP server and parses the response.
+  /// \param ec The error code to set if an error occurs
+  void play(std::error_code &ec);
+
+  /// Pause the RTSP stream
+  /// Sends the PAUSE request to the RTSP server and parses the response.
+  /// \param ec The error code to set if an error occurs
+  void pause(std::error_code &ec);
+
+  /// Teardown the RTSP stream
+  /// Sends the TEARDOWN request to the RTSP server and parses the response.
+  /// \param ec The error code to set if an error occurs
+  void teardown(std::error_code &ec);
+
+  /// Get the parsed SDP track descriptions from the most recent DESCRIBE call.
+  /// \return The ordered set of discovered media tracks.
+  const std::vector<TrackInfo> &tracks() const { return tracks_; }
+
+protected:
+  void reset_transport_state();
+  void start_monitor_task();
+  void stop_monitor_task();
+  bool monitor_task_fn(std::mutex &m, std::condition_variable &cv, bool &task_notified);
+  void notify_connection_lost(std::string_view reason);
+
+  /// Parse the RTSP response
+  /// \note Parses response data for the following fields:
+  ///  - Status code
+  ///  - Status message
+  ///  - Session
+  /// \note Increments the sequence number on success.
+  /// \param response_data The response data to parse
+  /// \param ec The error code to set if an error occurs
+  /// \return True if the response was parsed successfully, false otherwise
+  bool parse_response(const std::string &response_data, std::error_code &ec);
+
+  /// Initialize the RTP socket
+  /// \note Starts the RTP socket task.
+  /// \param rtp_port The RTP client port
+  /// \param receive_timeout The timeout for receiving RTP packets
+  /// \param ec The error code to set if an error occurs
+  void init_rtp(size_t rtp_port, const std::chrono::duration<float> &receive_timeout,
+                std::error_code &ec);
+
+  /// Initialize the RTCP socket
+  /// \note Starts the RTCP socket task.
+  /// \param rtcp_port The RTCP client port
+  /// \param receive_timeout The timeout for receiving RTCP packets
+  /// \param ec The error code to set if an error occurs
+  void init_rtcp(size_t rtcp_port, const std::chrono::duration<float> &receive_timeout,
+                 std::error_code &ec);
+
+  /// Handle an RTP packet
+  /// \note Parses the RTP packet header, determines the payload type, and
+  /// dispatches to the appropriate registered depacketizer.
+  /// \note This function is called by the RTP socket task.
+  /// \param data The data to handle
+  /// \param sender_info The sender info
+  /// \return Optional data to send back to the sender
+  std::optional<std::vector<uint8_t>> handle_rtp_packet(std::vector<uint8_t> &data,
+                                                        const espp::Socket::Info &sender_info);
+
+  /// Handle an RTCP packet
+  /// \note Parses the RTCP packet and sends a response if necessary.
+  /// \note This function is called by the RTCP socket task.
+  /// \param data The data to handle
+  /// \param sender_info The sender info
+  /// \return Optional data to send back to the sender
+  std::optional<std::vector<uint8_t>> handle_rtcp_packet(std::vector<uint8_t> &data,
+                                                         const espp::Socket::Info &sender_info);
+
+  std::string server_address_;
+  int rtsp_port_;
+
+  espp::TcpSocket rtsp_socket_;
+  espp::UdpSocket rtp_socket_;
+  espp::UdpSocket rtcp_socket_;
+
+  jpeg_frame_callback_t on_jpeg_frame_{nullptr};
+  frame_callback_t on_frame_{nullptr};
+  disconnect_callback_t on_connection_lost_{nullptr};
+  std::unordered_map<int, std::shared_ptr<RtpDepacketizer>> depacketizers_;
+
+  std::unique_ptr<Task> monitor_task_;
+  std::chrono::steady_clock::duration rtp_receive_timeout_{std::chrono::seconds(15)};
+  std::chrono::steady_clock::duration initial_rtp_receive_timeout_{std::chrono::seconds(15)};
+  std::atomic<std::chrono::steady_clock::duration::rep> play_started_tick_{0};
+  std::atomic<std::chrono::steady_clock::duration::rep> last_rtp_packet_tick_{0};
+  std::atomic<bool> playing_{false};
+  std::atomic<bool> disconnecting_{false};
+  std::atomic<bool> connection_lost_reported_{false};
+
+  int cseq_ = 0;
+  int video_port_ = 0;
+  int video_payload_type_ = 0;
+  std::string path_;
+  std::string base_path_;
+  std::string session_id_;
+  std::vector<TrackInfo> tracks_;
+  std::unordered_map<int, int> payload_type_to_track_id_;
+};
+
+} // namespace espp
