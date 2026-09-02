@@ -8,6 +8,11 @@
 
 MiBee Cam — ESP-IDF firmware that turns a XIAO ESP32-S3 Sense into a surveillance camera. C (ESP-IDF v5.x/v6.0), CMake build, dual-core RTOS, no Arduino.
 
+**Sensor note (2026-09-02):** the unit on this desk reports `Camera: OV5640 @ HD` at
+boot even though this board is documented as OV2640 everywhere — the esp32-camera driver
+auto-detects whichever sensor is wired. Do not assume a specific sensor model when
+testing; read it from the boot log or `GET /api/status` (`camera` field).
+
 ## STRUCTURE
 
 ```
@@ -245,6 +250,10 @@ Key log patterns to watch:
 - **Don't reduce TCP_MSS below 1440** - sister repo (ai-thinker-esp32-cam) tried MSS=760, halves throughput. Keep MSS=1440, raise RTO/MAXRTX instead for weak WiFi.
 
 ## RELEASE
+
+**HARD RULE: never tag or publish a release unless the user explicitly asks for it in
+the current conversation** (see root workspace AGENTS.md — 2026-09-02 rule). The steps
+below describe HOW, not WHEN.
 
 Creating a release:
 
