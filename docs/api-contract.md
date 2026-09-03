@@ -85,16 +85,37 @@
 "不适用即省略"是通用规则：任何板不支持的字段直接不出现在 JSON 中，前端按字段缺省隐藏控件。
 板级扩展字段允许追加（如 seeed 的 `recording`/`sd_*`、luatos 的 `heap_baseline`）。
 
-## 5. `/api/camera` 与分辨率刻度
+## 5. `/api/camera` 与分辨率/画质刻度
 
 - `GET /api/camera` 返回：`resolution`(str)、`cam_framesize`(num)、`cam_quality`(num)、
-  `supported_resolutions:[{label,value}]`，以及该板支持的传感器微调字段
+  `supported_resolutions:[{label,value}]`、**`quality_min`/`quality_max`（2026-09-04 起，
+  板端声明的画质滑杆边界）**，以及该板支持的传感器微调字段
   （`cam_brightness/contrast/saturation/sharpness`、`cam_hmirror`、`cam_vflip`、`day_night_mode`
   —— 不支持的省略）。
-- **`value` 数值刻度是板相关的**（ai 0-3 / seeed 0-7 / n16r8 0-15 / luatos 0-3）。
-  前端**禁止硬编码分辨率表**，只从 `supported_resolutions` 填充下拉框，POST 只回传列表内的 value。
+- **`value` 数值刻度是板相关的**（ai 0-3 / seeed 0-5（板级上限 UXGA，见下表）/ n16r8 0-15 / luatos 0-3）。
+  前端**禁止硬编码分辨率表**，只从 `supported_resolutions` 填充下拉框，POST 只回传列表内的 value；
+  画质滑杆的 min/max 必须取自 `quality_min`/`quality_max`（字段缺失时回退 1-63 兼容旧固件）。
   AI↔VGA 联动通过 label 前缀 `VGA` 识别。
-- `POST /api/camera` 接受同名字段；分辨率/质量变化由固件做协调重初始化。
+- `POST /api/camera` 接受同名字段，**越界值一律 400**（错误信息含板级上限）。
+  应用语义按板不同：
+  - **ai-thinker**：分辨率/画质热重配（camera 互斥锁 + drain，无重启）。
+  - **seeed**：画质热应用（OV5640 set_quality 单寄存器写）；**分辨率变化保存+1s 后重启应用**
+    （OV5640 运行时 set_framesize 实测无效，PIT-019）。响应含 `rebooting:true`。
+  - **luatos**：任何摄像头变更保存+1s 后重启应用（fb_count=1 DRAM 热重配竞态，PIT-012）。
+    响应含 `rebooting:true`。
+
+### 5.1 板级实测上限（2026-09-04，各板实机 90s 推流+状态采样）
+
+| 板 | 传感器 | 分辨率上限 | 画质范围 | 上限档实测 | 超限后果（剔除理由） |
+|---|---|---|---|---|---|
+| ai-thinker | OV2640 | UXGA (0-3) | 10-63 | UXGA 采集 ~1.7fps / 推流 ~0.6fps，无崩溃 | —（传感器上限即板上限，UXGA 照常提供，慢但稳定） |
+| seeed | OV5640（实戴） | **UXGA** (0-5) | 10-63 | UXGA 0.9fps、峰值 93.5°C | FHD 峰值 97.5°C / QXGA 100.5°C，超 S3 规格 85°C（PIT-016） |
+| luatos | OV2640 | **VGA** (仅 0) | 10-63 | VGA 4.8-5.9fps，帧 13-23KB | SVGA 起 fb=96KB 在 DRAM（无 PSRAM）触发堆枯竭螺旋（PIT-012） |
+| n16r8 | — | 待实测（未连接） | 待实测 | — | 上线前按本表流程补测 |
+
+画质下限 10 的依据：esp32-camera 的 JPEG 帧缓冲按 `宽×高/5` 分配（假设最高 1:5 压缩），
+q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-thinker UXGA 224KB / seeed UXGA 193KB）
+均留有余量。
 
 ## 6. WebSocket 事件（`/ws`，websocket 能力板）
 
@@ -112,8 +133,8 @@
 - **S3 三板**（n16r8/luatos/seeed）：共享同一套 SPA（`index.html`/`app.js`/`i18n.js`/`style.css`
   四文件 md5 一致，单一源码，**禁止按板分叉**）。全部板差异运行时来自
   capabilities + status 字段缺省 + `supported_resolutions`。
-- **ai-thinker**：保留轻量 MPA（弱 WiFi 首屏体积决策），仅要求契约层一致
-  （字段名/端点语义随本契约）。
+- **ai-thinker**：2026-09-03 起同样服务统一 SPA 四文件（与三 S3 仓 md5 一致）；
+  旧 MPA 页面保留在原路径兜底（preview/config/files/setup.html 直达可用）。
 - 鉴权 UX：密码存 sessionStorage，写操作自动附 `X-Password`；401 时提示到系统页设置。
 
 ## 8. 已知容忍差异（记录在案，计划收敛）

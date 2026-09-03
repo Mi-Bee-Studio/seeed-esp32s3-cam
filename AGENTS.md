@@ -235,6 +235,29 @@ Key log patterns to watch:
 - `wifi: AP mode started` — fallback to AP (no WiFi config)
 - `recorder: Recording started` — normal operation
 
+### 2026-09-04 摄像头上限实测 + 三个坑修复（已烧录验证）
+
+**实测矩阵**（重启应用法：改配置→重启→90s 探针；ch11 拥塞网，帧源确认活着）：
+| 档位 | 推流 fps | 峰值温度 | 判定 |
+|---|---|---|---|
+| HD q12 | 7.3 | 81.5°C | 默认档，健康 |
+| SXGA q12 | 1.6 | 90.5°C | 可选 |
+| UXGA q12 | 0.9 | 93.5°C | **板级上限** |
+| FHD q12 | 1.0 | 97.5°C | 剔除（超 85°C 规格）|
+| QXGA q12 | 0.77 | 100.5°C | 剔除 |
+
+**修复三件套**（详见 PITFALLS PIT-019/020/021）：
+1. **OV5640 运行时 set_framesize 无效**（寄存器写成功但输出帧不变，HD→SXGA 后
+   capture 仍 1280x720）→ 分辨率变更改"保存+应答+1s 重启"，`camera_set_resolution()`
+   留 ⚠️ 注释仅供启动期；画质走新 `camera_set_quality()`（单寄存器写，热应用实测 OK）。
+2. **板级上限 UXGA**：`camera_driver.h` `CAMERA_RES_BOARD_MAX`（FHD/QXGA 温度出局）；
+   `camera_get_effective_max_res()` = min(传感器, 板级)，supported_resolutions/POST 校验/
+   camera_init/NVS 加载全部走它（测试残留的 QXGA 配置在首次加载被自动钳到 UXGA）。
+3. **画质 10-63**（`CAMERA_QUALITY_MIN/MAX`，fb=w*h/5 预算）+ `GET /api/camera`
+   新增 `quality_min/quality_max`（SPA 滑杆钳制）。
+- 观察项（未修）：**停录像 = 杀流**——MJPEG 帧源是 recording_task，用户停录后流死到
+  下次重启（PIT-020，日志签名 `No frames for 10 tries` 循环）；测流前先查 `/api/record`。
+
 ## NOTES
 
 ### 2026-09-02 套接字耗尽事故（Web UI 整体不可用的根因，已修复）
@@ -339,6 +362,7 @@ use-after-free。对已释放内存的删除是"俄罗斯轮盘"——多数时�
 
 悬案（未证实）：两次无解释 POWERON 重启（10:43、13:0x 附近）与**同集线器上刷写其他板**
 的时间窗重合——疑似 hub 电流冲击；无证据不下结论，采集器继续盯着。
+
 
 ### 温度读数 0°C / 超量程（2026-09-02 修复）
 

@@ -53,6 +53,19 @@ typedef enum {
     CAMERA_RES_QXGA = 7,   /* 2048x1536 */
 } camera_res_t;
 
+/* 板级实测上限（2026-09-04，本机 OV5640，推流+录像负载下 90s 实测）：
+ * FHD 峰值 97.5°C / QXGA 100.5°C —— 超 S3 规格 85°C（PIT-016 观察项），
+ * 均从可选档位剔除；UXGA 峰值 93.5°C 且流稳定，定为板上限。
+ * 传感器理论上限（OV5640=QXGA）仍由 camera_get_max_resolution() 给出，
+ * effective 上限 = min(传感器上限, 板级上限)。 */
+#define CAMERA_RES_BOARD_MAX CAMERA_RES_UXGA
+
+/* JPEG 画质边界（数值越小画质越高、帧越大）。esp32-camera 的 JPEG 帧缓冲
+ * 按 宽*高/5 分配（假设最高 1:5 压缩）；q<10 在细节丰富的场景会超预算，
+ * 产生截断帧。实测 UXGA q12 ≈ 193KB < 384KB fb 上限。 */
+#define CAMERA_QUALITY_MIN 10
+#define CAMERA_QUALITY_MAX 63
+
 /** Captured frame descriptor (buffer owned by esp_camera driver, in PSRAM). */
 typedef struct {
     /** 帧数据缓冲区指针 */
@@ -135,6 +148,17 @@ camera_res_t camera_get_resolution(void);
  * @return 该传感器支持的最大分辨率枚举值
  */
 camera_res_t camera_get_max_resolution(camera_sensor_t sensor);
+
+/** @brief 获取当前板上实际可用的最大分辨率
+ * @return min(传感器上限, CAMERA_RES_BOARD_MAX)
+ */
+camera_res_t camera_get_effective_max_res(void);
+
+/** @brief 运行时设置 JPEG 画质（OV5640 单寄存器写，无需重启）
+ * @param quality 画质值（越界自动钳制到 [CAMERA_QUALITY_MIN, MAX]）
+ * @return ESP_OK 成功；ESP_ERR_INVALID_STATE 相机未初始化
+ */
+esp_err_t camera_set_quality(uint8_t quality);
 
 /** @brief 将分辨率枚举值转换为可读字符串
  * @param res 分辨率枚举值

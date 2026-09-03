@@ -105,6 +105,11 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
         ESP_LOGW(TAG, "Camera already initialized");
         return ESP_OK;
     }
+    if (quality < CAMERA_QUALITY_MIN || quality > CAMERA_QUALITY_MAX) {
+        ESP_LOGW(TAG, "Quality %d out of range [%d-%d], clamping",
+                 quality, CAMERA_QUALITY_MIN, CAMERA_QUALITY_MAX);
+        quality = (quality < CAMERA_QUALITY_MIN) ? CAMERA_QUALITY_MIN : CAMERA_QUALITY_MAX;
+    }
 
     /* Release GPIO10 so camera can use it as XCLK (no longer shared with SD card) */
     gpio_reset_pin(CAM_PIN_XCLK);
@@ -169,12 +174,20 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
         }
     }
 
-    /* Clamp resolution to sensor capability */
+    /* Clamp resolution to sensor capability AND board-tested maximum
+     * (thermal: FHD/QXGA exceed safe chip temp on this board — see
+     * CAMERA_RES_BOARD_MAX note in camera_driver.h) */
     if (s_sensor != CAMERA_SENSOR_UNKNOWN && res > camera_get_max_resolution(s_sensor)) {
         camera_res_t clamped = camera_get_max_resolution(s_sensor);
         ESP_LOGW(TAG, "Requested res %d exceeds sensor max %d, clamping", res, clamped);
         sensor->set_framesize(sensor, res_to_framesize(clamped));
         res = clamped;
+    }
+    if (res > CAMERA_RES_BOARD_MAX) {
+        ESP_LOGW(TAG, "Requested res %d exceeds board-tested max %d (thermal), clamping",
+                 res, CAMERA_RES_BOARD_MAX);
+        sensor->set_framesize(sensor, res_to_framesize(CAMERA_RES_BOARD_MAX));
+        res = CAMERA_RES_BOARD_MAX;
     }
 
     s_current_res = res;
@@ -245,6 +258,33 @@ camera_res_t camera_get_max_resolution(camera_sensor_t sensor)
     }
 }
 
+camera_res_t camera_get_effective_max_res(void)
+{
+    camera_res_t sensor_max = (s_sensor != CAMERA_SENSOR_UNKNOWN)
+        ? camera_get_max_resolution(s_sensor) : CAMERA_RES_XGA;
+    return (sensor_max < CAMERA_RES_BOARD_MAX) ? sensor_max : CAMERA_RES_BOARD_MAX;
+}
+
+esp_err_t camera_set_quality(uint8_t quality)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (quality < CAMERA_QUALITY_MIN) quality = CAMERA_QUALITY_MIN;
+    if (quality > CAMERA_QUALITY_MAX) quality = CAMERA_QUALITY_MAX;
+
+    sensor_t *sensor = esp_camera_sensor_get();
+    if (!sensor || !sensor->set_quality) {
+        return ESP_FAIL;
+    }
+    if (sensor->set_quality(sensor, quality) != 0) {
+        ESP_LOGE(TAG, "Failed to set quality to %u", quality);
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "Quality set to %u", quality);
+    return ESP_OK;
+}
+
 /** @brief 捕获一帧 JPEG 图像
  *
  * 从摄像头驱动获取一帧 JPEG 数据。帧缓冲区位于 PSRAM，
@@ -311,6 +351,10 @@ void camera_return_fb(camera_frame_t *frame)
  * @param res 目标分辨率
  * @return ESP_OK 成功，ESP_ERR_INVALID_STATE 未初始化，ESP_FAIL 设置失败
  */
+/* ⚠️ 2026-09-04 实测证伪：OV5640 上运行时 sensor->set_framesize() 只写
+ * 寄存器不重启 DSP——返回 0 "成功"但输出帧仍是旧分辨率（HD 改 SXGA 后
+ * /api/capture 仍出 1280x720）。分辨率变更必须走保存+重启（esp_camera_init
+ * 在启动时以新 framesize 初始化才真正生效）。本函数仅供启动期使用。 */
 esp_err_t camera_set_resolution(camera_res_t res)
 {
     if (!s_initialized) {

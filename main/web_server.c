@@ -247,8 +247,7 @@ static esp_err_t api_status_handler(httpd_req_t *req)
 
     /* Supported resolutions for the detected sensor (for dynamic UI filtering) */
     {
-        camera_sensor_t cam_sensor = camera_get_sensor();
-        camera_res_t max_res = camera_get_max_resolution(cam_sensor);
+        camera_res_t max_res = camera_get_effective_max_res();
         cJSON *res_arr = cJSON_CreateArray();
         for (int r = CAMERA_RES_VGA; r <= (int)max_res; r++) {
             cJSON *item = cJSON_CreateObject();
@@ -472,10 +471,13 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     uint8_t prev_resolution = cfg->cam_framesize;
     if ((item = cJSON_GetObjectItem(json, "cam_framesize"))) {
         int val = item->valueint;
-        if (!validate_uint_range(val, 0, 7)) {
+        if (!validate_uint_range(val, 0, (int)camera_get_effective_max_res())) {
+            char msg[96];
+            snprintf(msg, sizeof(msg), "Invalid resolution (board-tested max: %s)",
+                     camera_res_to_str(camera_get_effective_max_res()));
             cJSON_Delete(json);
             config_unlock();
-            return json_error(req, "Invalid resolution (must be 0-7)", HTTPD_400_BAD_REQUEST);
+            return json_error(req, msg, HTTPD_400_BAD_REQUEST);
         }
         cfg->cam_framesize = (uint8_t)val;
     }
@@ -499,10 +501,13 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     }
     if ((item = cJSON_GetObjectItem(json, "cam_quality"))) {
         int val = item->valueint;
-        if (!validate_uint_range(val, 1, 63)) {
+        if (!validate_uint_range(val, CAMERA_QUALITY_MIN, CAMERA_QUALITY_MAX)) {
+            char msg[80];
+            snprintf(msg, sizeof(msg), "Invalid jpeg_quality (must be %d-%d)",
+                     CAMERA_QUALITY_MIN, CAMERA_QUALITY_MAX);
             cJSON_Delete(json);
             config_unlock();
-            return json_error(req, "Invalid jpeg_quality (must be 1-63)", HTTPD_400_BAD_REQUEST);
+            return json_error(req, msg, HTTPD_400_BAD_REQUEST);
         }
         cfg->cam_quality = (uint8_t)val;
     }
@@ -666,14 +671,18 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
 
     config_unlock();
 
-    /* Apply resolution change to camera sensor + restart recorder for correct AVI dimensions */
+    /* 分辨率变化走保存+重启应用（OV5640 运行时 set_framesize 无效，
+     * 见 camera_driver.c 注释；2026-09-04）。 */
     if (cfg->cam_framesize != prev_resolution) {
-        camera_set_resolution((camera_res_t)cfg->cam_framesize);
-        if (recorder_get_state() == RECORDER_RECORDING) {
-            recorder_stop();
-            vTaskDelay(pdMS_TO_TICKS(200));
-            recorder_start();
-        }
+        cJSON *data = cJSON_CreateObject();
+        cJSON_AddStringToObject(data, "status", "saved (rebooting to apply)");
+        cJSON_AddBoolToObject(data, "rebooting", true);
+        esp_err_t send_ret = json_ok(req, data);
+        ESP_LOGW(TAG, "Camera resolution change %u->%u via /api/config — rebooting",
+                 prev_resolution, cfg->cam_framesize);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        esp_restart();
+        return send_ret;
     }
     return json_ok(req, NULL);
 }
@@ -1693,7 +1702,7 @@ static esp_err_t api_capture_handler(httpd_req_t *req)
 /** 构造 supported_resolutions 数组（与 /api/status 保持一致的标签/取值） */
 static cJSON *camera_supported_resolutions_json(void)
 {
-    camera_res_t max_res = camera_get_max_resolution(camera_get_sensor());
+    camera_res_t max_res = camera_get_effective_max_res();
     cJSON *res_arr = cJSON_CreateArray();
     for (int r = CAMERA_RES_VGA; r <= (int)max_res; r++) {
         const char *label = NULL;
@@ -1725,6 +1734,9 @@ static esp_err_t api_camera_get_handler(httpd_req_t *req)
     cJSON_AddStringToObject(data, "resolution", camera_res_to_str(camera_get_resolution()));
     cJSON_AddNumberToObject(data, "cam_framesize", cfg->cam_framesize);
     cJSON_AddNumberToObject(data, "cam_quality", cfg->cam_quality);
+    /* 契约扩展（2026-09-04）：画质滑杆边界由板端声明，前端据此钳制输入 */
+    cJSON_AddNumberToObject(data, "quality_min", CAMERA_QUALITY_MIN);
+    cJSON_AddNumberToObject(data, "quality_max", CAMERA_QUALITY_MAX);
     cJSON_AddNumberToObject(data, "fps", cfg->fps);
     cJSON_AddBoolToObject(data, "cam_vflip", cfg->cam_vflip);
     cJSON_AddBoolToObject(data, "cam_hmirror", cfg->cam_hmirror);
@@ -1748,27 +1760,34 @@ static esp_err_t api_camera_post_handler(httpd_req_t *req)
 
     cam_config_t *cfg = config_get();
     cJSON *item;
-    camera_res_t max_res = camera_get_max_resolution(camera_get_sensor());
 
     config_lock();
 
     uint8_t prev_resolution = cfg->cam_framesize;
     if ((item = cJSON_GetObjectItem(json, "cam_framesize"))) {
         int val = item->valueint;
-        if (val < 0 || val > (int)max_res) {
+        if (val < 0 || val > (int)camera_get_effective_max_res()) {
+            char msg[96];
+            snprintf(msg, sizeof(msg), "Invalid resolution (board-tested max: %s)",
+                     camera_res_to_str(camera_get_effective_max_res()));
             cJSON_Delete(json);
             config_unlock();
-            return json_error(req, "Invalid resolution for this sensor", HTTPD_400_BAD_REQUEST);
+            return json_error(req, msg, HTTPD_400_BAD_REQUEST);
         }
         cfg->cam_framesize = (uint8_t)val;
     }
+    bool quality_changed = false;
     if ((item = cJSON_GetObjectItem(json, "cam_quality"))) {
         int val = item->valueint;
-        if (val < 1 || val > 63) {
+        if (val < CAMERA_QUALITY_MIN || val > CAMERA_QUALITY_MAX) {
+            char msg[80];
+            snprintf(msg, sizeof(msg), "Invalid cam_quality (must be %d-%d)",
+                     CAMERA_QUALITY_MIN, CAMERA_QUALITY_MAX);
             cJSON_Delete(json);
             config_unlock();
-            return json_error(req, "Invalid cam_quality (must be 1-63)", HTTPD_400_BAD_REQUEST);
+            return json_error(req, msg, HTTPD_400_BAD_REQUEST);
         }
+        quality_changed = (val != cfg->cam_quality);
         cfg->cam_quality = (uint8_t)val;
     }
     if ((item = cJSON_GetObjectItem(json, "cam_vflip")))
@@ -1789,16 +1808,25 @@ static esp_err_t api_camera_post_handler(httpd_req_t *req)
     config_save();
     config_unlock();
 
-    /* 立即生效：翻转/镜像/日夜模式；分辨率变化走协调重配（与 POST /api/config 相同） */
+    /* 立即生效：翻转/镜像/日夜模式/画质（OV5640 set_quality 单寄存器写，安全） */
     camera_set_flip(cfg->cam_vflip, cfg->cam_hmirror);
     camera_set_day_night(cfg->day_night_mode);
+    if (quality_changed) {
+        camera_set_quality(cfg->cam_quality);
+    }
+    /* 分辨率变化：OV5640 运行时 set_framesize 实测无效（只写寄存器不重启
+     * DSP，2026-09-04），必须保存+重启让 esp_camera_init 以新 framesize
+     * 初始化。应答后 1s 重启（同 luatos 模式）。 */
     if (cfg->cam_framesize != prev_resolution) {
-        camera_set_resolution((camera_res_t)cfg->cam_framesize);
-        if (recorder_get_state() == RECORDER_RECORDING) {
-            recorder_stop();
-            vTaskDelay(pdMS_TO_TICKS(200));
-            recorder_start();
-        }
+        cJSON *data = cJSON_CreateObject();
+        cJSON_AddStringToObject(data, "status", "saved (rebooting to apply)");
+        cJSON_AddBoolToObject(data, "rebooting", true);
+        esp_err_t send_ret = json_ok(req, data);
+        ESP_LOGW(TAG, "Camera resolution change %u->%u — rebooting to apply",
+                 prev_resolution, cfg->cam_framesize);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        esp_restart();
+        return send_ret;
     }
 
     return api_camera_get_handler(req);

@@ -16,6 +16,7 @@
  */
 
 #include "config_manager.h"
+#include "camera_driver.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -429,6 +430,20 @@ esp_err_t config_init(void)
     nvs_get_u8(h, "fps", &s_config.fps);
     nvs_get_u16(h, "segment_sec", &s_config.segment_sec);
     nvs_get_u8(h, "cam_quality", &s_config.cam_quality);
+    /* 板级边界（2026-09-04）：旧固件可能存过 FHD/QXGA（温度超限）或 q<10
+     * （JPEG fb 超预算）——加载时钳制，运行值与上报值保持一致 */
+    if (s_config.cam_framesize > CAMERA_RES_BOARD_MAX) {
+        ESP_LOGW(TAG, "Legacy cam_framesize=%u clamped to %d (board max, thermal)",
+                 s_config.cam_framesize, CAMERA_RES_BOARD_MAX);
+        s_config.cam_framesize = CAMERA_RES_BOARD_MAX;
+    }
+    if (s_config.cam_quality < CAMERA_QUALITY_MIN) {
+        ESP_LOGW(TAG, "Legacy cam_quality=%u clamped to %d on load",
+                 s_config.cam_quality, CAMERA_QUALITY_MIN);
+        s_config.cam_quality = CAMERA_QUALITY_MIN;
+    } else if (s_config.cam_quality > CAMERA_QUALITY_MAX) {
+        s_config.cam_quality = CAMERA_QUALITY_MAX;
+    }
     nvs_get_u8(h, "cam_vflip", (uint8_t *)&s_config.cam_vflip);
     nvs_get_u8(h, "cam_hmirror", (uint8_t *)&s_config.cam_hmirror);
     read_str(h, "web_password", s_config.web_password, sizeof(s_config.web_password));

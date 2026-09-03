@@ -567,7 +567,10 @@ async function loadCamera() {
     select.value = String(d.cam_framesize);
 
     const q = $('cam-quality');
-    q.value = d.cam_quality ?? 12;
+    /* 板端声明的画质边界（契约 2026-09-04）：无该字段的旧固件回退 1-63 */
+    q.min = d.quality_min ?? 1;
+    q.max = d.quality_max ?? 63;
+    q.value = Math.min(Math.max(d.cam_quality ?? 12, +q.min), +q.max);
     $('cam-quality-val').textContent = q.value;
     paintSlider(q);
 
