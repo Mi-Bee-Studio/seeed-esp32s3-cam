@@ -32,6 +32,7 @@
 #include "lwip/ip_addr.h"
 #include "mdns.h"
 #include "logging.h"
+#include "ws_server.h"
 
 static const char *TAG = "wifi";
 
@@ -195,6 +196,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
         case WIFI_EVENT_STA_DISCONNECTED: {
             s_state = WIFI_STATE_STA_DISCONNECTED;
             xEventGroupClearBits(s_event_group, CONNECTED_BIT);
+            ws_broadcast("wifi_state_changed", "{\"state\":\"disconnected\"}");
             if (s_stopping_sta) {
                 s_stopping_sta = false;
                 return;
@@ -223,6 +225,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
             s_network_failures = 0;
             s_retry_interval_ms = WIFI_RETRY_MIN_MS;
             xEventGroupSetBits(s_event_group, CONNECTED_BIT);
+            ws_broadcast("wifi_state_changed", "{\"state\":\"connected\"}");
             
             /* Track current connected SSID */
             wifi_ap_record_t ap_info;
@@ -352,6 +355,7 @@ esp_err_t wifi_start_ap(void)
 
     snprintf(s_ip_str, sizeof(s_ip_str), "192.168.4.1");
     s_state = WIFI_STATE_AP;
+    ws_broadcast("wifi_state_changed", "{\"state\":\"ap\"}");
 
     ESP_LOGI(TAG, "AP mode started, SSID=%s, IP=192.168.4.1", ap_config.ap.ssid);
     LOG_EVENT(LOG_EVENT_WIFI_AP_STARTED, "ssid=%s", ap_config.ap.ssid);
@@ -406,6 +410,7 @@ esp_err_t wifi_start_sta(void)
 
     s_state = WIFI_STATE_STA_CONNECTING;
     strlcpy(s_current_ssid, config->wifi_ssid, sizeof(s_current_ssid));
+    ws_broadcast("wifi_state_changed", "{\"state\":\"connecting\"}");
     ESP_LOGI(TAG, "STA mode connecting to SSID=%s", config->wifi_ssid);
     ESP_ERROR_CHECK(esp_wifi_connect());
     return ESP_OK;
@@ -467,6 +472,12 @@ const char *wifi_get_current_ssid(void)
         return "";
     }
     return s_current_ssid;
+}
+
+/** @brief 当前使用的配置槽位：true=备用网（wifi_ssid_2），false=主网 */
+bool wifi_using_backup(void)
+{
+    return s_using_backup_wifi;
 }
 
 /** @brief 获取 mDNS 主机名（mibee_cam-XXXX 格式） */

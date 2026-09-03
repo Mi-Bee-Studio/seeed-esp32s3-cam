@@ -27,6 +27,9 @@ extern "C" {
 
 #define CONFIG_CURRENT_VERSION 2
 
+/* 契约 v1.1：家族统一默认管理密码（首次启动/空密码迁移/一次性种子共用） */
+#define CONFIG_DEFAULT_WEB_PASSWORD "***REMOVED-DEFAULT-PASSWORD***"
+
 /** @brief 摄像头全局配置结构体，持久化到 NVS 闪存 */
 typedef struct {
     uint8_t schema_version;              /* 配置 schema 版本号，用于 NVS 迁移（首字段） */

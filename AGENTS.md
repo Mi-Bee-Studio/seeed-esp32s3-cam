@@ -363,6 +363,19 @@ use-after-free。对已释放内存的删除是"俄罗斯轮盘"——多数时�
 悬案（未证实）：两次无解释 POWERON 重启（10:43、13:0x 附近）与**同集线器上刷写其他板**
 的时间窗重合——疑似 hub 电流冲击；无证据不下结论，采集器继续盯着。
 
+### 2026-09-03 晚 Web OTA 实战验证 + wifi_net 字段（未走串口烧录）
+
+1. **OTA 能力端到端可用**（本次固件+UI 全程 WiFi 刷写，无串口参与）：
+   `POST /api/ota/upload`（裸二进制流，非 multipart；Content-Length 即文件大小，
+   X-Password 认证）→ 写入 next 分区 → 应答后 1s 自动重启；
+   `POST /api/ota/spiffs` 同为裸流，先整擦 SPIFFS 再写、随后自动重启。
+   实测 1.64MB 固件 17.6s（~93KB/s @ ch11 拥塞网）、256KB SPIFFS 2.7s；
+   切换 ota_0→ota_1 干净启动无回滚。**上限：镜像 ≤1.9MB（OTA 槽尺寸）**。
+2. **status 新增 `wifi_net`**（`primary|secondary`，`wifi_using_backup()`）——与
+   ai-thinker/luatos 契约对齐，SPA WiFi 页"主网络/备用网络"标识依赖它。
+3. **板载 SPA 已更新到双 WiFi 版本**（含备用 SSID 表单 + 当前连接行），
+   `md5(设备 /app.js) == md5(仓库)` 验证通过（5e5c9a5d…）。
+   OTA 场景下这条 md5 校验尤其重要——SPIFFS 上传失败中途 = UI 丢，只能串口救。
 
 ### 温度读数 0°C / 超量程（2026-09-02 修复）
 

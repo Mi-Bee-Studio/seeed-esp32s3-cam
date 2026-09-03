@@ -36,7 +36,7 @@ static const char *TAG = "uploader";
 
 #define UPLOAD_QUEUE_SIZE    16
 #define MAX_RETRIES          3
-#define MAX_CONSEC_FAILS     10
+#define MAX_CONSEC_FAILS     3   /* 2026-09-02: 10→3 — 每次失败≈9个短连接风暴会把14→24格的lwIP池打进TIME_WAIT，导致httpd accept EMFILE、Web UI数分钟不可用 */
 #define PAUSE_DURATION_MS    (5 * 60 * 1000)  /* 5 minutes */
 #define PATH_BUF_SIZE        128
 #define QUEUE_FILE_PATH       "/spiffs/upload_queue.json"
@@ -361,6 +361,12 @@ static void upload_task(void *arg)
             if (s_consec_fails >= MAX_CONSEC_FAILS) {
                 s_paused_until_ms = esp_timer_get_time() / 1000 + PAUSE_DURATION_MS;
                 ESP_LOGW(TAG, "Too many failures, pausing for 5 minutes");
+            } else {
+                /* 失败退避：立即重取下一个队列文件会在 NAS 不可达时形成
+                 * 连环连接风暴（16 文件 × ~9 连接/文件），挤占 lwIP 池并触发
+                 * httpd 探针误判（2026-09-02 整夜循环重启事故的链条一环）。
+                 * 等 30s 让 TIME_WAIT 退去再试下一个。 */
+                for (int i = 0; i < 30; i++) { esp_task_wdt_reset(); vTaskDelay(pdMS_TO_TICKS(1000)); }
             }
         }
     }

@@ -213,6 +213,8 @@ static esp_err_t api_status_handler(httpd_req_t *req)
         cfg->device_name[0] ? cfg->device_name : "MiBeeCam");
     cJSON_AddStringToObject(data, "wifi_ssid", cfg->wifi_ssid);
     cJSON_AddStringToObject(data, "current_ssid", wifi_get_current_ssid());
+    /* 当前使用的配置槽位（契约字段，SPA WiFi 页"主网络/备用网络"标识用） */
+    cJSON_AddStringToObject(data, "wifi_net", wifi_using_backup() ? "secondary" : "primary");
     wifi_state_t ws = wifi_get_state();
     cJSON_AddStringToObject(data, "wifi_state",
         ws == WIFI_STATE_AP ? "ap" :

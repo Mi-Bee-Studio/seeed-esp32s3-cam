@@ -61,4 +61,6 @@ struct esp_netif_obj *wifi_get_sta_netif(void);
 /** @brief 获取 mDNS 主机名（mibee_cam-XXXX 格式） */
 /** @brief 获取当前连接的 SSID（STA 模式），空字符串表示未连接或 AP 模式 */
 const char *wifi_get_current_ssid(void);
+/** @brief 当前使用的配置槽位：true=备用网（wifi_ssid_2），false=主网 */
+bool wifi_using_backup(void);
 const char *wifi_get_mdns_hostname(void);

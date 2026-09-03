@@ -21,6 +21,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "freertos/semphr.h"
+#include <time.h>
 
 static const char *TAG = "ws";
 
@@ -101,6 +102,9 @@ static esp_err_t ws_handler(httpd_req_t *req)
 /*  Public API                                                          */
 /* ------------------------------------------------------------------ */
 
+/* Forward decl — defined below init */
+static void reaper_task(void *arg);
+
 esp_err_t ws_server_init(httpd_handle_t server)
 {
     static bool s_initialized = false;
@@ -112,6 +116,12 @@ esp_err_t ws_server_init(httpd_handle_t server)
         ESP_LOGE(TAG, "Failed to create mutex");
         return ESP_FAIL;
     }
+
+    /* 死客户端回收器：每 30s 向所有客户端发 WS ping。
+     * 浏览器异常断开（关标签页/断网）不会发 CLOSE 帧，死连接会一直占着
+     * httpd 的 open socket；ping 失败即摘除，防止套接字被慢性耗尽。 */
+    xTaskCreate(reaper_task, "ws_reaper", 3072, server, 1, NULL);
+
     httpd_uri_t ws_uri = {
         .uri          = "/ws",
         .method       = HTTP_GET,
@@ -132,14 +142,52 @@ esp_err_t ws_server_init(httpd_handle_t server)
     return ESP_OK;
 }
 
+static void reaper_task(void *arg)
+{
+    httpd_handle_t server = (httpd_handle_t)arg;
+
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(30000));
+
+        httpd_ws_frame_t ping = {
+            .type    = HTTPD_WS_TYPE_PING,
+            .payload = NULL,
+            .len     = 0,
+        };
+
+        xSemaphoreTake(s_mutex, portMAX_DELAY);
+        int count = s_client_count;
+        httpd_req_t *reqs[MAX_WS_CLIENTS];
+        for (int i = 0; i < count; i++) reqs[i] = s_clients[i].req;
+        xSemaphoreGive(s_mutex);
+
+        for (int i = 0; i < count; i++) {
+            if (httpd_ws_send_frame(reqs[i], &ping) != ESP_OK) {
+                int fd = httpd_req_to_sockfd(reqs[i]);
+                xSemaphoreTake(s_mutex, portMAX_DELAY);
+                for (int j = 0; j < s_client_count; j++) {
+                    if (s_clients[j].fd == fd) {
+                        s_clients[j] = s_clients[--s_client_count];
+                        ESP_LOGW(TAG, "Reaped dead WS client fd=%d (total=%d)", fd, s_client_count);
+                        break;
+                    }
+                }
+                xSemaphoreGive(s_mutex);
+            }
+        }
+    }
+}
+
 void ws_broadcast(const char *type, const char *data)
 {
     if (s_client_count == 0) {
         return;
     }
 
+    /* 契约 v1.0 统一事件格式: {"type":"...","timestamp":<unix>,"data":{...}} */
     char buf[512];
-    int len = snprintf(buf, sizeof(buf), "{\"type\":\"%s\",\"data\":%s}", type, data);
+    int len = snprintf(buf, sizeof(buf), "{\"type\":\"%s\",\"timestamp\":%lld,\"data\":%s}",
+                       type, (long long)time(NULL), (data && data[0]) ? data : "{}");
     if (len >= (int)sizeof(buf)) {
         len = (int)sizeof(buf) - 1;
     }

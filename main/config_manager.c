@@ -73,7 +73,7 @@ static const cam_config_t s_defaults = {
     .audio_record_to_sd = false,
     .sd_log_enabled = false,
     .day_night_mode = 0,
-    .web_password   = "",
+    .web_password   = CONFIG_DEFAULT_WEB_PASSWORD,
     .schema_version = CONFIG_CURRENT_VERSION,
     .xclk_freq_mhz = 16,
     .wifi_roam_rssi_threshold = -75,
@@ -446,7 +446,12 @@ esp_err_t config_init(void)
     }
     nvs_get_u8(h, "cam_vflip", (uint8_t *)&s_config.cam_vflip);
     nvs_get_u8(h, "cam_hmirror", (uint8_t *)&s_config.cam_hmirror);
+    /* 空密码迁移到家族统一默认（契约 v1.1）；空密码写入已被服务端拒绝，
+     * SET_PASSWORD_FIRST 仅在出厂默认场景出现 */
     read_str(h, "web_password", s_config.web_password, sizeof(s_config.web_password));
+    if (s_config.web_password[0] == '\0') {
+        strlcpy(s_config.web_password, CONFIG_DEFAULT_WEB_PASSWORD, sizeof(s_config.web_password));
+    }
     read_str(h, "device_name", s_config.device_name, sizeof(s_config.device_name));
     read_str(h, "timezone", s_config.timezone, sizeof(s_config.timezone));
     nvs_get_u8(h, "cleanup_low", &s_config.cleanup_low_pct);
@@ -534,6 +539,30 @@ esp_err_t config_init(void)
 
     /* Apply optimal timelapse parameters after loading */
     config_apply_optimal(&s_config);
+
+    /* ---- 2026-09-02 密码统一一次性种子（契约 v1.1）----
+     * 设备上已存有未知历史密码，按用户要求统一为家族默认密码。
+     * 以 NVS 标记键保证仅在升级到本版本后的首次启动执行一次。 */
+    {
+        uint8_t pw_seeded = 0;
+        nvs_handle_t h_pw;
+        if (nvs_get_u8(h, "pw_seed_v1", &pw_seeded) != ESP_OK) {
+            ESP_LOGW(TAG, "One-shot password seed: unifying web_password to family default");
+            nvs_close(h);
+            if (nvs_open("cam_config", NVS_READWRITE, &h_pw) == ESP_OK) {
+                strlcpy(s_config.web_password, CONFIG_DEFAULT_WEB_PASSWORD,
+                        sizeof(s_config.web_password));
+                write_str(h_pw, "web_password", s_config.web_password);
+                nvs_set_u8(h_pw, "pw_seed_v1", 1);
+                nvs_commit(h_pw);
+                nvs_close(h_pw);
+            }
+            s_config_initialized = true;
+            return ESP_OK;
+        }
+    }
+
+    nvs_close(h);
 
     s_config_initialized = true;
     ESP_LOGI(TAG, "Config loaded from NVS");

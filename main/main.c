@@ -84,7 +84,36 @@ static const char *TAG = "main";
 static float s_chip_temp = 0.0f;
 static bool s_camera_ok = false;
 
+/* 温度传感器句柄 —— 在 app_main 启动序列中提前安装并启用（曾放在健康监控任务里，
+ * 且循环先睡 60s 才首读，导致开机后 /api/status 的 chip_temp 长时间为 0）。
+ * 量程 20~110°C：默认 10~80°C 档在本机高负载 96~103°C 时已超出测量范围。 */
+static temperature_sensor_handle_t s_temp_sensor = NULL;
+
 float get_chip_temp(void) { return s_chip_temp; }
+
+/** @brief 安装并启用温度传感器，立刻读一次（供 /api/status 启动即可用）。
+ *  S3 硬件只有固定测量档：[-10,80] / [20,100] / [50,125] / [-30,50]，
+ *  请求的区间必须完整落入某一档，跨档会被驱动拒绝（"Out of testing range"）。
+ *  本机高负载 96~103°C，故优先选高温档，依次回退。 */
+static void chip_temp_init(void)
+{
+    static const temperature_sensor_config_t candidates[] = {
+        TEMPERATURE_SENSOR_CONFIG_DEFAULT(50, 125),
+        TEMPERATURE_SENSOR_CONFIG_DEFAULT(20, 100),
+        TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80),
+    };
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+        s_temp_sensor = NULL;
+        if (temperature_sensor_install(&candidates[i], &s_temp_sensor) == ESP_OK &&
+            temperature_sensor_enable(s_temp_sensor) == ESP_OK) {
+            temperature_sensor_get_celsius(s_temp_sensor, &s_chip_temp);
+            ESP_LOGI(TAG, "Temp sensor ready (range %d~%d°C), first read %.1f°C",
+                     (int)candidates[i].range_min, (int)candidates[i].range_max, s_chip_temp);
+            return;
+        }
+    }
+    ESP_LOGW(TAG, "Temperature sensor init failed — chip_temp stays 0");
+}
 
 bool camera_is_available(void) { return s_camera_ok; }
 
@@ -275,12 +304,18 @@ static void sd_monitor_task(void *arg)
  * bytes, which requires an httpd worker to actually process the request.
  *
  * @return true if httpd responded with any bytes, false on any failure.
+ * @note socket()/connect() 因 EMFILE/ENOBUFS 失败时返回 true（视为"未知，不计数"）—
+ *       2026-09-02 夜间循环重启事故：上传连接风暴挤占 lwIP 池时，探针自己也拿不到
+ *       socket，被误判为 httpd 死亡并触发 esp_restart()，每 ~30 分钟循环重启一整晚。
+ *       只有"TCP 连上了但应用层无响应"才判定 httpd 疑似卡死。
  */
 static bool probe_httpd_port80(void)
 {
     int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock < 0) {
-        return false;
+        /* socket 池紧张（很可能是 TIME_WAIT 洪泛，会自行恢复）— 不计入卡死判定 */
+        ESP_LOGW(TAG, "httpd probe: no socket available (errno=%d) — not counted", errno);
+        return true;
     }
 
     /* 3s timeout — well under the 60s health cycle. */
@@ -295,7 +330,8 @@ static bool probe_httpd_port80(void)
     };
 
     bool ok = false;
-    if (connect(sock, (struct sockaddr *)&dest, sizeof(dest)) == 0) {
+    int cr = connect(sock, (struct sockaddr *)&dest, sizeof(dest));
+    if (cr == 0) {
         static const char req[] =
             "GET /status HTTP/1.0\r\n"
             "Host: 127.0.0.1\r\n"
@@ -305,6 +341,10 @@ static bool probe_httpd_port80(void)
             int n = recv(sock, buf, sizeof(buf), 0);
             ok = (n > 0);  /* any HTTP response bytes = httpd worker is alive */
         }
+    } else {
+        /* 本机回环 connect 失败：EMFILE/ENOBUFS 属资源紧张，同样不计数 */
+        ESP_LOGW(TAG, "httpd probe: connect failed (errno=%d) — not counted", errno);
+        ok = true;
     }
     close(sock);
     return ok;
@@ -333,10 +373,6 @@ static void health_monitor_task(void *arg)
 
     ESP_LOGI(TAG, "Health monitor started");
 
-    temperature_sensor_handle_t temp_sensor = NULL;
-    temperature_sensor_config_t temp_cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(10, 80);
-    ESP_ERROR_CHECK(temperature_sensor_install(&temp_cfg, &temp_sensor));
-    ESP_ERROR_CHECK(temperature_sensor_enable(temp_sensor));
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(60000));
 
@@ -350,7 +386,7 @@ static void health_monitor_task(void *arg)
         uint32_t rec_hwm = recorder_get_stack_hwm();
         uint32_t nas_hwm = nas_uploader_get_stack_hwm();
 
-        temperature_sensor_get_celsius(temp_sensor, &s_chip_temp);
+        temperature_sensor_get_celsius(s_temp_sensor, &s_chip_temp);
 
         ESP_LOGI(TAG, "HEALTH: heap=%lu(lb=%lu) PSRAM=%lu(lb=%lu) rec_hwm=%lu nas_hwm=%lu temp=%.1f°C rtsp=%d audio=%s",
                  (unsigned long)free_heap, (unsigned long)heap_largest,
@@ -375,22 +411,13 @@ static void health_monitor_task(void *arg)
             ESP_LOGW(TAG, "WARNING: Chip temperature high (%.1f°C)", s_chip_temp);
         }
 
-        /* MJPEG zombie detection: if clients are stuck at MAX_STREAM_CLIENTS (2)
-         * for multiple consecutive cycles, connections are leaking (likely
-         * WiFi-disconnected browsers whose TCP FIN was lost).  Soft-reboot
-         * to recover the slots. */
-        static int mjpeg_stuck_count = 0;
+        /* MJPEG 满员观察（2026-09-02 起不再重启）：满员本身是正常负载状态——
+         * 手机+电脑+后台挂一晚就是 3/3 真实观众，旧逻辑会误判"卡死满员"并
+         * esp_restart()，造成整夜循环重启。真正的僵尸满员已由 LRU 踢除 +
+         * TCP keepalive（mjpeg_streamer.c）解决，这里只记录不动作。 */
         int mjpeg_clients = mjpeg_streamer_client_count();
         if (mjpeg_clients >= 3) {
-            mjpeg_stuck_count++;
-            ESP_LOGW(TAG, "MJPEG at max clients (%d) for %d cycles",
-                     mjpeg_clients, mjpeg_stuck_count);
-            if (mjpeg_stuck_count >= 5) {
-                ESP_LOGE(TAG, "MJPEG stuck at max clients for 5 min — rebooting");
-                esp_restart();
-            }
-        } else {
-            mjpeg_stuck_count = 0;
+            ESP_LOGW(TAG, "MJPEG at max clients (%d) — normal load, watching", mjpeg_clients);
         }
 
         /* httpd port-80 self-heal (issue #1): symmetric with the MJPEG check.
@@ -655,6 +682,7 @@ void app_main(void)
 
     /* ---- 19. Health monitor task (Core 1) ----------------------------- */
     /* 第19步：创建健康状态监控任务，绑定到Core 1，优先级1 */
+    chip_temp_init();  /* 温度传感器提前安装（否则 /api/status 前 1 分钟 chip_temp=0） */
     xTaskCreatePinnedToCore(health_monitor_task, "health_mon", 4096, NULL, 1, NULL, 1);
 
     /* ---- Done -------------------------------------------------------- */

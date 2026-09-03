@@ -25,8 +25,10 @@
 #include "jpeg_decoder.h"
 #include "frame_broadcaster.h"
 #include "config_manager.h"
+#include "ws_server.h"
 
 #include <string.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 static const char *TAG = "motion";
@@ -275,6 +277,12 @@ esp_err_t motion_detector_process(
         if ((now - s_last_log_tick) >= pdMS_TO_TICKS(5000)) {
             ESP_LOGI(TAG, "Motion %s (score=%d)", motion_now ? "detected" : "cleared", score);
             s_last_log_tick = now;
+        }
+        /* WS 事件推送（契约 v1.0: motion_started / motion_cleared） */
+        {
+            char ws_data[32];
+            snprintf(ws_data, sizeof(ws_data), "{\"score\":%u}", (unsigned)score);
+            ws_broadcast(motion_now ? "motion_started" : "motion_cleared", ws_data);
         }
     }
 

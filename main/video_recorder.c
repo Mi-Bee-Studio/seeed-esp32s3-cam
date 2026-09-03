@@ -26,6 +26,7 @@
 #include "motion_detector.h"
 #include "audio_broadcaster.h"
 #include "audio_common.h"
+#include "ws_server.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -749,13 +750,17 @@ static void sd_writer_task(void *arg)
     write_msg_t wmsg;
     while (xQueueReceive(s_write_q, &wmsg, 0)) {
         if (wmsg.fb == NULL) {
-            xTaskNotifyGive(s_task_handle);
+            if (s_task_handle) xTaskNotifyGive(s_task_handle);
             continue;
         }
         if (s_seg.fp) write_avi_frame(wmsg.fb->data, wmsg.fb->len);
         frame_buf_release(wmsg.fb);
     }
     esp_task_wdt_delete(NULL);
+    /* 必须先置空句柄再自删：recorder_stop 的等待循环靠它判断任务已退出，
+     * 否则等满 10s 后对已释放的 TCB vTaskDelete → uxListRemoved 崩溃
+     * （2026-09-03 两次停录后 LoadProhibited 重启，栈定位此处） */
+    s_writer_handle = NULL;
     vTaskDelete(NULL);
 }
 
@@ -1196,6 +1201,7 @@ if (config_get()->timelapse_mode == 2) {
     xSemaphoreGive(s_mutex);
     ESP_LOGI(TAG, "Recording started");
     LOG_EVENT(LOG_EVENT_REC_STARTED, "recording started");
+    ws_broadcast("recording_started", "{}");
     return ESP_OK;
 }
 
@@ -1242,6 +1248,7 @@ motion_detector_deinit();
 
     ESP_LOGI(TAG, "Recording stopped");
     LOG_EVENT(LOG_EVENT_REC_STOPPED, "recording stopped");
+    ws_broadcast("recording_stopped", "{}");
     return ESP_OK;
 }
 
