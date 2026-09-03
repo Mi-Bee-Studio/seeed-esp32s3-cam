@@ -43,6 +43,7 @@
 #include "audio_broadcaster.h"
 #include "audio_common.h"
 #include "config_manager.h"
+#include "video_recorder.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -118,6 +119,10 @@ extern "C" void video_feed_task(void *arg)
 
     ESP_LOGI(TAG, "Video feed task started");
 
+    /* PIT-020：RTSP 会话存在时维持采集任务（与 MJPEG 的 preview 引用同机制）。
+     * 每轮最多滞后 FEED_TIMEOUT_MS 检测一次会话数变化。 */
+    bool holding_preview = false;
+
     /* Send cached frame immediately */
     frame_msg_t cache;
     if (fbroadcast_get_latest(&cache)) {
@@ -126,11 +131,23 @@ extern "C" void video_feed_task(void *arg)
     }
 
     while (s_running) {
+        int sessions = s_server ? (int)s_server->get_num_sessions() : 0;
+        if (sessions > 0 && !holding_preview) {
+            recorder_preview_acquire("rtsp");
+            holding_preview = true;
+        } else if (sessions == 0 && holding_preview) {
+            recorder_preview_release("rtsp");
+            holding_preview = false;
+        }
         frame_msg_t msg;
         if (fbroadcast_receive(vsub, &msg, FEED_TIMEOUT_MS)) {
             s_server->send_frame(0, std::span<const uint8_t>(msg.fb->data, msg.fb->len));
             fbroadcast_release(&msg);
         }
+    }
+
+    if (holding_preview) {
+        recorder_preview_release("rtsp");
     }
 
     fbroadcast_unsubscribe(vsub);

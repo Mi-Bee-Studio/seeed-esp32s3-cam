@@ -35,6 +35,7 @@
 #include "mjpeg_streamer.h"
 #include "esp_log.h"
 #include "frame_broadcaster.h"
+#include "video_recorder.h"
 #include "config_manager.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -190,6 +191,9 @@ static void mjpeg_client_task(void *arg)
 
     ESP_LOGI(TAG, "Stream client started (total %d)", s_client_count);
 
+    /* PIT-020：观众在场则采集任务必须活着（停录像降级预览而非退出） */
+    recorder_preview_acquire("mjpeg");
+
     /* Send cached frame immediately so client doesn't wait for next capture */
     frame_msg_t cache_msg;
     if (fbroadcast_get_latest(&cache_msg)) {
@@ -308,6 +312,8 @@ cleanup:
     xSemaphoreGive(s_mutex);
 
     ESP_LOGI(TAG, "Stream client disconnected (total %d)", s_client_count);
+
+    recorder_preview_release("mjpeg");
     vTaskDelete(NULL);
 }
 

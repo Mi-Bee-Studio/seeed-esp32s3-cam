@@ -255,8 +255,10 @@ Key log patterns to watch:
    camera_init/NVS 加载全部走它（测试残留的 QXGA 配置在首次加载被自动钳到 UXGA）。
 3. **画质 10-63**（`CAMERA_QUALITY_MIN/MAX`，fb=w*h/5 预算）+ `GET /api/camera`
    新增 `quality_min/quality_max`（SPA 滑杆钳制）。
-- 观察项（未修）：**停录像 = 杀流**——MJPEG 帧源是 recording_task，用户停录后流死到
-  下次重启（PIT-020，日志签名 `No frames for 10 tries` 循环）；测流前先查 `/api/record`。
+- **停录像 = 杀流已修（PIT-020，2026-09-04）**：`RECORDER_PREVIEW` 状态 + 引用计数，
+  有观众时停录降级预览继续供帧、恢复录像不重启任务。修复过程挖出并修掉两个潜伏
+  bug（segment_open 标志提前消耗 → 恢复时写已关 FILE* 崩溃；sd_writer 状态机漏
+  PREVIEW → sentinel 屏障死等 TWDT）。测流前仍建议先查 `/api/record`。
 
 ## NOTES
 

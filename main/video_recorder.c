@@ -50,6 +50,8 @@
 
 /* Forward declarations */
 static void cleanup_orphan_zero_byte_files(void);
+static esp_err_t spawn_capture_tasks_locked(void);
+static void recorder_full_stop(bool emit_events);
 
 /* ------------------------------------------------------------------ */
 /*  AVI binary helpers                                                */
@@ -91,6 +93,9 @@ static void cleanup_orphan_zero_byte_files(void);
 static const char *TAG = "recorder";
 
 static recorder_state_t   s_state        = RECORDER_IDLE;
+/* PIT-020 预览引用计数：MJPEG/RTSP 客户端接入 +1、断开 -1；
+ * >0 时采集任务不得退出（否则流死到下次重启） */
+static volatile uint8_t   s_preview_refs = 0;
 static TaskHandle_t       s_task_handle  = NULL;
 static char               s_current_file[128] = {0};
 static recorder_segment_cb_t s_segment_cb = NULL;
@@ -723,7 +728,11 @@ static void close_segment(void)
 static void sd_writer_task(void *arg)
 {
     esp_task_wdt_add(NULL);
-    while (s_state == RECORDER_RECORDING || s_state == RECORDER_PAUSED) {
+    /* 与 recording_task 的运行态保持一致（含 PREVIEW，PIT-020）：写盘任务必须
+     * 与采集任务同生共死——若在预览期先行退场，recorder 的 sentinel 屏障会
+     * 对着无人排水的队列阻塞（TWDT 实测复现，2026-09-04）。 */
+    while (s_state == RECORDER_RECORDING || s_state == RECORDER_PAUSED ||
+           s_state == RECORDER_PREVIEW) {
         esp_task_wdt_reset();
         write_msg_t wmsg;
         if (xQueueReceive(s_write_q, &wmsg, pdMS_TO_TICKS(1000)) != pdPASS)
@@ -791,14 +800,18 @@ const char *prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
     ESP_LOGI(TAG, "Recording task started: mode=%d %ux%u @ %u fps, segment=%u s",
     tl_mode, w, h, playback_fps, cfg->segment_sec);
 
-    while (s_state == RECORDER_RECORDING || s_state == RECORDER_PAUSED) {
+    while (s_state == RECORDER_RECORDING || s_state == RECORDER_PAUSED ||
+           s_state == RECORDER_PREVIEW) {
         /* Feed task watchdog each iteration */
         esp_task_wdt_reset();
 
-        if (s_state == RECORDER_PAUSED) {
+        /* 暂停且无人在看：静默等待恢复；暂停但有人在看：按预览出帧（PIT-020） */
+        if (s_state == RECORDER_PAUSED && s_preview_refs == 0) {
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
+        const bool preview_active = (s_state == RECORDER_PREVIEW) ||
+                                    (s_state == RECORDER_PAUSED && s_preview_refs > 0);
 
         /* Re-read config in case it changed */
         cfg = config_get();
@@ -808,36 +821,40 @@ timelapse = tl_mode > 0;
 playback_fps = timelapse ? 15 : fps;
 prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
 
-        bool write_to_sd = cfg->video_record_to_sd && storage_is_available();
+        bool write_to_sd = cfg->video_record_to_sd && storage_is_available()
+                           && !preview_active;
         bool mux_audio = write_to_sd && cfg->audio_record_to_sd;
 
         /* If write_to_sd turned off mid-segment, close the segment */
         if (s_seg.fp && !write_to_sd) {
             /* Flush pending writes before closing segment */
             write_msg_t sentinel = { .fb = NULL, .capture_us = 0 };
-            xQueueSend(s_write_q, &sentinel, portMAX_DELAY);
+            if (xQueueSend(s_write_q, &sentinel, pdMS_TO_TICKS(5000)) != pdPASS) {
+                    ESP_LOGW(TAG, "Sentinel enqueue timeout (writer busy/dead?)");
+                }
             if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000)) == 0) {
                 ESP_LOGW(TAG, "Sentinel barrier timeout during segment close");
             }
             close_segment();
             segment_open = false;
         }
-        /* Open first segment */
-        if (!segment_open) {
-            if (write_to_sd) {
+        /* Open first segment — flag 只在真正开段后置位。
+         * PIT-020 崩溃教训：预览迭代（write_to_sd=false）不能提前消耗该标志，
+         * 否则停录→预览→恢复录像时跳过 open_segment，直接写已 close 的
+         * FILE*（fflush 崩溃，2026-09-04 实测复现于"from preview"路径）。 */
+        if (!segment_open && write_to_sd) {
+            if (open_segment(w, h, playback_fps, prefix) != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to open segment — trying cleanup");
+                storage_cleanup();
+                /* Retry once after cleanup */
                 if (open_segment(w, h, playback_fps, prefix) != ESP_OK) {
-                    ESP_LOGW(TAG, "Failed to open segment — trying cleanup");
-                    storage_cleanup();
-                    /* Retry once after cleanup */
-                    if (open_segment(w, h, playback_fps, prefix) != ESP_OK) {
-                        ESP_LOGE(TAG, "Failed to open segment after cleanup, retrying in 5 s");
-                        storage_mark_io_error();
-                        vTaskDelay(pdMS_TO_TICKS(5000));
-                        continue;
-                    }
+                    ESP_LOGE(TAG, "Failed to open segment after cleanup, retrying in 5 s");
+                    storage_mark_io_error();
+                    vTaskDelay(pdMS_TO_TICKS(5000));
+                    continue;
                 }
-                total_bytes  = 0;
             }
+            total_bytes  = 0;
             segment_open = true;
         }
         /* Record start of capture cycle */
@@ -918,8 +935,10 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
                 s_last_drop_log_us = cycle_start_us;
             }
             {
-                int drop_delay_ms = tl_mode == 2 ? dynamic_interval_sec * 1000 : broker_frame_delay();
-                while (drop_delay_ms > 0 && s_state == RECORDER_RECORDING) {
+                int drop_delay_ms = preview_active ? broker_frame_delay() :
+                    (tl_mode == 2 ? dynamic_interval_sec * 1000 : broker_frame_delay());
+                while (drop_delay_ms > 0 && (s_state == RECORDER_RECORDING ||
+                                             s_state == RECORDER_PREVIEW)) {
                     int chunk_ms = (drop_delay_ms > 5000) ? 5000 : drop_delay_ms;
                     esp_task_wdt_reset();
                     vTaskDelay(pdMS_TO_TICKS(chunk_ms));
@@ -980,7 +999,9 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
             ESP_LOGW(TAG, "SD write failed — closing segment, attempting cleanup");
             /* Flush pending writes before closing segment */
             write_msg_t sentinel = { .fb = NULL, .capture_us = 0 };
-            xQueueSend(s_write_q, &sentinel, portMAX_DELAY);
+            if (xQueueSend(s_write_q, &sentinel, pdMS_TO_TICKS(5000)) != pdPASS) {
+                    ESP_LOGW(TAG, "Sentinel enqueue timeout (writer busy/dead?)");
+                }
             if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000)) == 0) {
                 ESP_LOGW(TAG, "Sentinel barrier timeout during error recovery");
             }
@@ -1034,7 +1055,9 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
 
                 /* Flush pending writes before closing segment */
                 write_msg_t sentinel = { .fb = NULL, .capture_us = 0 };
-                xQueueSend(s_write_q, &sentinel, portMAX_DELAY);
+                if (xQueueSend(s_write_q, &sentinel, pdMS_TO_TICKS(5000)) != pdPASS) {
+                    ESP_LOGW(TAG, "Sentinel enqueue timeout (writer busy/dead?)");
+                }
                 if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000)) == 0) {
                     ESP_LOGW(TAG, "Sentinel barrier timeout during segment rotation");
                 }
@@ -1060,7 +1083,10 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
         /* Frame rate control — break long sleeps to feed watchdog (TWDT=30s) */
         {
             int delay_ms;
-            if (tl_mode == 2) {
+            if (preview_active) {
+                /* 预览按正常帧率出帧（延时摄影间隔对实时预览无意义） */
+                delay_ms = broker_frame_delay();
+            } else if (tl_mode == 2) {
                 delay_ms = dynamic_interval_sec * 1000;
             } else if (timelapse) {
                 delay_ms = (cfg->timelapse_interval_sec > 0) ? cfg->timelapse_interval_sec * 1000 : 30000;
@@ -1068,7 +1094,8 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
                 delay_ms = broker_frame_delay();
             }
             /* Sleep in 5-second chunks, feeding watchdog each iteration */
-            while (delay_ms > 0 && s_state == RECORDER_RECORDING) {
+            while (delay_ms > 0 && (s_state == RECORDER_RECORDING ||
+                                    s_state == RECORDER_PREVIEW)) {
                 int chunk_ms = (delay_ms > 5000) ? 5000 : delay_ms;
                 esp_task_wdt_reset();
                 vTaskDelay(pdMS_TO_TICKS(chunk_ms));
@@ -1085,7 +1112,9 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
         uint32_t completed_size = total_bytes;
         /* Flush pending writes before closing segment */
         write_msg_t sentinel = { .fb = NULL, .capture_us = 0 };
-        xQueueSend(s_write_q, &sentinel, portMAX_DELAY);
+        if (xQueueSend(s_write_q, &sentinel, pdMS_TO_TICKS(5000)) != pdPASS) {
+                    ESP_LOGW(TAG, "Sentinel enqueue timeout (writer busy/dead?)");
+                }
         if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000)) == 0) {
             ESP_LOGW(TAG, "Sentinel barrier timeout during cleanup");
         }
@@ -1144,8 +1173,35 @@ esp_err_t recorder_start(void)
         ESP_LOGI(TAG, "Recording resumed");
         return ESP_OK;
     }
+
+    if (s_state == RECORDER_PREVIEW) {
+        /* PIT-020：预览态下任务已在跑，仅切状态；循环下一轮按 write_to_sd
+         * 重新开分段，避免任务重启造成流断流。 */
+        s_state = RECORDER_RECORDING;
+        xSemaphoreGive(s_mutex);
+        ESP_LOGI(TAG, "Recording started (from preview)");
+        LOG_EVENT(LOG_EVENT_REC_STARTED, "recording started");
+        ws_broadcast("recording_started", "{}");
+        return ESP_OK;
+    }
     s_state = RECORDER_RECORDING;  /* Set state BEFORE creating task to avoid race */
 
+    esp_err_t err = spawn_capture_tasks_locked();
+    xSemaphoreGive(s_mutex);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    ESP_LOGI(TAG, "Recording started");
+    LOG_EVENT(LOG_EVENT_REC_STARTED, "recording started");
+    ws_broadcast("recording_started", "{}");
+    return ESP_OK;
+}
+
+/* 创建采集/写盘任务（调用方持有 s_mutex，s_state 已置为目标态）。
+ * 动态延时的运动检测任务在此一并启动（延时模式才需要）。 */
+static esp_err_t spawn_capture_tasks_locked(void)
+{
 /* Initialize motion detector if dynamic timelapse mode */
 if (config_get()->timelapse_mode == 2) {
     motion_detector_init();
@@ -1169,7 +1225,6 @@ if (config_get()->timelapse_mode == 2) {
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create recording task");
         s_state = RECORDER_IDLE;
-        xSemaphoreGive(s_mutex);
         return ESP_FAIL;
     }
 
@@ -1178,7 +1233,6 @@ if (config_get()->timelapse_mode == 2) {
     if (!s_write_q) {
         ESP_LOGE(TAG, "Failed to create write queue");
         s_state = RECORDER_IDLE;
-        xSemaphoreGive(s_mutex);
         return ESP_FAIL;
     }
     BaseType_t wret = xTaskCreatePinnedToCore(
@@ -1194,34 +1248,16 @@ if (config_get()->timelapse_mode == 2) {
         vQueueDelete(s_write_q);
         s_write_q = NULL;
         s_state = RECORDER_IDLE;
-        xSemaphoreGive(s_mutex);
         return ESP_FAIL;
     }
 
-    xSemaphoreGive(s_mutex);
-    ESP_LOGI(TAG, "Recording started");
-    LOG_EVENT(LOG_EVENT_REC_STARTED, "recording started");
-    ws_broadcast("recording_started", "{}");
     return ESP_OK;
 }
 
-/**
- * @brief 停止录像，将状态设为IDLE并等待任务自行退出
- */
-esp_err_t recorder_stop(void)
+/* 彻底停下并回收采集/写盘任务（调用方不得持有 s_mutex；状态已置 IDLE）。
+ * emit_events：用户停录像时播 recording_stopped；预览自然收尾不播（用户没在录像）。 */
+static void recorder_full_stop(bool emit_events)
 {
-    if (!s_mutex) return ESP_ERR_INVALID_STATE;
-
-    xSemaphoreTake(s_mutex, portMAX_DELAY);
-
-    if (s_state != RECORDER_RECORDING && s_state != RECORDER_PAUSED) {
-        xSemaphoreGive(s_mutex);
-        return ESP_OK;
-    }
-
-    s_state = RECORDER_IDLE;   /* task checks this and exits */
-    xSemaphoreGive(s_mutex);
-
     /* Wait for both tasks to finish — recording_task uses 5s watchdog chunks,
      * sd_writer_task drains remaining queue on exit. Extended to 10s total. */
     int waited = 0;
@@ -1247,9 +1283,80 @@ motion_detector_deinit();
     }
 
     ESP_LOGI(TAG, "Recording stopped");
-    LOG_EVENT(LOG_EVENT_REC_STOPPED, "recording stopped");
-    ws_broadcast("recording_stopped", "{}");
+    if (emit_events) {
+        LOG_EVENT(LOG_EVENT_REC_STOPPED, "recording stopped");
+        ws_broadcast("recording_stopped", "{}");
+    }
+}
+
+/**
+ * @brief 停止录像。有流观众时降级为预览（只出帧不写盘），否则彻底停止。
+ */
+esp_err_t recorder_stop(void)
+{
+    if (!s_mutex) return ESP_ERR_INVALID_STATE;
+
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+
+    if (s_state != RECORDER_RECORDING && s_state != RECORDER_PAUSED) {
+        xSemaphoreGive(s_mutex);
+        return ESP_OK;
+    }
+
+    if (s_preview_refs > 0) {
+        /* PIT-020：观众仍在（MJPEG/RTSP）——采集任务降级为 PREVIEW 继续供帧，
+         * 循环内 write_to_sd 变 false 会走既有分段收尾路径干净关段。 */
+        s_state = RECORDER_PREVIEW;
+        xSemaphoreGive(s_mutex);
+        ESP_LOGI(TAG, "Recording stopped — capture continues for %u stream viewer(s)",
+                 s_preview_refs);
+        LOG_EVENT(LOG_EVENT_REC_STOPPED, "recording stopped");
+        ws_broadcast("recording_stopped", "{}");
+        return ESP_OK;
+    }
+
+    s_state = RECORDER_IDLE;   /* task checks this and exits */
+    xSemaphoreGive(s_mutex);
+    recorder_full_stop(true);
     return ESP_OK;
+}
+
+void recorder_preview_acquire(const char *who)
+{
+    if (!s_mutex) return;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    s_preview_refs++;
+    if (s_state == RECORDER_IDLE) {
+        /* 无活跃采集任务：以预览态拉起（只出帧不写盘，PIT-020） */
+        s_state = RECORDER_PREVIEW;   /* BEFORE spawn, same anti-race rule */
+        if (spawn_capture_tasks_locked() != ESP_OK) {
+            s_state = RECORDER_IDLE;  /* spawn 失败路径内部已置 IDLE，此处双保险 */
+        } else {
+            ESP_LOGI(TAG, "Preview capture started by %s", who);
+        }
+    }
+    xSemaphoreGive(s_mutex);
+    ESP_LOGI(TAG, "Preview acquire by %s (refs=%u)", who, s_preview_refs);
+}
+
+void recorder_preview_release(const char *who)
+{
+    if (!s_mutex) return;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    if (s_preview_refs > 0) {
+        s_preview_refs--;
+    }
+    bool last = (s_preview_refs == 0 && s_state == RECORDER_PREVIEW);
+    if (last) {
+        s_state = RECORDER_IDLE;
+    }
+    xSemaphoreGive(s_mutex);
+    if (last) {
+        recorder_full_stop(false);
+        ESP_LOGI(TAG, "Preview ended (last viewer %s) — capture task stopped", who);
+    } else {
+        ESP_LOGI(TAG, "Preview release by %s (refs=%u)", who, s_preview_refs);
+    }
 }
 
 /**
