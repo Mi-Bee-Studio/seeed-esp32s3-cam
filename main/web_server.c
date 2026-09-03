@@ -31,12 +31,14 @@
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "esp_chip_info.h"
+#include "esp_system.h"
 #include "nas_uploader.h"
 #include "ws_server.h"
 #include "motion_detector.h"
 
 #include "ota_updater.h"
 #include "audio_broadcaster.h"
+#include "mjpeg_streamer.h"
 #include <string.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -205,14 +207,17 @@ static esp_err_t api_status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "sd_free_percent", storage_get_free_percent());
     cJSON_AddBoolToObject(data, "sd_present", storage_is_available());
 
-    /* WiFi */
+    /* Device + WiFi (统一契约: wifi_state 为小写枚举 ap|connecting|connected|disconnected) */
     cam_config_t *cfg = config_get();
+    cJSON_AddStringToObject(data, "device_name",
+        cfg->device_name[0] ? cfg->device_name : "MiBeeCam");
     cJSON_AddStringToObject(data, "wifi_ssid", cfg->wifi_ssid);
     cJSON_AddStringToObject(data, "current_ssid", wifi_get_current_ssid());
     wifi_state_t ws = wifi_get_state();
-    cJSON_AddStringToObject(data, "wifi_mode",
-        ws == WIFI_STATE_AP ? "AP" :
-        ws == WIFI_STATE_STA_CONNECTED ? "STA" : "disconnected");
+    cJSON_AddStringToObject(data, "wifi_state",
+        ws == WIFI_STATE_AP ? "ap" :
+        ws == WIFI_STATE_STA_CONNECTING ? "connecting" :
+        ws == WIFI_STATE_STA_CONNECTED ? "connected" : "disconnected");
 
     cJSON_AddStringToObject(data, "ip", wifi_get_ip_str());
 
@@ -275,7 +280,12 @@ static esp_err_t api_status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "uptime", (double)uptime);
     cJSON_AddNumberToObject(data, "reset_reason", (double)esp_reset_reason());
     cJSON_AddNumberToObject(data, "free_heap", (double)esp_get_free_heap_size());
+    cJSON_AddNumberToObject(data, "min_heap", (double)esp_get_minimum_free_heap_size());
     cJSON_AddNumberToObject(data, "free_psram", (double)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+
+    /* MJPEG 流客户端（独立 :81 服务器） */
+    cJSON_AddNumberToObject(data, "stream_clients", (double)mjpeg_streamer_client_count());
+    cJSON_AddNumberToObject(data, "stream_clients_max", 3);
 
     /* NAS upload status */
     char last_upload[32] = "";
@@ -305,8 +315,10 @@ static esp_err_t api_status_handler(httpd_req_t *req)
 static esp_err_t api_capabilities_handler(httpd_req_t *req)
 {
     cJSON *data = cJSON_CreateObject();
-    
-    /* See esp32-unified-api.md §5 for capability matrix */
+
+    /* 契约 v1.1：12 个布尔能力位 + api_version/wifi_scan（见 docs/api-contract.md） */
+    cJSON_AddStringToObject(data, "api_version", "1.2");
+    cJSON_AddBoolToObject(data, "wifi_scan", true);
     cJSON_AddBoolToObject(data, "ai", false);           /* On-device AI detection */
     cJSON_AddBoolToObject(data, "sd", storage_is_available());  /* SD card storage */
     cJSON_AddBoolToObject(data, "audio", true);         /* Audio streaming/recording */
@@ -314,12 +326,12 @@ static esp_err_t api_capabilities_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(data, "mic", true);           /* Microphone present */
     cJSON_AddBoolToObject(data, "flash_led", false);   /* Flash LED controllable */
     cJSON_AddBoolToObject(data, "recording", true);    /* Video recording to storage */
-    cJSON_AddBoolToObject(data, "timelapse", false);    /* Timelapse capture */
+    cJSON_AddBoolToObject(data, "timelapse", true);    /* Timelapse recording modes (config: timelapse_mode) */
     cJSON_AddBoolToObject(data, "onvif", true);        /* ONVIF SOAP service */
     cJSON_AddBoolToObject(data, "rtsp", true);         /* RTSP server */
     cJSON_AddBoolToObject(data, "websocket", true);    /* WebSocket push */
     cJSON_AddBoolToObject(data, "mdns", true);         /* mDNS hostname advertisement */
-    
+
     return json_ok(req, data);
 }
 
@@ -539,6 +551,12 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     camera_set_flip(cfg->cam_vflip, cfg->cam_hmirror);
     camera_set_day_night(cfg->day_night_mode);
     if ((item = cJSON_GetObjectItem(json, "web_password")) && cJSON_IsString(item) && strcmp(item->valuestring, "****") != 0) {
+        /* 契约 v1.1：拒绝空/过短密码 — 空密码会让设备退回 SET_PASSWORD_FIRST 状态 */
+        if (strlen(item->valuestring) < 6) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "web_password must be at least 6 characters", HTTPD_400_BAD_REQUEST);
+        }
         strncpy(cfg->web_password, item->valuestring, sizeof(cfg->web_password) - 1);
         cfg->web_password[sizeof(cfg->web_password) - 1] = '\0';
     }
@@ -730,6 +748,35 @@ static esp_err_t api_files_delete_handler(httpd_req_t *req)
 /*  POST /api/files/batch                                              */
 /* ------------------------------------------------------------------ */
 
+/** @brief 递归删除 /sdcard/recordings 下全部文件（契约 v1.2 scope 支持）。
+ *  跳过当前正在写入的录像段；返回删除数。 */
+static int delete_recordings_recursive(const char *dir, const char *current_rel)
+{
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    struct dirent *ent;
+    int deleted = 0;
+    while ((ent = readdir(d)) != NULL) {
+        if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
+        char path[300];
+        snprintf(path, sizeof(path), "%s/%s", dir, ent->d_name);
+        struct stat st;
+        if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+            deleted += delete_recordings_recursive(path, current_rel);
+            rmdir(path);  /* 空目录一并清理，非空则忽略 */
+        } else {
+            const char *rel = path + strlen("/sdcard/recordings/");
+            if (current_rel && strcmp(rel, current_rel) == 0) continue;
+            if (remove(path) == 0) {
+                storage_unregister_file(rel);
+                deleted++;
+            }
+        }
+    }
+    closedir(d);
+    return deleted;
+}
+
 /** @brief Batch delete multiple recording files */
 static esp_err_t api_files_batch_handler(httpd_req_t *req)
 {
@@ -737,7 +784,7 @@ static esp_err_t api_files_batch_handler(httpd_req_t *req)
     if (auth_err != ESP_OK) return auth_err;
 
     int content_len = req->content_len;
-    if (content_len <= 0 || content_len > 8192) {
+    if (content_len <= 0 || content_len > 16384) {
         return json_error(req, "Invalid request body", HTTPD_400_BAD_REQUEST);
     }
     char *buf = malloc(content_len + 1);
@@ -755,48 +802,58 @@ static esp_err_t api_files_batch_handler(httpd_req_t *req)
         return json_error(req, "Invalid JSON", HTTPD_400_BAD_REQUEST);
     }
 
+    const char *current = recorder_get_current_file();
+    char current_rel_buf[128] = {0};
+    if (current) {
+        const char *p = strstr(current, "/recordings/");
+        strncpy(current_rel_buf, p ? p + 12 : current, sizeof(current_rel_buf) - 1);
+    }
+    const char *current_rel = current_rel_buf[0] ? current_rel_buf : NULL;
+
+    int deleted = 0, failed = 0;
+
     cJSON *names_arr = cJSON_GetObjectItem(root, "names");
-    if (!cJSON_IsArray(names_arr)) {
+    cJSON *scope = cJSON_GetObjectItem(root, "scope");
+
+    if (cJSON_IsArray(names_arr)) {
+        int total = cJSON_GetArraySize(names_arr);
+        for (int i = 0; i < total; i++) {
+            /* NOTE: httpd worker task is NOT subscribed to TWDT (esp_task_wdt_add was
+             * never called), so esp_task_wdt_reset() here was a no-op returning
+             * ESP_ERR_NOT_FOUND. Removed. The idle-task WDT (30s) still protects
+             * against true hangs, and remove() per file is well under that. */
+
+            cJSON *item = cJSON_GetArrayItem(names_arr, i);
+            const char *name = cJSON_GetStringValue(item);
+            if (!name) { failed++; continue; }
+
+            /* Block path traversal */
+            if (strstr(name, "..")) { failed++; continue; }
+
+            /* Do not delete currently recording file
+             * NOTE: s_current_file is absolute (/sdcard/...), name is relative */
+            if (current_rel && strcmp(name, current_rel) == 0) { failed++; continue; }
+
+            char path[256];
+            snprintf(path, sizeof(path), "/sdcard/recordings/%s", name);
+
+            if (remove(path) == 0) {
+                storage_unregister_file(name);
+                deleted++;
+            } else {
+                failed++;
+            }
+        }
+    } else if (cJSON_IsString(scope)) {
+        /* 契约 v1.2：{"scope":"all|recordings|photos"} — seeed 只有录像，
+         * photos 视为空集；递归删除不受 GET 列表 64 条上限约束。 */
+        if (!strcmp(scope->valuestring, "recordings") || !strcmp(scope->valuestring, "all")) {
+            deleted = delete_recordings_recursive("/sdcard/recordings", current_rel);
+        }
+    } else {
         cJSON_Delete(root);
         free(buf);
-        return json_error(req, "Missing 'names' array", HTTPD_400_BAD_REQUEST);
-    }
-
-    const char *current = recorder_get_current_file();
-    int deleted = 0, failed = 0;
-    int total = cJSON_GetArraySize(names_arr);
-
-    for (int i = 0; i < total; i++) {
-        /* NOTE: httpd worker task is NOT subscribed to TWDT (esp_task_wdt_add was
-         * never called), so esp_task_wdt_reset() here was a no-op returning
-         * ESP_ERR_NOT_FOUND. Removed. The idle-task WDT (30s) still protects
-         * against true hangs, and remove() per file is well under that. */
-
-        cJSON *item = cJSON_GetArrayItem(names_arr, i);
-        const char *name = cJSON_GetStringValue(item);
-        if (!name) { failed++; continue; }
-
-        /* Block path traversal */
-        if (strstr(name, "..")) { failed++; continue; }
-
-        /* Do not delete currently recording file */
-        /* NOTE: s_current_file is absolute path (/sdcard/...), name is relative —
-         * compare the relative portion by skipping the recordings prefix */
-        if (current) {
-            const char *rel = strstr(current, "/recordings/");
-            rel = rel ? rel + 12 : current;
-            if (strcmp(name, rel) == 0) { failed++; continue; }
-        }
-
-        char path[256];
-        snprintf(path, sizeof(path), "/sdcard/recordings/%s", name);
-
-        if (remove(path) == 0) {
-            storage_unregister_file(name);
-            deleted++;
-        } else {
-            failed++;
-        }
+        return json_error(req, "Missing 'names' array or 'scope' string", HTTPD_400_BAD_REQUEST);
     }
 
     cJSON_Delete(root);
@@ -1091,6 +1148,23 @@ static esp_err_t api_record_handler(httpd_req_t *req)
 }
 
 /* ------------------------------------------------------------------ */
+/*  GET /api/record — 录像状态（契约 v1.0 收敛项：POST 之外补 GET）      */
+/* ------------------------------------------------------------------ */
+
+static esp_err_t api_record_get_handler(httpd_req_t *req)
+{
+    recorder_state_t rs = recorder_get_state();
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddStringToObject(data, "status",
+        rs == RECORDER_RECORDING ? "recording" :
+        rs == RECORDER_PAUSED   ? "paused" :
+        rs == RECORDER_ERROR    ? "error" : "stopped");
+    cJSON_AddStringToObject(data, "current_file",
+        (rs == RECORDER_RECORDING || rs == RECORDER_PAUSED) ? recorder_get_current_file() : "");
+    return json_ok(req, data);
+}
+
+/* ------------------------------------------------------------------ */
 /*  POST /api/reset                                                    */
 /* ------------------------------------------------------------------ */
 
@@ -1217,12 +1291,9 @@ static esp_err_t static_file_handler(httpd_req_t *req)
         httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     }
 
-    /* Cache-Control: HTML 不缓存（OTA 后必须拉新页面），其他静态资源缓存 1 小时 */
-    if (strstr(uri, ".html")) {
-        httpd_resp_set_hdr(req, "Cache-Control", "no-cache, must-revalidate");
-    } else {
-        httpd_resp_set_hdr(req, "Cache-Control", "public, max-age=3600");
-    }
+    /* Cache-Control: 静态资源一律不缓存（UI 随固件更新，LAN 上 ~60KB 可忽略）。
+     * 2026-09-03 事故：max-age=3600 让 crossOrigin 修复部署后浏览器仍跑旧 app.js */
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache, must-revalidate");
 
     char buf[4096];
     size_t n;
@@ -1615,6 +1686,165 @@ static esp_err_t api_capture_handler(httpd_req_t *req)
 }
 
 
+/* ------------------------------------------------------------------ */
+/*  GET/POST /api/camera — 传感器设置（契约 v1.0 统一端点）             */
+/* ------------------------------------------------------------------ */
+
+/** 构造 supported_resolutions 数组（与 /api/status 保持一致的标签/取值） */
+static cJSON *camera_supported_resolutions_json(void)
+{
+    camera_res_t max_res = camera_get_max_resolution(camera_get_sensor());
+    cJSON *res_arr = cJSON_CreateArray();
+    for (int r = CAMERA_RES_VGA; r <= (int)max_res; r++) {
+        const char *label = NULL;
+        switch (r) {
+            case CAMERA_RES_VGA:  label = "VGA (640x480)";   break;
+            case CAMERA_RES_SVGA: label = "SVGA (800x600)";  break;
+            case CAMERA_RES_XGA:  label = "XGA (1024x768)";  break;
+            case CAMERA_RES_HD:   label = "HD (1280x720)";   break;
+            case CAMERA_RES_SXGA: label = "SXGA (1280x1024)";break;
+            case CAMERA_RES_UXGA: label = "UXGA (1600x1200)";break;
+            case CAMERA_RES_FHD:  label = "FHD (1920x1080)"; break;
+            case CAMERA_RES_QXGA: label = "QXGA (2048x1536)";break;
+            default: continue;
+        }
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "label", label);
+        cJSON_AddNumberToObject(item, "value", r);
+        cJSON_AddItemToArray(res_arr, item);
+    }
+    return res_arr;
+}
+
+/** @brief GET /api/camera — 返回相机设置与传感器支持的分辨率列表 */
+static esp_err_t api_camera_get_handler(httpd_req_t *req)
+{
+    cam_config_t *cfg = config_get();
+    cJSON *data = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(data, "resolution", camera_res_to_str(camera_get_resolution()));
+    cJSON_AddNumberToObject(data, "cam_framesize", cfg->cam_framesize);
+    cJSON_AddNumberToObject(data, "cam_quality", cfg->cam_quality);
+    cJSON_AddNumberToObject(data, "fps", cfg->fps);
+    cJSON_AddBoolToObject(data, "cam_vflip", cfg->cam_vflip);
+    cJSON_AddBoolToObject(data, "cam_hmirror", cfg->cam_hmirror);
+    cJSON_AddNumberToObject(data, "day_night_mode", cfg->day_night_mode);
+    cJSON_AddItemToObject(data, "supported_resolutions", camera_supported_resolutions_json());
+
+    return json_ok(req, data);
+}
+
+/** @brief POST /api/camera — 更新相机设置（翻转/镜像/日夜模式立即生效，分辨率触发重配） */
+static esp_err_t api_camera_post_handler(httpd_req_t *req)
+{
+    esp_err_t auth_err = require_auth(req, false);
+    if (auth_err != ESP_OK) return auth_err;
+
+    char *body = read_body(req, 1024);
+    if (!body) return json_error(req, "Empty or too large body", HTTPD_400_BAD_REQUEST);
+    cJSON *json = cJSON_Parse(body);
+    free(body);
+    if (!json) return json_error(req, "Invalid JSON", HTTPD_400_BAD_REQUEST);
+
+    cam_config_t *cfg = config_get();
+    cJSON *item;
+    camera_res_t max_res = camera_get_max_resolution(camera_get_sensor());
+
+    config_lock();
+
+    uint8_t prev_resolution = cfg->cam_framesize;
+    if ((item = cJSON_GetObjectItem(json, "cam_framesize"))) {
+        int val = item->valueint;
+        if (val < 0 || val > (int)max_res) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid resolution for this sensor", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->cam_framesize = (uint8_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "cam_quality"))) {
+        int val = item->valueint;
+        if (val < 1 || val > 63) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid cam_quality (must be 1-63)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->cam_quality = (uint8_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "cam_vflip")))
+        cfg->cam_vflip = item->valueint != 0;
+    if ((item = cJSON_GetObjectItem(json, "cam_hmirror")))
+        cfg->cam_hmirror = item->valueint != 0;
+    if ((item = cJSON_GetObjectItem(json, "day_night_mode"))) {
+        int val = item->valueint;
+        if (val < 0 || val > 2) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid day_night_mode (must be 0-2)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->day_night_mode = (uint8_t)val;
+    }
+
+    cJSON_Delete(json);
+    config_save();
+    config_unlock();
+
+    /* 立即生效：翻转/镜像/日夜模式；分辨率变化走协调重配（与 POST /api/config 相同） */
+    camera_set_flip(cfg->cam_vflip, cfg->cam_hmirror);
+    camera_set_day_night(cfg->day_night_mode);
+    if (cfg->cam_framesize != prev_resolution) {
+        camera_set_resolution((camera_res_t)cfg->cam_framesize);
+        if (recorder_get_state() == RECORDER_RECORDING) {
+            recorder_stop();
+            vTaskDelay(pdMS_TO_TICKS(200));
+            recorder_start();
+        }
+    }
+
+    return api_camera_get_handler(req);
+}
+
+/* ------------------------------------------------------------------ */
+/*  POST /api/reboot · GET /api/auth — 核心系统端点（契约 v1.0）       */
+/* ------------------------------------------------------------------ */
+
+/** @brief POST /api/reboot — 重启设备（需密码认证，响应发出后延迟重启） */
+static esp_err_t api_reboot_handler(httpd_req_t *req)
+{
+    esp_err_t auth_err = require_auth(req, false);
+    if (auth_err != ESP_OK) return auth_err;
+
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddStringToObject(data, "message", "Rebooting...");
+    esp_err_t resp = json_ok(req, data);
+
+    ESP_LOGW(TAG, "Reboot requested via web API");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    return resp;  /* not reached */
+}
+
+/** @brief GET /api/auth — 校验 X-Password；未设密码时返回 password_set:false */
+static esp_err_t api_auth_handler(httpd_req_t *req)
+{
+    cam_config_t *cfg = config_get();
+
+    if (cfg->web_password[0] == '\0') {
+        cJSON *data = cJSON_CreateObject();
+        cJSON_AddBoolToObject(data, "auth", true);
+        cJSON_AddBoolToObject(data, "password_set", false);
+        return json_ok(req, data);
+    }
+    if (check_password(req)) {
+        cJSON *data = cJSON_CreateObject();
+        cJSON_AddBoolToObject(data, "auth", true);
+        cJSON_AddBoolToObject(data, "password_set", true);
+        return json_ok(req, data);
+    }
+    return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
+}
+
+
 typedef struct {
     const char  *uri;
     httpd_method_t method;
@@ -1624,7 +1854,12 @@ typedef struct {
 static const uri_entry_t s_uris[] = {
     { "/api/status",   HTTP_GET,    api_status_handler        },
     { "/api/capabilities", HTTP_GET,    api_capabilities_handler },
+    { "/api/config",   HTTP_GET,    api_config_get_handler    },
     { "/api/config",   HTTP_POST,   api_config_post_handler   },
+    { "/api/camera",   HTTP_GET,    api_camera_get_handler    },
+    { "/api/camera",   HTTP_POST,   api_camera_post_handler   },
+    { "/api/auth",     HTTP_GET,    api_auth_handler          },
+    { "/api/reboot",   HTTP_POST,   api_reboot_handler        },
     { "/api/setup/done", HTTP_POST,   api_setup_done_handler   },
     { "/api/files",    HTTP_GET,    api_files_get_handler     },
     { "/api/files",    HTTP_DELETE, api_files_delete_handler  },
@@ -1633,6 +1868,7 @@ static const uri_entry_t s_uris[] = {
     { "/api/scan",     HTTP_GET,    api_scan_handler          },
     { "/api/time",     HTTP_POST,   api_time_handler          },
     { "/api/record",   HTTP_POST,   api_record_handler        },
+    { "/api/record",   HTTP_GET,    api_record_get_handler    },
     { "/api/reset",    HTTP_POST,   api_reset_handler         },
     { "/api/format",   HTTP_POST,   api_format_handler        },
     { "/api/ota",     HTTP_POST,   api_ota_handler           },
@@ -1680,13 +1916,12 @@ esp_err_t web_server_start(uint16_t port)
     }
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 25;   /* 23 static + 2 ONVIF (added 3 OTA endpoints) */
+    config.max_uri_handlers = 32;   /* 27 static + /ws + 2 ONVIF, margin for growth */
     config.stack_size = 16384;   /* 16KB: download handler has ~6KB locals + nested calls */
     config.uri_match_fn = httpd_uri_match_wildcard;
-    /* LWIP_MAX_SOCKETS=14 minus 3 internal = 11 user sockets.
-     * With LRU purge (below), full-capacity situations auto-recycle
-     * the oldest idle connection instead of refusing new ones. */
-    config.max_open_sockets = 11;
+    /* 2026-09-02 EMFILE 事故：httpd 独占 11 会挤占 :81/:554/上传器。
+     * 收缩到 8 给系统其他 socket 使用者留余量（LWIP_MAX_SOCKETS=24）。 */
+    config.max_open_sockets = 8;
     config.recv_wait_timeout = 10;
     config.send_wait_timeout = 5;    /* 弱链路下更快超时（原 10s） */
     config.keep_alive_enable = false;   /* socket-level keepalive set in open_fn */
@@ -1698,6 +1933,10 @@ esp_err_t web_server_start(uint16_t port)
         return ret;
     }
 
+    /* /ws 必须先于 GET 通配符静态处理器注册 —— 通配符匹配按注册顺序生效，
+     * 若 /ws 注册在后会被静态处理器吞掉导致 404（曾致 WS 推送失效） */
+    ws_server_init(s_server);
+
     for (size_t i = 0; i < NUM_URIS; i++) {
         httpd_uri_t uri = {
             .uri      = s_uris[i].uri,
@@ -1707,8 +1946,6 @@ esp_err_t web_server_start(uint16_t port)
         };
         httpd_register_uri_handler(s_server, &uri);
     }
-
-    ws_server_init(s_server);
 
     /* Register ONVIF SOAP service handlers */
     esp_err_t onvif_ret = onvif_register_handlers(s_server);

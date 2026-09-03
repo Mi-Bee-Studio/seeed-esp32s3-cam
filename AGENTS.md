@@ -69,6 +69,23 @@ testing; read it from the boot log or `GET /api/status` (`camera` field).
 
 ## REST API Endpoints
 
+> **2026-09-02 契约 v1.0 统一化**（权威规范：`docs/api-contract.md`，下表已部分过时）：
+> 新增 `GET /api/config`（原死代码已注册）、`GET/POST /api/camera`（含 `supported_resolutions`）、
+> `POST /api/reboot`、`GET /api/auth`；capabilities 增加 `api_version`/`wifi_scan`，
+> `timelapse` 修正为 true（录像模式含延时）；status 字段对齐契约（`wifi_mode`→`wifi_state` 小写枚举、
+> 新增 `device_name`/`min_heap`/`stream_clients`/`stream_clients_max`）。
+> WS 推送已激活（motion/recording/wifi 事件，格式 `{"type","timestamp","data"}`）。
+> **陷阱**：`/ws` 必须先于 `GET /*` 通配符静态处理器注册，否则被吞 404（已修，勿回退）。
+> Web UI 为 4 文件 SPA（index/app/i18n/style，非 6 页紫色 MPA——旧描述有误）。
+> **2026-09-02 UI v3 "Honey" 重设计**：蜂蜜琥珀主色（#FFB020/#E8930C）+ 暗色优先双主题、
+> 视频主舞台 + 玻璃控制条 + 指标 chips + 分段式控制台；交互含鉴权抽屉（401 自动唤起并重试原操作）、
+> 自定义模态确认（替代 confirm()）、按钮 busy 态、滑杆轨道填充、断流骨架屏、全屏。
+> 资源共 ~110KB（SPIFFS 256KB）。设计令牌集中在 style.css 顶部，改样式先改令牌。
+>
+> **契约 v1.1（2026-09-02）**：家族统一默认密码 `***REMOVED-DEFAULT-PASSWORD***`（CONFIG_DEFAULT_WEB_PASSWORD）；
+> 空密码加载自动迁移 + 存量设备一次性种子（NVS `pw_seed_v1`，只跑一次）；服务端拒绝 <6 位密码；
+> 新增 `GET /api/record`、UI"修改密码"模态；api_version=1.1。
+
 All business endpoints use the `/api/` prefix. Returns JSON envelope `{"ok":true,"data":...}` on success, `{"ok":false,"error":"..."}` on failure.
 
 | Method | Path | Auth | Description |
@@ -219,6 +236,121 @@ Key log patterns to watch:
 - `recorder: Recording started` — normal operation
 
 ## NOTES
+
+### 2026-09-02 套接字耗尽事故（Web UI 整体不可用的根因，已修复）
+
+症状：设备 ping 通但 :80 连接被重置，串口持续刷 `httpd_accept_conn: error in accept (23)`（EMFILE）。
+机理：NAS 上传器对不可达目标每文件发起 ≈9 个短连接（HEAD + 递归 MKCOL×N + PUT×3 重试），
+连续失败 10 次才熔断 → 连接风暴把 `LWIP_MAX_SOCKETS=14` 的池打进 TIME_WAIT（2×60s MSL），
+期间 httpd 无法 accept，Web UI 数分钟不可用，随每个录像段（300s）的上传周期反复发作。
+
+修复四件套（勿单独回退任一项）：
+1. `sdkconfig.defaults`：`LWIP_MAX_SOCKETS 14→24`、`LWIP_TCP_MSL 60000→15000`（TIME_WAIT 120s→30s）。
+   生成文件 `sdkconfig` 已同步手改，无需 fullclean 重生成。
+2. `nas_uploader.c`：`MAX_CONSEC_FAILS 10→3`（更早熔断进 5 分钟暂停）。
+3. `web_server.c`：httpd `max_open_sockets 11→8`（给 :81/:554/上传器留余量）。
+4. `ws_server.c`：30s ping 回收器摘除死 WS 客户端（浏览器异常断开不发 CLOSE 帧会一直占坑）；
+   UI 侧 `beforeunload` 主动关闭 WS/音频连接。
+
+### 2026-09-02 MJPEG 死帧事故（第二类槽位滞留，已修复）
+
+症状：页面播放一段时间画面冻在最后一帧，重开也"连接中"，`:81` 槽位 3/3 满员。
+机理：浏览器渲染器停滞时 TCP 连接依然健康（内核代答 ACK），recv 探测与 send 超时均无法
+发现 —— 槽位被永久占用；重连/重载被 503 拒绝。修复（勿单独回退）：
+1. `mjpeg_streamer.c`：客户端 fd 注册表 + **满员 LRU 踢除**（shutdown 最旧连接，
+   新连接永远能赢，最多等 2s 后才 503）+ TCP keepalive（10s/5s×3）清 NAT 僵尸。
+### 2026-09-03 整夜循环重启事故（三因叠加，已修复）
+
+症状：设备过夜运行反复重启（实际 8h+，UI 显示 uptime 仅 ~30min），reset_reason=3（esp_restart 主动调用）。
+完整链条：NAS 夜间不可达 → 每段录像(5min)入队后上传器**无失败延迟**地连环重试队列（单轮可 ~150 连接）
+→ lwIP 池被 TIME_WAIT 挤占 → 健康监控的两个旧自愈逻辑误判 → esp_restart() 循环：
+1. httpd 探针把 `socket()<0`（EMFILE）也判为"httpd 死"（探针自己也拿不到 socket）→ 连续 5 周期(60s) 重启。
+2. "MJPEG 满员 5 分钟即重启" —— 但 3 个真实观众挂机整晚就是正常满员，必误杀。
+修复（勿单独回退）：
+- `main.c` probe_httpd_port80：socket/connect 的 EMFILE/ENOBUFS 归为"资源紧张不计数"，
+  只有 TCP 连上但应用层无响应才累计；MJPEG 满员检查改为仅记录不重启（僵尸满员已由 LRU+keepalive 解决）。
+- `nas_uploader.c`：上传失败后退避 30s 再取下一文件（原为立即连环重试）。
+
+### 2026-09-03 内部 DRAM 枯竭（13KB → 54KB，已修复）
+
+上述连接风暴期间暴露：内部 RAM 仅剩 ~13KB → `sdmmc allocate_dma_buf` 失败（录像丢帧风险）、
+MJPEG 客户端任务栈(4KB)创建失败。注意 `/api/status.free_heap` 含 PSRAM（6MB+），看不到内部枯竭，
+要看 `/metrics` 的 `node_memory_MemFree_bytes`（MALLOC_CAP_INTERNAL）。
+修复：`CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y`（WiFi/lwIP 缓冲迁 PSRAM）。
+教训：扩 `LWIP_MAX_SOCKETS`（14→24）这类修复要同时关注内部 DRAM 预算。
+
+排查工具：`tools/overnight_log.py`（整夜串口采集，输出 overnight_serial.log + overnight_reboots.log，
+自动标记 rst:0x 重启 banner 与错误行；烧录前先停采集器，否则串口冲突）。
+**2026-09-03 加固**：USB 重新枚举会让 pyserial 阻塞在死 fd 上不抛错（10:43 重启因此漏抓）——
+已加宽异常捕获 + 120s 静默看门狗强制重开。姐妹仓 luatos 已拷贝此版（端口改 ttyACM1）。
+
+### 2026-09-03 停录崩溃（Guru LoadProhibited，重启循环真凶，已修复）
+
+**现象**：停录/分段完成后 ~10s `Guru Meditation: Core 0 LoadProhibited (EXCVADDR 0x4)` → 重启；
+修复前一度 46s 一崩连环重启（11:15-11:19 五连崩）。栈：`uxListRemove ← vTaskDelete ←
+recorder_stop (video_recorder.c)`。
+**根因**：`sd_writer_task` 自删（`vTaskDelete(NULL)`）前**不置空 `s_writer_handle`**，
+`recorder_stop` 等待循环等满 10s 超时后对已释放 TCB 调 `vTaskDelete` → FreeRTOS 链表
+use-after-free。对已释放内存的删除是"俄罗斯轮盘"——多数时候侥幸不崩，故此前未暴露。
+修复：writer 退出前置空句柄（录制任务本就正确置空）+ drain 循环 `xTaskNotifyGive` 判空。
+验证：3 轮 启动→停止→双停 压力零重启；修复后 40+ 分钟零 Guru。
+副产品：修复前停录必卡 httpd ~10s（等待循环空转）也是此 bug。
+
+### 2026-09-03 浏览器全面测试（UI 四修复，三仓共享已 md5 同步）
+
+1. **StreamWatch 画布跨源污染**：流在 :81（跨源），img 未设 crossOrigin → no-cors 加载 →
+   canvas `getImageData` 每 3s 抛 SecurityError → **防死帧看门狗自上线起整体失效**
+   （三 SPA 板皆中）。服务端本就发 ACAO，客户端补 `img.crossOrigin='anonymous'` 即愈。
+   tick 外加 try/catch 兜底。
+2. **静态资源 max-age=3600**：UI 更新后浏览器最多跑 1 小时旧 JS（本次 crossOrigin 修复
+   被缓存吞掉才暴露）。改全部 no-cache（LAN ~60KB 可忽略）。n16r8 本就 no-cache。
+3. **api() 401 重试用旧 headers**：密码在入口只读一次，AuthSheet 认证后重试仍无
+   X-Password → 首次写操作必二次 401。密码读取移入 attempt()。
+4. **video-stage 宽高比**：`max-height:58vh` 会把 4:3 容器钳成 ~2:1（画面左右黑带）。
+   改 `width:min(100%, calc(58vh*4/3))` + 首帧后按流自然比例动态设 aspect-ratio
+   （HD 16:9 与 VGA 4:3 都满幅）。
+5'. **boot 链自愈（2026-09-03 晚追加）**：原 DOMContentLoaded 里 caps 之后的任何异常
+   都会让 `pollStatus()` 永不启动 → 骨架屏死锁（ai 弱射频首载撞掉线窗口实测复现，
+   chips 几分钟不填充）。修复：状态轮询无条件前置 + capabilities 失败重试
+   （10×5s）成功后再应用能力/拉配置。stats-strip 同时改 `flex-wrap:wrap`
+   （6 芯片 751px > 列宽 658px，原隐藏滚动条方案把"已运行"永久挡在视区外）。
+   **弱射频板部署校验方法**：curl 校验 app.js 必须用 -m 60（-m 10 会在空口竞争下
+   自掐造成"截断"假象，实测 50409B 完整文件 hash 与仓库一致）。
+5. **构建系统陷阱**：`spiffs_create_partition_image` 目录级依赖**不随文件内容编辑触发**
+   （build/spiffs.bin 比新 app.js 旧 → 烧的是旧 UI，今日实锤）。三仓 CMakeLists 已加
+   `file(GLOB) + DEPENDS` 显式文件依赖；改 web_ui 后核对 `md5(设备 /app.js) == md5(仓库文件)`。
+
+### 2026-09-03 深夜 推流吞吐 + 契约 v1.2（已烧录验证）
+
+1. **"推流没有内容"根因 = 信道拥塞 × TCP 窗口过小**。实测 ping RTT 169-330ms、
+   丢包 40%（本板在 ch11 拥塞网 MiBeeAP1；对照 ai-thinker 在 ch2：8ms/0%），
+   16KB SND_BUF × 250ms RTT 把每条 MJPEG 流钳在 ~64KB/s ≈ <1fps@55KB。
+   修复：`CONFIG_LWIP_TCP_SND_BUF_DEFAULT 16384→49152`、
+   `CONFIG_LWIP_TCP_WND_DEFAULT 16384→32768`（defaults 与生成 sdkconfig 同步手改，
+   大缓冲经 SPIRAM_USE_MALLOC 走 PSRAM）。修复后单客户端 ~4fps/79KB/s。
+   **固件只能缓解；根治需把板挪到不拥塞的网/信道（用户侧动作）**。
+2. **契约 v1.2**：`POST /api/files/batch` 新增 `{scope:"all|recordings|photos"}`
+   （递归删除、不受 GET 列表 64 条上限约束、跳过正在写的录像段）；
+   `api_version`→1.2。SPA 存储页新增类型筛选/分页/勾选批量/按类清空/格式化
+   （双重确认），四仓 md5 已拉齐。
+3. 审计结论（round-trip 全部键 + 越界值探测）：本板配置面 55 项全过、
+   非法值全部 400；仅 /api/files 最多返回 64 条（已知，scope 清空可兜底）。
+   录像期间 /api/download 被 409 拒绝（既有设计，防写坏 AVI）。
+
+悬案（未证实）：两次无解释 POWERON 重启（10:43、13:0x 附近）与**同集线器上刷写其他板**
+的时间窗重合——疑似 hub 电流冲击；无证据不下结论，采集器继续盯着。
+
+### 温度读数 0°C / 超量程（2026-09-02 修复）
+
+温度传感器原本在 health_monitor_task 内安装、且循环先睡 60s 才首读 → 开机后
+`/api/status.chip_temp` 长时间为 0。已改为 `chip_temp_init()` 在 app_main 序列提前安装并
+立即首读。**S3 温度传感器只有固定测量档**（[-10,80] / [20,100] / [50,125] / [-30,50]），
+请求区间必须完整落入某一档，跨档会被驱动拒绝（"Out of testing range"）。
+本机高负载 96~103°C，`chip_temp_init()` 按 (50,125) → (20,100) → (-10,80) 依次尝试。
+ luatos 同步改量程 (10,50)→(20,100)。
+
+2. UI `app.js`：StreamWatch 看门狗 —— 3s 像素采样（24×18 签名），连续 3 次不变判定死帧
+   自动重连（退避 0/5/30/60s）；服务端报 `stream_clients:0` 立即重连；每 90s 无条件换新流兜底。
 
 - **PSRAM Octal** — 8MB, must use 64B cache line, boot-init, malloc enabled
 - **Dual OTA slots** — 1.75MB each in partitions.csv, OTA via web UI or URL
