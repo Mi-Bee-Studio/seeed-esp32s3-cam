@@ -141,6 +141,7 @@ button { cursor: pointer; }
 }
 
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand-logo { width: 26px; height: 26px; flex: none; }
 
 .status-dot {
   width: 9px; height: 9px; border-radius: 50%;

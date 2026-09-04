@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- MiBee Cam — honeycomb lens: 蜂窝六边形(蜜蜂) + 双蜜黄条纹(蜂身/镜头) -->
+  <path d="M50 8 88 30v40L50 92 12 70V30Z" fill="none" stroke="#F5A623" stroke-width="9" stroke-linejoin="round"/>
+  <rect x="30" y="37" width="40" height="10" rx="5" fill="#F5A623"/>
+  <rect x="35" y="53" width="30" height="10" rx="5" fill="#F5A623" opacity=".62"/>
+</svg>
