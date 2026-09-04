@@ -343,6 +343,11 @@ static void mjpeg_listen_task(void *arg)
             continue;
         }
 
+        /* 发送超时兜底（2026-09-04）：死客户端探测只覆盖 FIN/RST，
+         * TCP 零窗口（连接着但不收）仍会阻塞 send() —— 10s 超时兜底。 */
+        struct timeval snd_to = { .tv_sec = 10, .tv_usec = 0 };
+        setsockopt(client_sock, SOL_SOCKET, SO_SNDTIMEO, &snd_to, sizeof(snd_to));
+
         /* Enforce client limit — 满员时踢最旧连接（LRU），新连接永远能赢。
          * shutdown 会让最旧客户端任务的 send/recv 立即失败 → 其自行清理释放槽位 */
         bool slot_ready = false;

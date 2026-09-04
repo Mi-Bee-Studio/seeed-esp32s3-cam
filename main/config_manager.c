@@ -70,6 +70,7 @@ static const cam_config_t s_defaults = {
     .motion_active_interval_sec = 1,
     .motion_idle_interval_sec = 30,
     .video_record_to_sd = true,
+    .record_on_boot = true,
     .audio_record_to_sd = false,
     .sd_log_enabled = false,
     .day_night_mode = 0,
@@ -465,6 +466,7 @@ esp_err_t config_init(void)
     nvs_get_u8(h, "motion_active_int", &s_config.motion_active_interval_sec);
     nvs_get_u8(h, "motion_idle_int", &s_config.motion_idle_interval_sec);
     nvs_get_u8(h, "video_record_to_sd", (uint8_t *)&s_config.video_record_to_sd);
+    nvs_get_u8(h, "record_on_boot", (uint8_t *)&s_config.record_on_boot);
     nvs_get_u8(h, "audio_record_to_sd", (uint8_t *)&s_config.audio_record_to_sd);
     nvs_get_u8(h, "sd_log_enabled", (uint8_t *)&s_config.sd_log_enabled);
     nvs_get_u8(h, "day_night", &s_config.day_night_mode);
@@ -673,7 +675,8 @@ esp_err_t config_save(void)
     nvs_set_u8(h, "motion_sens", s_config.motion_sensitivity);
     nvs_set_u8(h, "motion_active_int", s_config.motion_active_interval_sec);
     nvs_set_u8(h, "motion_idle_int", s_config.motion_idle_interval_sec);
-    nvs_set_u8(h, "video_record_to_sd", s_config.video_record_to_sd ? 1 : 0);
+        nvs_set_u8(h, "video_record_to_sd", s_config.video_record_to_sd ? 1 : 0);
+        nvs_set_u8(h, "record_on_boot", s_config.record_on_boot ? 1 : 0);
     nvs_set_u8(h, "audio_record_to_sd", s_config.audio_record_to_sd ? 1 : 0);
     nvs_set_u8(h, "sd_log_enabled", s_config.sd_log_enabled ? 1 : 0);
     nvs_set_u8(h, "day_night", s_config.day_night_mode);
@@ -766,6 +769,7 @@ cJSON *config_get_json(void)
     cJSON_AddNumberToObject(root, "fps", s_config.fps);
     cJSON_AddNumberToObject(root, "segment_sec", s_config.segment_sec);
     cJSON_AddBoolToObject(root, "video_record_to_sd", s_config.video_record_to_sd);
+    cJSON_AddBoolToObject(root, "record_on_boot", s_config.record_on_boot);
     cJSON_AddBoolToObject(root, "audio_record_to_sd", s_config.audio_record_to_sd);
     cJSON_AddBoolToObject(root, "frame_drop_enabled", s_config.frame_drop_enabled);
 

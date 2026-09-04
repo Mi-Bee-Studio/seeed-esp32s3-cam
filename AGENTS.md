@@ -485,3 +485,16 @@ Creating a release:
 - **body.md appears as asset**: it was placed in `release/` dir — move it to `/tmp/release-body.md`
 - **Missing commits in changelog**: auto-generation uses PR titles or commit messages — ensure commits follow conventional commit format (`feat:`, `fix:`, `docs:`, `ci:`)
 - **Wrong version in flash_command.txt**: ensure heredoc delimiter is unquoted `EOF` (not `'EOF'`) so `$GITHUB_REF_NAME` expands
+
+## 2026-09-04 上午：WS 洪水防护 + SD 慢速重试 + record_on_boot（PIT-023）
+- **WS 洪水事故**：LAN 某客户端 ~50Hz 发未掩码帧，旧 ws_handler 违例后 `return ESP_OK`
+  → httpd 会话不关 → 无限重入打满 CPU0 → IDLE0 饿死 → TWDT 复位 ×19。连锁表象：
+  SD `sdmmc_card_init 0x107` 失败"消失"、每次重启后开机自动录制"复活"、85°C+。
+  **修复**：违例/recv 失败一律 `return ESP_FAIL` 关会话；WS connect 记录对端 IP。
+- **SD 周期重试**：boot init 失败后 stat 探测永不翻转、无恢复路径 → sd_monitor 每 60s
+  `storage_remount()` 重试（卡常在数分钟内自愈，本次重烧后自愈已实证）。
+- **record_on_boot 配置**（默认 on=家族原行为）：开机自动录像可关；SD 未就绪时不硬启，
+  等 sd_monitor 恢复后自动补启。GET/POST /api/config 已暴露。
+- MJPEG accept 补 `SO_SNDTIMEO=10s`（PIT-024 家族同步，探测本仓已有）。
+- 静态服务 MIME 表补 `.svg`/`.json`（favicon.svg 曾被当 text/html 回退）。
+- 统一 logo favicon.svg（四仓同 md5）；web_ui 新增文件需 `idf.py reconfigure`（PIT-026）。

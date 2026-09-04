@@ -81,6 +81,7 @@ typedef struct {
     uint8_t motion_active_interval_sec;  // Dynamic: interval when motion detected (1-30s)
     uint8_t motion_idle_interval_sec;    // Dynamic: interval when no motion (5-300s)
     bool video_record_to_sd;     // 是否录制视频到 SD 卡（默认 true）
+    bool record_on_boot;         // 开机自动录像（默认 true，家族传统）；false=完全手动
     bool audio_record_to_sd;     // 是否录制音频到 SD 卡（默认 false，合并进视频音轨）
     bool sd_log_enabled;         // 是否启用 SD 卡日志（默认 false，/sdcard/logs/）
     uint8_t day_night_mode;   // 日夜模式：0=彩色, 1=黑白, 2=自动(预留)

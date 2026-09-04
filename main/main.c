@@ -236,6 +236,10 @@ static void sd_monitor_task(void *arg)
 {
     (void)arg;
     bool prev_available = storage_is_available();
+    /* 2026-09-04：TWDT 复位后 SD 卡常停在错误总线状态，boot 时
+     * sdmmc_card_init 连续 0x107 超时 → storage_check() 永远 FAIL 且无
+     * 边沿可触发重挂载。每 60s 慢速重试一次（卡常在数分钟内自行恢复）。 */
+    int remount_retry_ticks = 0;
 
     ESP_LOGI(TAG, "SD monitor started");
 
@@ -243,6 +247,17 @@ static void sd_monitor_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(10000));
 
         bool now_available = (storage_check() == ESP_OK);
+        bool just_remounted = false;
+
+        if (!now_available && ++remount_retry_ticks >= 6) {
+            remount_retry_ticks = 0;
+            if (storage_remount() == ESP_OK) {
+                now_available = (storage_check() == ESP_OK);
+                just_remounted = true;
+            }
+        } else if (now_available) {
+            remount_retry_ticks = 0;
+        }
 
         if (prev_available && !now_available) {
             /* SD card removed */
@@ -263,9 +278,9 @@ static void sd_monitor_task(void *arg)
         }
 
         if (!prev_available && now_available) {
-            /* SD card reinserted */
+            /* SD card reinserted (or recovered via periodic retry above) */
             ESP_LOGI(TAG, "SD card reinserted — remounting...");
-            if (storage_remount() == ESP_OK) {
+            if (just_remounted || storage_remount() == ESP_OK) {
                 /* Verify SD is actually writable before resuming */
                 FILE *tf = fopen("/sdcard/.health", "w");
                 if (!tf || fputs("ok\n", tf) < 0 || fclose(tf) != 0) {
@@ -645,9 +660,16 @@ void app_main(void)
         }
     }
 
-    if (s_camera_ok) {
-        recorder_start();
-        ESP_LOGI(TAG, "Recording started");
+    /* 开机自动录像（家族默认行为）。2026-09-04 起可经 record_on_boot 配置关闭；
+     * SD 未就绪时不硬启，等 sd_monitor 重挂载成功后走自动恢复路径。 */
+    if (s_camera_ok && config_get()->record_on_boot) {
+        if (storage_is_available()) {
+            recorder_start();
+            ESP_LOGI(TAG, "Recording started (record_on_boot=1)");
+        } else {
+            ESP_LOGW(TAG, "SD not ready at boot — recording deferred until SD recovers");
+            s_was_recording = true;   /* SD 恢复后由 sd_monitor 自动补启 */
+        }
     }
 
     /* ---- 15b. Audio driver start + RTSP server ----------------------- */

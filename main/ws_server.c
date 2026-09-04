@@ -22,6 +22,9 @@
 #include <stdlib.h>
 #include "freertos/semphr.h"
 #include <time.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 static const char *TAG = "ws";
 
@@ -51,8 +54,18 @@ static void add_client(httpd_req_t *req)
     s_clients[s_client_count].req = req;
     s_clients[s_client_count].fd  = httpd_req_to_sockfd(req);
     s_client_count++;
-    ESP_LOGI(TAG, "WS client added, fd=%d (total=%d)",
-             s_clients[s_client_count - 1].fd, s_client_count);
+
+    /* 记录对端 IP：2026-09-04 WS 洪水事件（未掩码帧 50Hz 打满 httpd → TWDT
+     * 复位 ×19）时无法定位凶手，此后每个 WS 连接都可追溯 */
+    char ipstr[INET_ADDRSTRLEN] = "?";
+    struct sockaddr_in peer;
+    socklen_t plen = sizeof(peer);
+    if (getpeername(s_clients[s_client_count - 1].fd,
+                    (struct sockaddr *)&peer, &plen) == 0) {
+        inet_ntop(AF_INET, &peer.sin_addr, ipstr, sizeof(ipstr));
+    }
+    ESP_LOGI(TAG, "WS client added, fd=%d ip=%s (total=%d)",
+             s_clients[s_client_count - 1].fd, ipstr, s_client_count);
     xSemaphoreGive(s_mutex);
 }
 
@@ -86,9 +99,12 @@ static esp_err_t ws_handler(httpd_req_t *req)
     httpd_ws_frame_t ws_pkt = { 0 };
     esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
     if (ret != ESP_OK) {
-        /* Client disconnected */
+        /* 协议违例/断连（含“WS frame is not properly masked”）。
+         * 必须 return 非 OK 让 httpd 关闭该会话——返回 ESP_OK 会让坏客户端
+         * 无限重发坏帧（2026-09-04 实测 50Hz 打满 httpd CPU0 → IDLE0 饿死
+         * → TWDT 复位循环）。 */
         remove_client(req);
-        return ESP_OK;
+        return ESP_FAIL;
     }
 
     if (ws_pkt.type == HTTPD_WS_TYPE_CLOSE) {

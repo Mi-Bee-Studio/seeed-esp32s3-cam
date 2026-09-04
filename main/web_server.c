@@ -381,6 +381,7 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddStringToObject(data, "alert_webhook_url", cfg->alert_webhook_url);
     cJSON_AddBoolToObject(data, "alert_webhook_enabled", cfg->alert_webhook_enabled);
     cJSON_AddBoolToObject(data, "video_record_to_sd", cfg->video_record_to_sd);
+    cJSON_AddBoolToObject(data, "record_on_boot", cfg->record_on_boot);
     cJSON_AddBoolToObject(data, "audio_record_to_sd", cfg->audio_record_to_sd);
     cJSON_AddBoolToObject(data, "sd_log_enabled", cfg->sd_log_enabled);
     cJSON_AddNumberToObject(data, "xclk_freq_mhz", cfg->xclk_freq_mhz);
@@ -658,6 +659,8 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         /* SD absent: silently disable, don't block other config */
         cfg->video_record_to_sd = (item->valueint && !storage_is_available()) ? false : item->valueint;
     }
+    if ((item = cJSON_GetObjectItem(json, "record_on_boot")))
+        cfg->record_on_boot = item->valueint;   /* 下次开机生效 */
     if ((item = cJSON_GetObjectItem(json, "audio_record_to_sd"))) {
         /* SD absent: silently disable, don't block other config */
         cfg->audio_record_to_sd = (item->valueint && !storage_is_available()) ? false : item->valueint;
@@ -1271,7 +1274,9 @@ static esp_err_t static_file_handler(httpd_req_t *req)
     if (strstr(uri, ".css"))  type = "text/css";
     else if (strstr(uri, ".js"))   type = "application/javascript";
     else if (strstr(uri, ".png"))  type = "image/png";
+    else if (strstr(uri, ".svg"))  type = "image/svg+xml";   /* favicon.svg（2026-09-04 家族 logo） */
     else if (strstr(uri, ".ico"))  type = "image/x-icon";
+    else if (strstr(uri, ".json")) type = "application/json";
 
     /* Check if client accepts gzip -- serve .gz variant if available */
     char accept_enc[64] = {0};
