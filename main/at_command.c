@@ -156,16 +156,16 @@ static void cmd_camres(const char *p)
     cam_config_t *cfg = config_get();
     camera_res_t eff_max = camera_get_effective_max_res();
     if (!p || p[0] == '?' || p[0] == '\0') {
-        at_out("Resolution: %s  supported: 0-%d (board-tested max: %s)\r\n",
+        at_out("Resolution: %s  supported: 0-%d (cap: %s, source: %s)\r\n",
                camera_res_to_str(camera_get_resolution()), (int)eff_max,
-               camera_res_to_str(eff_max));
+               camera_res_to_str(eff_max), camera_res_cap_source());
         AT_OK();
         return;
     }
     int n = atoi(p);
     if (n < 0 || n > (int)eff_max) {
-        at_out("ERROR: resolution must be 0-%d (board-tested max: %s)\r\n",
-               (int)eff_max, camera_res_to_str(eff_max));
+        at_out("ERROR: resolution must be 0-%d (cap: %s, source: %s)\r\n",
+               (int)eff_max, camera_res_to_str(eff_max), camera_res_cap_source());
         return;
     }
     if (n == (int)cfg->cam_framesize) {

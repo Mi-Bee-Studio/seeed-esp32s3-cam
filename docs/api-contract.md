@@ -89,10 +89,17 @@
 
 - `GET /api/camera` 返回：`resolution`(str)、`cam_framesize`(num)、`cam_quality`(num)、
   `supported_resolutions:[{label,value}]`、**`quality_min`/`quality_max`（2026-09-04 起，
-  板端声明的画质滑杆边界）**，以及该板支持的传感器微调字段
+  板端声明的画质滑杆边界）**、**`res_cap_source`（2026-09-04 起，"sensor"|"board"|"memory"，
+  报告分辨率上限被哪一层钳制，诊断用）**，以及该板支持的传感器微调字段
   （`cam_brightness/contrast/saturation/sharpness`、`cam_hmirror`、`cam_vflip`、`day_night_mode`
   —— 不支持的省略）。
-- **`value` 数值刻度是板相关的**（ai 0-3 / seeed 0-5（板级上限 UXGA）/ n16r8 仅 VGA=10（模组实测）/ luatos 0-3）。
+- **`value` 数值刻度是板相关的**（ai 0-3 / seeed 0-5（上限 UXGA）/ n16r8 10-11（上限 SVGA，2026-09-04 复测）/ luatos 仅 0（上限 VGA））。
+- **上限是三层交集（2026-09-04 家族统一）**：`min(传感器上限, 板级实测上限, 运行时 fb 预算)`。
+  传感器层查 esp32-camera 组件能力表（`camera_sensor_info_t.max_size`，按实戴型号自动检测）——
+  换接传感器后 `supported_resolutions` 随之收缩/放宽；板级层是各板实测常数（§5.1 表，唯一手工数字）；
+  fb 预算层运行时校验 `宽×高/5×fb_count + floor ≤ 可用 fb 内存域`（PSRAM 板查 PSRAM、DRAM 板查内部
+  DMA 域），**只能收紧**。被哪层钳制看 `res_cap_source`。判定上限只看采集侧证据（fb_get 出帧 +
+  JPEG SOF 实测尺寸），投递 fps 是链路/NVR 指标不可作依据。
   前端**禁止硬编码分辨率表**，只从 `supported_resolutions` 填充下拉框，POST 只回传列表内的 value；
   画质滑杆的 min/max 必须取自 `quality_min`/`quality_max`（字段缺失时回退 1-63 兼容旧固件）。
   AI↔VGA 联动通过 label 前缀 `VGA` 识别。
@@ -104,14 +111,14 @@
   - **luatos**：任何摄像头变更保存+1s 后重启应用（fb_count=1 DRAM 热重配竞态，PIT-012）。
     响应含 `rebooting:true`。
 
-### 5.1 板级实测上限（2026-09-04，各板实机 90s 推流+状态采样）
+### 5.1 板级实测上限（2026-09-04，各板实机 90s 推流+状态采样；即三层方案中的 board 层）
 
 | 板 | 传感器 | 分辨率上限 | 画质范围 | 上限档实测 | 超限后果（剔除理由） |
 |---|---|---|---|---|---|
 | ai-thinker | OV2640 | UXGA (0-3) | 10-63 | UXGA 采集 ~1.7fps / 推流 ~0.6fps，无崩溃 | —（传感器上限即板上限，UXGA 照常提供，慢但稳定） |
 | seeed | OV5640（实戴） | **UXGA** (0-5) | 10-63 | UXGA 0.9fps、峰值 93.5°C | FHD 峰值 97.5°C / QXGA 100.5°C，超 S3 规格 85°C（PIT-016） |
 | luatos | OV2640 | **VGA** (仅 0) | 10-63 | VGA 4.8-5.9fps，帧 13-23KB | SVGA 起 fb=96KB 在 DRAM（无 PSRAM）触发堆枯竭螺旋（PIT-012） |
-| n16r8 | OV3660（模组） | **VGA**（仅 framesize 10） | 10-63 | VGA 26fps 广播 / 0.33s 拍照，零故障 | SVGA/XGA 热重配后取帧死（capture 0B）；HD+ 触发 cam_hal FB-OVF 风暴楔死 httpd；冷启动存 HD 时传感器仍输出 VGA（配置与实际脱节）——2026-09-04 上板实测 |
+| n16r8 | OV3660（模组） | **SVGA**（10-11） | 10-63 | SVGA 冷启动实拍 800×600（JPEG SOF 验证），VGA/SVGA 帧流正常 | XGA+ 冷启动即 `esp_camera_fb_get` NULL 取帧死并楔死整板；PSRAM 8MB 充裕，属模组/DVP 组合极限。首轮“仅 VGA”结论被 NVS 键名 bug 污染（PIT-022：保存失败→AI 复活→强制 VGA），2026-09-04 复测翻案至 SVGA |
 
 画质下限 10 的依据：esp32-camera 的 JPEG 帧缓冲按 `宽×高/5` 分配（假设最高 1:5 压缩），
 q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-thinker UXGA 224KB / seeed UXGA 193KB）

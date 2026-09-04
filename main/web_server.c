@@ -1749,6 +1749,8 @@ static esp_err_t api_camera_get_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(data, "cam_hmirror", cfg->cam_hmirror);
     cJSON_AddNumberToObject(data, "day_night_mode", cfg->day_night_mode);
     cJSON_AddItemToObject(data, "supported_resolutions", camera_supported_resolutions_json());
+    /* 契约扩展（2026-09-04）：上限被哪一层钳制（sensor/board/memory），诊断用 */
+    cJSON_AddStringToObject(data, "res_cap_source", camera_res_cap_source());
 
     return json_ok(req, data);
 }

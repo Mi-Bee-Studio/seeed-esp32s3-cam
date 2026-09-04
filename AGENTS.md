@@ -164,6 +164,12 @@ idf.py set-target esp32s3
 idf.py build
 
 # Flash full image (bootloader + partition-table + app + SPIFFS)
+# DEFAULT DELIVERY = Web OTA (flashing policy, root AGENTS.md 2026-09-04):
+#   curl -X POST http://<ip>/api/ota/upload -H 'X-Password: <pwd>' \
+#        -H 'Content-Type: application/octet-stream' --data-binary @build/mibee_cam.bin
+#   (UI: same but /api/ota/spiffs with build/spiffs.bin; verify /api/ota/info
+#   running_partition flip + device /app.js md5 == repo — PIT-017. Slot limit ~1.9MB.)
+# USB below only for blank chips / rescue / unreachable devices.
 idf.py -p /dev/ttyACM0 flash
 
 # Flash app only (fast, for iterative development)
@@ -258,8 +264,15 @@ Key log patterns to watch:
    capture 仍 1280x720）→ 分辨率变更改"保存+应答+1s 重启"，`camera_set_resolution()`
    留 ⚠️ 注释仅供启动期；画质走新 `camera_set_quality()`（单寄存器写，热应用实测 OK）。
 2. **板级上限 UXGA**：`camera_driver.h` `CAMERA_RES_BOARD_MAX`（FHD/QXGA 温度出局）；
-   `camera_get_effective_max_res()` = min(传感器, 板级)，supported_resolutions/POST 校验/
-   camera_init/NVS 加载全部走它（测试残留的 QXGA 配置在首次加载被自动钳到 UXGA）。
+   `camera_get_effective_max_res()` = min(传感器, 板级, 运行时 fb 预算)，
+   supported_resolutions/POST 校验/camera_init/NVS 加载全部走它（测试残留的 QXGA
+   配置在首次加载被自动钳到 UXGA）。
+   **2026-09-04 下午三层化**：传感器层改查 esp32-camera 组件能力表
+   （`esp_camera_sensor_get_info().max_size`，删掉了仓内手抄 PID 表——实戴
+   OV5640 与文档 OV2640 不符的坑从此由组件自动适配）；memory 层为 PSRAM
+   fb 预算校验（fb_count=3、512K floor，只能收紧）；`GET /api/camera`
+   新增 `res_cap_source`（sensor/board/memory）报告钳制层。本板 OV5640
+   满配不变（0-5、source=board）。
 3. **画质 10-63**（`CAMERA_QUALITY_MIN/MAX`，fb=w*h/5 预算）+ `GET /api/camera`
    新增 `quality_min/quality_max`（SPA 滑杆钳制）。
 - **停录像 = 杀流已修（PIT-020，2026-09-04）**：`RECORDER_PREVIEW` 状态 + 引用计数，

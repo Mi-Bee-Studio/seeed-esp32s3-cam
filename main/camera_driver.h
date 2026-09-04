@@ -53,11 +53,17 @@ typedef enum {
     CAMERA_RES_QXGA = 7,   /* 2048x1536 */
 } camera_res_t;
 
-/* 板级实测上限（2026-09-04，本机 OV5640，推流+录像负载下 90s 实测）：
- * FHD 峰值 97.5°C / QXGA 100.5°C —— 超 S3 规格 85°C（PIT-016 观察项），
- * 均从可选档位剔除；UXGA 峰值 93.5°C 且流稳定，定为板上限。
- * 传感器理论上限（OV5640=QXGA）仍由 camera_get_max_resolution() 给出，
- * effective 上限 = min(传感器上限, 板级上限)。 */
+/* ── 分辨率三层上限（2026-09-04 家族统一，PIT-021 附录）──────────────
+ * effective = min(传感器上限, 板级实测上限, 运行时 fb 预算)，三层各司其职：
+ *  1. sensor  — esp32-camera 自动检测（camera_sensor_info_t.max_size），
+ *               换传感器（含与文档不符的实戴型号）候选表自适应收缩；
+ *  2. board   — 本板实测常数（唯一手工数字，禁止沿用姐妹板数值）：
+ *               2026-09-04 本机 OV5640 推流+录像负载 90s 实测，FHD 峰值
+ *               97.5°C / QXGA 100.5°C 超 S3 规格 85°C（PIT-016）剔除，
+ *               UXGA 峰值 93.5°C 且流稳定 → 定为板上限（热限）；
+ *  3. memory  — 运行时 fb 预算校验（宽*高/5*fb_count + floor ≤ 可用堆），
+ *               只能收紧（防御 PSRAM 退化态），不放宽超过实测常数。
+ * /api/camera 下发 res_cap_source 报告被哪一层钳制（诊断用）。 */
 #define CAMERA_RES_BOARD_MAX CAMERA_RES_UXGA
 
 /* JPEG 画质边界（数值越小画质越高、帧越大）。esp32-camera 的 JPEG 帧缓冲
@@ -150,9 +156,14 @@ camera_res_t camera_get_resolution(void);
 camera_res_t camera_get_max_resolution(camera_sensor_t sensor);
 
 /** @brief 获取当前板上实际可用的最大分辨率
- * @return min(传感器上限, CAMERA_RES_BOARD_MAX)
+ * @return min(传感器上限, CAMERA_RES_BOARD_MAX, 运行时 fb 预算上限)
  */
 camera_res_t camera_get_effective_max_res(void);
+
+/** @brief 上限被哪一层钳制（sensor / board / memory）
+ * @return 静态字符串，与 camera_get_effective_max_res() 最近一次计算对应
+ */
+const char *camera_res_cap_source(void);
 
 /** @brief 运行时设置 JPEG 画质（OV5640 单寄存器写，无需重启）
  * @param quality 画质值（越界自动钳制到 [CAMERA_QUALITY_MIN, MAX]）

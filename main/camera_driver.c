@@ -23,6 +23,7 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "sensor.h"
+#include "esp_heap_caps.h"
 #include "config_manager.h"
 #include "freertos/timers.h"
 
@@ -50,6 +51,7 @@ static const char *TAG = "camera";
 static camera_sensor_t s_sensor      = CAMERA_SENSOR_UNKNOWN;
 static camera_res_t    s_current_res = CAMERA_RES_SVGA;
 static bool            s_initialized = false;
+static const char     *s_cap_source  = "board";   /* 最近一次 effective 计算的钳制层 */
 
 /* Timeout for camera capture — prevents indefinite block in esp_camera_fb_get()
  * that would starve the TWDT and trigger a panic reset.
@@ -87,6 +89,42 @@ static framesize_t res_to_framesize(camera_res_t res)
         case CAMERA_RES_QXGA: return FRAMESIZE_QXGA;  /* 2048x1536 */
         default:              return FRAMESIZE_SVGA;
     }
+}
+
+/* ── 三层上限之 memory 层：fb 预算运行时校验 ─────────────────────────
+ * esp32-camera 的 JPEG fb 按 宽*高/5 分配（cam_hal cam_config 同式），
+ * PSRAM 板预算 = fb_size * fb_count，要求分完后仍留 floor 给 lwIP 大缓冲
+ * 等非相机消费者。此层只能收紧上限（防御 PSRAM 退化态/泄漏），不会把
+ * effective 放宽超过 CAMERA_RES_BOARD_MAX 实测常数。 */
+#define CAMERA_FB_COUNT       3     /* 与 camera_init 一致（triple buffer） */
+#define CAMERA_RES_MEM_FLOOR  (512 * 1024)   /* PSRAM 保留水位 */
+
+/* framesize → 尺寸表，下标 0 对应 FRAMESIZE_VGA（钉死 esp32-camera 2.1.x
+ * 枚举序；组件枚举漂移时由下方 _Static_assert 在构建期暴露） */
+static const struct { uint16_t w, h; } s_fs_dims[] = {
+    { 640,  480},  { 800,  600},  {1024,  768},  {1280,  720},  {1280, 1024},
+    {1600, 1200},  {1920, 1080},  { 720, 1280},  { 864, 1536},  {2048, 1536},
+    {2560, 1440},  {2560, 1600},  {1080, 1920},  {2560, 1920},  {2592, 1944},
+};
+_Static_assert(FRAMESIZE_VGA == 10, "s_fs_dims pinned to esp32-camera 2.1.x enum");
+
+/** @brief 该档位单个 JPEG fb 的字节数（宽*高/5），非法档位返回 0 */
+static size_t fb_bytes_for_res(camera_res_t res)
+{
+    int idx = (int)res;
+    if (idx < 0 || (size_t)idx >= sizeof(s_fs_dims) / sizeof(s_fs_dims[0])) {
+        return 0;
+    }
+    return (size_t)s_fs_dims[idx].w * s_fs_dims[idx].h / 5;
+}
+
+/** @brief fb 预算校验：换到该档位后 PSRAM 是否还付得起（含释放现有 fb） */
+static bool fb_budget_ok(camera_res_t res)
+{
+    size_t need = fb_bytes_for_res(res) * CAMERA_FB_COUNT;
+    size_t cur_fb = s_initialized ? fb_bytes_for_res(s_current_res) * CAMERA_FB_COUNT : 0;
+    size_t avail = heap_caps_get_free_size(MALLOC_CAP_SPIRAM) + cur_fb;
+    return need != 0 && avail >= need + CAMERA_RES_MEM_FLOOR;
 }
 
 /** @brief 初始化摄像头
@@ -177,17 +215,15 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
     /* Clamp resolution to sensor capability AND board-tested maximum
      * (thermal: FHD/QXGA exceed safe chip temp on this board — see
      * CAMERA_RES_BOARD_MAX note in camera_driver.h) */
-    if (s_sensor != CAMERA_SENSOR_UNKNOWN && res > camera_get_max_resolution(s_sensor)) {
-        camera_res_t clamped = camera_get_max_resolution(s_sensor);
-        ESP_LOGW(TAG, "Requested res %d exceeds sensor max %d, clamping", res, clamped);
-        sensor->set_framesize(sensor, res_to_framesize(clamped));
-        res = clamped;
-    }
-    if (res > CAMERA_RES_BOARD_MAX) {
-        ESP_LOGW(TAG, "Requested res %d exceeds board-tested max %d (thermal), clamping",
-                 res, CAMERA_RES_BOARD_MAX);
-        sensor->set_framesize(sensor, res_to_framesize(CAMERA_RES_BOARD_MAX));
-        res = CAMERA_RES_BOARD_MAX;
+    /* 三层上限统一钳制（sensor ∩ board ∩ memory；热限说明见
+     * camera_driver.h CAMERA_RES_BOARD_MAX 注）。注意 PIT-019：OV5640
+     * 运行时 set_framesize 不生效，此处钳到超限档时实际帧尺寸要等
+     * 重启（保存路径 POST 已拒绝超限值，这里兜底 NVS 残留）。 */
+    if (res > camera_get_effective_max_res()) {
+        ESP_LOGW(TAG, "Requested res %d exceeds effective max %d (source: %s), clamping",
+                 res, camera_get_effective_max_res(), camera_res_cap_source());
+        res = camera_get_effective_max_res();
+        sensor->set_framesize(sensor, res_to_framesize(res));
     }
 
     s_current_res = res;
@@ -250,19 +286,52 @@ camera_sensor_t camera_get_sensor(void)
 
 camera_res_t camera_get_max_resolution(camera_sensor_t sensor)
 {
-    switch (sensor) {
-        case CAMERA_SENSOR_OV2640: return CAMERA_RES_UXGA;  /* 1600x1200 */
-        case CAMERA_SENSOR_OV3660: return CAMERA_RES_QXGA;  /* 2048x1536 */
-        case CAMERA_SENSOR_OV5640: return CAMERA_RES_QXGA;  /* 2048x1536 */
-        default:                  return CAMERA_RES_XGA;    /* conservative fallback */
+    /* sensor 层：直接查 esp32-camera 组件自带的传感器能力表
+     * （camera_sensor[].max_size，单一事实源——不在此维护第二份 PID 表）。
+     * 本地枚举只到 QXGA，组件给的更大上限（如 OV5640=QSXGA）钳到 QXGA。 */
+    if (s_initialized) {
+        sensor_t *s = esp_camera_sensor_get();
+        camera_sensor_info_t *info = s ? esp_camera_sensor_get_info(&s->id) : NULL;
+        if (info && info->max_size >= FRAMESIZE_VGA) {
+            int res = (int)info->max_size - (int)FRAMESIZE_VGA;
+            if (res > (int)CAMERA_RES_QXGA) {
+                res = (int)CAMERA_RES_QXGA;
+            }
+            return (camera_res_t)res;
+        }
+        ESP_LOGW(TAG, "Unknown sensor PID — sensor layer falls back to XGA");
     }
+    /* 相机未初始化/未知传感器：保守回退（历史行为，仅在初始化前的
+     * 调用窗口内生效；初始化后 always 走组件表） */
+    (void)sensor;
+    return CAMERA_RES_XGA;
 }
 
 camera_res_t camera_get_effective_max_res(void)
 {
-    camera_res_t sensor_max = (s_sensor != CAMERA_SENSOR_UNKNOWN)
-        ? camera_get_max_resolution(s_sensor) : CAMERA_RES_XGA;
-    return (sensor_max < CAMERA_RES_BOARD_MAX) ? sensor_max : CAMERA_RES_BOARD_MAX;
+    /* sensor 层（未初始化时回退 XGA，与本函数历史行为一致） */
+    camera_res_t sensor_cap = camera_get_max_resolution(s_sensor);
+    /* board 层：本板实测常数 */
+    camera_res_t board_cap = CAMERA_RES_BOARD_MAX;
+    camera_res_t cap = (sensor_cap < board_cap) ? sensor_cap : board_cap;
+    /* memory 层：运行时 fb 预算，只能收紧 */
+    while (cap > CAMERA_RES_VGA && !fb_budget_ok(cap)) {
+        cap = (camera_res_t)((int)cap - 1);
+    }
+    /* 钳制层归属（并列时 sensor > board > memory） */
+    if (cap == sensor_cap) {
+        s_cap_source = "sensor";
+    } else if (cap == board_cap) {
+        s_cap_source = "board";
+    } else {
+        s_cap_source = "memory";
+    }
+    return cap;
+}
+
+const char *camera_res_cap_source(void)
+{
+    return s_cap_source;
 }
 
 esp_err_t camera_set_quality(uint8_t quality)
