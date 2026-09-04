@@ -1,1 +1,13 @@
 # Kconfig options for mibee_homecam project
+
+menu "mibee-cam Security Defaults"
+
+    config MIBEE_CAM_DEFAULT_WEB_PASSWORD
+        string "Default web management password"
+        default "changeme"
+        help
+            First-boot / empty-migration default for the web management
+            password (contract v1.1). Real deployment values live only in
+            the local git-ignored sdkconfig - never commit credentials.
+
+endmenu
