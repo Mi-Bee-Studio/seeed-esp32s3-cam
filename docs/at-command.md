@@ -67,6 +67,7 @@
 | 仓 | 扩展 | 说明 |
 |---|---|---|
 | n16r8 | `AT+AIFACE?/=`,`AT+AIMOTION?/=`,`AT+AIQR?/=` | AI 管线开关（唯一带 AI 的板） |
+| n16r8 | `AT+WIFI2=ssid,pass` | 备用网络凭据（2026-09-04：本板原为单 WiFi；查询脱敏；`ssid,` 空串清除） |
 | n16r8 | `AT+LED`/`AT+LED=`,`AT+RTSPPASS=` | 闪光灯 / RTSP 密码写 |
 | n16r8 | `AT+CAMCAP` | 拍一帧报告尺寸 |
 | luatos | `AT+STREAM?` | MJPEG 流状态 |
