@@ -89,7 +89,7 @@ testing; read it from the boot log or `GET /api/status` (`camera` field).
 > 自定义模态确认（替代 confirm()）、按钮 busy 态、滑杆轨道填充、断流骨架屏、全屏。
 > 资源共 ~110KB（SPIFFS 256KB）。设计令牌集中在 style.css 顶部，改样式先改令牌。
 >
-> **契约 v1.1（2026-09-02）**：家族统一默认密码 `***REMOVED-DEFAULT-PASSWORD***`（CONFIG_DEFAULT_WEB_PASSWORD）；
+> **契约 v1.1（2026-09-02）**：家族统一默认密码经 Kconfig 注入（`CONFIG_MIBEE_CAM_DEFAULT_WEB_PASSWORD`，真实值仅存本地 sdkconfig，严禁入库）；
 > 空密码加载自动迁移 + 存量设备一次性种子（NVS `pw_seed_v1`，只跑一次）；服务端拒绝 <6 位密码；
 > 新增 `GET /api/record`、UI"修改密码"模态；api_version=1.1。
 

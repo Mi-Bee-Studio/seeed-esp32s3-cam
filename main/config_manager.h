@@ -21,14 +21,15 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "cJSON.h"
+#include "sdkconfig.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define CONFIG_CURRENT_VERSION 2
 
-/* 契约 v1.1：家族统一默认管理密码（首次启动/空密码迁移/一次性种子共用） */
-#define CONFIG_DEFAULT_WEB_PASSWORD "***REMOVED-DEFAULT-PASSWORD***"
+/* 契约 v1.1：家族统一默认管理密码（首次启动/空密码迁移/一次性种子共用；真实值仅存本地 sdkconfig） */
+#define CONFIG_DEFAULT_WEB_PASSWORD CONFIG_MIBEE_CAM_DEFAULT_WEB_PASSWORD
 
 /** @brief 摄像头全局配置结构体，持久化到 NVS 闪存 */
 typedef struct {
