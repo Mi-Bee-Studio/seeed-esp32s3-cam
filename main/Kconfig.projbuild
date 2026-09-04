@@ -4,10 +4,11 @@ menu "mibee-cam Security Defaults"
 
     config MIBEE_CAM_DEFAULT_WEB_PASSWORD
         string "Default web management password"
-        default "changeme"
+        default "mibeecam2026"
         help
             First-boot / empty-migration default for the web management
-            password (contract v1.1). Real deployment values live only in
-            the local git-ignored sdkconfig - never commit credentials.
+            password (contract v1.1). mibeecam2026 is the documented public
+            default (safe for README/docs); local builds may override it
+            via the git-ignored sdkconfig.
 
 endmenu
