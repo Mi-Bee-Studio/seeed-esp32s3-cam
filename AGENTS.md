@@ -4,6 +4,13 @@
 **Commit:** d02b987
 **Branch:** main
 
+## AT command interface (family contract v1.0, 2026-09-04)
+
+统一契约：`docs/at-command.md`（四仓 md5 一致，地位同 api-contract）。核心集：
+`AT / AT+HELP / AT+GMR / AT+STATUS / AT+WIFI?|= / AT+IP? / AT+CAMRES?|= / AT+CAMQUAL?|= /
+AT+REBOOT / AT+RESTORE`（+能力裁剪项）。红线：**任何读指令不回显密码**；CAMQUAL 边界
+10-63（PIT-021）。本板通道是 USB-JTAG CDC（/dev/ttyACM0，open 不复位）——主控制台是 UART0、stdin 不通 CDC，故 at_command.c 用 usb_serial_jtag 驱动直收直发（IDF v6 驱动安装收配置结构体）。CAMRES 保存+重启（PIT-019）、CAMQUAL 热应用。2026-09-04 新建模块。
+
 ## OVERVIEW
 
 MiBee Cam — ESP-IDF firmware that turns a XIAO ESP32-S3 Sense into a surveillance camera. C (ESP-IDF v5.x/v6.0), CMake build, dual-core RTOS, no Arduino.

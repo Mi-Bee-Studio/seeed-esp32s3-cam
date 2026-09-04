@@ -66,6 +66,7 @@
 #include "camera_driver.h"
 #include "video_recorder.h"
 #include "web_server.h"
+#include "at_command.h"
 #include "mjpeg_streamer.h"
 #include "nas_uploader.h"
 #include "ota_updater.h"
@@ -614,6 +615,9 @@ void app_main(void)
     /* ---- 13. Web server + MJPEG registration ------------------------- */
     /* 第13步：启动Web服务器(端口80)并注册MJPEG流端点 */
     web_server_start(80);
+
+    /* 家族统一 AT 指令面（USB-JTAG CDC，docs/at-command.md v1.0，2026-09-04） */
+    at_command_init();
 
     /* ---- 13a. OTA updater -------------------------------------------- */
     /* 第13a步：初始化OTA固件更新模块 */

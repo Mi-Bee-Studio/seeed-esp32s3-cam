@@ -92,7 +92,7 @@
   板端声明的画质滑杆边界）**，以及该板支持的传感器微调字段
   （`cam_brightness/contrast/saturation/sharpness`、`cam_hmirror`、`cam_vflip`、`day_night_mode`
   —— 不支持的省略）。
-- **`value` 数值刻度是板相关的**（ai 0-3 / seeed 0-5（板级上限 UXGA，见下表）/ n16r8 0-15 / luatos 0-3）。
+- **`value` 数值刻度是板相关的**（ai 0-3 / seeed 0-5（板级上限 UXGA）/ n16r8 仅 VGA=10（模组实测）/ luatos 0-3）。
   前端**禁止硬编码分辨率表**，只从 `supported_resolutions` 填充下拉框，POST 只回传列表内的 value；
   画质滑杆的 min/max 必须取自 `quality_min`/`quality_max`（字段缺失时回退 1-63 兼容旧固件）。
   AI↔VGA 联动通过 label 前缀 `VGA` 识别。
@@ -111,7 +111,7 @@
 | ai-thinker | OV2640 | UXGA (0-3) | 10-63 | UXGA 采集 ~1.7fps / 推流 ~0.6fps，无崩溃 | —（传感器上限即板上限，UXGA 照常提供，慢但稳定） |
 | seeed | OV5640（实戴） | **UXGA** (0-5) | 10-63 | UXGA 0.9fps、峰值 93.5°C | FHD 峰值 97.5°C / QXGA 100.5°C，超 S3 规格 85°C（PIT-016） |
 | luatos | OV2640 | **VGA** (仅 0) | 10-63 | VGA 4.8-5.9fps，帧 13-23KB | SVGA 起 fb=96KB 在 DRAM（无 PSRAM）触发堆枯竭螺旋（PIT-012） |
-| n16r8 | — | 待实测（未连接） | 待实测 | — | 上线前按本表流程补测 |
+| n16r8 | OV3660（模组） | **VGA**（仅 framesize 10） | 10-63 | VGA 26fps 广播 / 0.33s 拍照，零故障 | SVGA/XGA 热重配后取帧死（capture 0B）；HD+ 触发 cam_hal FB-OVF 风暴楔死 httpd；冷启动存 HD 时传感器仍输出 VGA（配置与实际脱节）——2026-09-04 上板实测 |
 
 画质下限 10 的依据：esp32-camera 的 JPEG 帧缓冲按 `宽×高/5` 分配（假设最高 1:5 压缩），
 q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-thinker UXGA 224KB / seeed UXGA 193KB）
