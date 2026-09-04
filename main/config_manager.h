@@ -28,7 +28,7 @@ extern "C" {
 
 #define CONFIG_CURRENT_VERSION 2
 
-/* 契约 v1.1：家族统一默认管理密码（首次启动/空密码迁移/一次性种子共用；真实值仅存本地 sdkconfig） */
+/* 契约 v1.1：家族统一默认管理密码（首次启动/空密码迁移/一次性种子共用；公开默认 mibeecam2026，本地可覆盖） */
 #define CONFIG_DEFAULT_WEB_PASSWORD CONFIG_MIBEE_CAM_DEFAULT_WEB_PASSWORD
 
 /** @brief 摄像头全局配置结构体，持久化到 NVS 闪存 */
