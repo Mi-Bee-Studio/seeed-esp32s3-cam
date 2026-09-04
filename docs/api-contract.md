@@ -73,7 +73,7 @@
 | `wifi_state` | str | 小写枚举 `ap\|connecting\|connected\|disconnected` |
 | `ip` | str | IP |
 | `wifi_rssi` / `wifi_channel` | num | STA 时返回 |
-| `current_ssid` | str | **当前实际连接**的 SSID（区别于 config 的配置值；未连接为 `""`；seeed/ai-thinker 已实现，其余仓跟进时补） |
+| `current_ssid` | str | **当前实际连接**的 SSID（区别于 config 的配置值；未连接为 `""`；四仓已实现） |
 | `wifi_net` | str | 当前使用的配置槽位 `primary\|secondary`（双 WiFi 板返回，单 WiFi 板省略） |
 | `camera` | str | 实测传感器型号（OV2640/OV3660/OV5640；**信设备不信文档**） |
 | `resolution` | str | 当前分辨率名 |
@@ -85,6 +85,12 @@
 "不适用即省略"是通用规则：任何板不支持的字段直接不出现在 JSON 中，前端按字段缺省隐藏控件。
 板级扩展字段允许追加（如 seeed 的 `recording`/`sd_*`、luatos 的 `heap_baseline`）。
 
+> **2026-09-04 parity 审计**（四板实测矩阵 × SPA 字段消费交叉核对）：n16r8 补齐
+> `wifi_rssi`/`wifi_channel`/`chip_temp`（S3 温度传感器，方案同 seeed/luatos），
+> ai-thinker 补齐 `free_psram`（本板 4MB PSRAM）。剩余差异均为硬件/功能正当：
+> `chip_temp` 缺于经典 ESP32（无传感器）、`free_psram` 缺于 luatos（无 PSRAM）、
+> SD/录像/延时/传感器微调字段随能力与持久化支持按上规则省略。
+
 ## 5. `/api/camera` 与分辨率/画质刻度
 
 - `GET /api/camera` 返回：`resolution`(str)、`cam_framesize`(num)、`cam_quality`(num)、
@@ -93,7 +99,7 @@
   报告分辨率上限被哪一层钳制，诊断用）**，以及该板支持的传感器微调字段
   （`cam_brightness/contrast/saturation/sharpness`、`cam_hmirror`、`cam_vflip`、`day_night_mode`
   —— 不支持的省略）。
-- **`value` 数值刻度是板相关的**（ai 0-3 / seeed 0-5（上限 UXGA）/ n16r8 10-11（上限 SVGA，2026-09-04 复测）/ luatos 仅 0（上限 VGA））。
+- **`value` 数值刻度是板相关的**（ai 0-3 / seeed 0-5（上限 UXGA）/ n16r8 10-14（上限 SXGA，2026-09-05 复测）/ luatos 仅 0（上限 VGA））。
 - **上限是三层交集（2026-09-04 家族统一）**：`min(传感器上限, 板级实测上限, 运行时 fb 预算)`。
   传感器层查 esp32-camera 组件能力表（`camera_sensor_info_t.max_size`，按实戴型号自动检测）——
   换接传感器后 `supported_resolutions` 随之收缩/放宽；板级层是各板实测常数（§5.1 表，唯一手工数字）；
@@ -118,7 +124,7 @@
 | ai-thinker | OV2640 | UXGA (0-3) | 10-63 | UXGA 采集 ~1.7fps / 推流 ~0.6fps，无崩溃 | —（传感器上限即板上限，UXGA 照常提供，慢但稳定） |
 | seeed | OV5640（实戴） | **UXGA** (0-5) | 10-63 | UXGA 0.9fps、峰值 93.5°C | FHD 峰值 97.5°C / QXGA 100.5°C，超 S3 规格 85°C（PIT-016） |
 | luatos | OV2640 | **VGA** (仅 0) | 10-63 | VGA 4.8-5.9fps，帧 13-23KB | SVGA 起 fb=96KB 在 DRAM（无 PSRAM）触发堆枯竭螺旋（PIT-012） |
-| n16r8 | OV3660（模组） | **SVGA**（10-11） | 10-63 | SVGA 冷启动实拍 800×600（JPEG SOF 验证），VGA/SVGA 帧流正常 | XGA+ 冷启动即 `esp_camera_fb_get` NULL 取帧死并楔死整板；PSRAM 8MB 充裕，属模组/DVP 组合极限。首轮“仅 VGA”结论被 NVS 键名 bug 污染（PIT-022：保存失败→AI 复活→强制 VGA），2026-09-04 复测翻案至 SVGA |
+| n16r8 | OV3660（模组） | **SXGA**（10-14） | 10-63 | SXGA 冷启动+热重配均实拍 1280×1024（JPEG SOF 验证），90s 投递 3.42fps/66KB 帧 | UXGA init 失败（reinit 回滚自愈已修）。旧“SVGA/DVP 极限”归因两次皆错：实为 PSRAM 40MHz（defaults 漏抄 SPEED 行）→内部 DRAM 耗尽 DMA 暂存 malloc 失败 + XCLK 20MHz 帧损坏；80MHz+WiFi 迁移+XCLK 16MHz 后翻案（PIT-021 二次附录） |
 
 画质下限 10 的依据：esp32-camera 的 JPEG 帧缓冲按 `宽×高/5` 分配（假设最高 1:5 压缩），
 q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-thinker UXGA 224KB / seeed UXGA 193KB）
