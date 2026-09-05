@@ -1,324 +1,551 @@
 /*
- * at_command.c — 家族统一 AT 指令面（seeed 板）
+ * at_command.c — MiBee Cam 家族 AT 控制台核心（契约 v1.1，2026-09-05）
  *
- * 契约：docs/at-command.md v1.0（2026-09-04）。本板通道为 USB-JTAG CDC
- * （/dev/ttyACM*）——注意 sdkconfig 主控制台是 UART0，stdin 不通 CDC，
- * 故用 USB_SERIAL_JTAG 驱动直收（usb_serial_jtag_read_bytes）直发。
- * 输出与 ESP_LOG 同流（副控制台）。
+ * 四仓共享同一份核心（md5 纪律，docs/at-command.md §0）：解析器、指令表、
+ * 响应框架（`+NAME:内容` 数据行 / `OK` / `ERROR: 原因`）、HELP 自动生成。
+ * 一切板差异（IO 后端、能力裁剪、生效语义、§5 扩展指令）在 main/at_port.c。
  *
- * 板级语义（与 api-contract §5 一致）：
- *   分辨率变更 → 保存+重启（OV5640 运行时 set_framesize 无效，PIT-019）
- *   画质变更   → 热应用（camera_set_quality 单寄存器写）
+ * 传输约定（契约 §1）：输入大小写不敏感；非 AT 行静默忽略（与 ESP_LOG
+ * 共口时不刷屏）；参数区分大小写。
  */
-
-#include "at_command.h"
 #include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
 #include <stdarg.h>
-#include "esp_log.h"
-#include "esp_system.h"
-#include "esp_timer.h"
-#include "esp_app_desc.h"
-#include "driver/usb_serial_jtag.h"
+#include <string.h>
+#include <strings.h>
+#include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "config_manager.h"
-#include "camera_driver.h"
-#include "wifi_manager.h"
+#include "esp_log.h"
+#include "esp_system.h"
+#include "esp_app_desc.h"
+#include "esp_chip_info.h"
+#include "esp_timer.h"
+
+#include "at_command.h"
+#include "at_port.h"
+
+static void at_status_emit_trampoline(const char *name, const char *value);
+static void at_scan_emit_trampoline(const char *ssid, int32_t rssi, int32_t auth);
 
 static const char *TAG = "at_cmd";
 
-#define AT_LINE_MAX 128
+#define AT_LINE_MAX     160
+#define AT_TASK_STACK   4096
+#define AT_TASK_PRIO    5
+#define AT_SETTLE_MS    3000   /* 上电静默期：让启动日志先走完 */
 
-/* ── 低层 IO：USB-JTAG CDC 直收直发 ─────────────────────────────── */
+/* ── 输出（port 后端） ─────────────────────────────────────────── */
 
-static void at_out(const char *fmt, ...)
+static void at_out(const char *s)
 {
-    char buf[512];
+    at_port_write(s);
+}
+
+static void at_ok(void)
+{
+    at_out("OK\r\n");
+}
+
+static void at_error(const char *reason)
+{
+    char buf[96];
+    if (reason && reason[0]) {
+        snprintf(buf, sizeof(buf), "ERROR: %s\r\n", reason);
+    } else {
+        snprintf(buf, sizeof(buf), "ERROR\r\n");
+    }
+    at_out(buf);
+}
+
+static void at_data(const char *name, const char *fmt, ...)
+{
+    char body[128];
     va_list ap;
     va_start(ap, fmt);
-    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    vsnprintf(body, sizeof(body), fmt, ap);
     va_end(ap);
-    if (n > 0) {
-        usb_serial_jtag_write_bytes((const uint8_t *)buf, (size_t)n, pdMS_TO_TICKS(100));
+
+    char line[160];
+    snprintf(line, sizeof(line), "+%s: %s\r\n", name, body);
+    at_out(line);
+}
+
+/* ── 家族刻度 framesize_t 值 → 短名（契约 v1.3 §5） ───────────── */
+
+static const char *at_framesize_label(int v)
+{
+    switch (v) {
+        case 10: return "VGA";
+        case 11: return "SVGA";
+        case 12: return "XGA";
+        case 13: return "HD";
+        case 14: return "SXGA";
+        case 15: return "UXGA";
+        default: return "UNKNOWN";
     }
 }
 
-#define AT_OK()          at_out("OK\r\n")
-#define AT_ERR(msg)      at_out("ERROR: %s\r\n", (msg))
+/* ── 核心指令实现 ──────────────────────────────────────────────── */
 
-/* ── 指令实现（家族核心） ───────────────────────────────────────── */
-
-static void cmd_at(const char *p)      { (void)p; AT_OK(); }
-
-static void cmd_help(const char *p)
+static void cmd_gmr(void)
 {
-    (void)p;
-    at_out("\r\nMiBeeCam AT commands (family contract v1.0):\r\n"
-           "  AT                        handshake\r\n"
-           "  AT+HELP                   this message\r\n"
-           "  AT+GMR                    firmware/board version\r\n"
-           "  AT+STATUS                 consolidated status\r\n"
-           "  AT+WIFI?                  WiFi state (no password)\r\n"
-           "  AT+WIFI=ssid,password     set WiFi, save, reboot\r\n"
-           "  AT+IP?                    IP address\r\n"
-           "  AT+CAMRES?                resolution + supported range\r\n"
-           "  AT+CAMRES=n               set resolution (reboot to apply)\r\n"
-           "  AT+CAMQUAL?               quality + range\r\n"
-           "  AT+CAMQUAL=n              set quality 10-63 (hot)\r\n"
-           "  AT+REBOOT                 reboot\r\n"
-           "  AT+RESTORE                factory reset + reboot\r\n"
-           "OK\r\n");
-}
-
-static void cmd_gmr(const char *p)
-{
-    (void)p;
     const esp_app_desc_t *app = esp_app_get_description();
-    at_out("MiBee Cam (seeed XIAO ESP32-S3 Sense, OV5640 detected at runtime)\r\n"
-           "Firmware: %s %s\r\nESP-IDF: %s\r\n",
-           app->project_name, app->version, app->idf_ver);
-    AT_OK();
-}
-
-static void cmd_status(const char *p)
-{
-    (void)p;
-    cam_config_t *cfg = config_get();
-    bool conn = (wifi_get_state() == WIFI_STATE_STA_CONNECTED);
-    at_out("Board:      XIAO ESP32-S3 Sense\r\n"
-           "Uptime:     %lld s\r\n"
-           "Free heap:  %lu bytes\r\n"
-           "WiFi:       %s\r\n"
-           "SSID:       %s\r\n"
-           "IP:         %s\r\n"
-           "Camera:     res=%s quality=%u [%d-%d]\r\n",
-           (long long)(esp_timer_get_time() / 1000000),
-           (unsigned long)esp_get_free_heap_size(),
-           conn ? "STA connected" : "disconnected",
-           cfg->wifi_ssid[0] ? cfg->wifi_ssid : "(none)",
-           conn ? wifi_get_ip_str() : "-",
-           camera_res_to_str(camera_get_resolution()),
-           cfg->cam_quality, CAMERA_QUALITY_MIN, CAMERA_QUALITY_MAX);
-    AT_OK();
-}
-
-static void cmd_wifi(const char *p)
-{
-    if (!p || p[0] == '?' || p[0] == '\0') {
-        bool conn = (wifi_get_state() == WIFI_STATE_STA_CONNECTED);
-        cam_config_t *cfg = config_get();
-        at_out("State: %s\r\nSSID: %s\r\nIP: %s\r\n",
-               conn ? "connected" : "disconnected",
-               cfg->wifi_ssid[0] ? cfg->wifi_ssid : "(not set)",
-               conn ? wifi_get_ip_str() : "-");
-        AT_OK();
-        return;
+    esp_chip_info_t chip;
+    esp_chip_info(&chip);
+    const char *chip_name = "ESP32";
+    switch (chip.model) {
+        case CHIP_ESP32:    chip_name = "ESP32";    break;
+        case CHIP_ESP32S2:  chip_name = "ESP32-S2"; break;
+        case CHIP_ESP32S3:  chip_name = "ESP32-S3"; break;
+        case CHIP_ESP32C3:  chip_name = "ESP32-C3"; break;
+        default: break;
     }
-    /* AT+WIFI=ssid,pass */
-    char ssid[33] = {0};
-    char pass[65] = {0};
-    char *comma = strchr(p, ',');
+    at_gmr_info_t g;
+    at_port_gmr_info(&g);
+
+    /* 契约 v1.1：GMR 必须报 esp_app_desc 实际版本，禁止硬编码 */
+    at_data("GMR", "fw:%s", (app && app->version[0]) ? app->version : "unknown");
+    at_data("GMR", "chip:%s rev:%u", chip_name, (unsigned)chip.revision);
+    at_data("GMR", "board:%s", g.board);
+    at_data("GMR", "sensor:%s", g.sensor);
+}
+
+static void cmd_wifi_query(void)
+{
+    at_wifi_info_t w;
+    at_port_wifi_info(&w);
+    at_data("WIFI", "state:%s", w.state);
+    at_data("WIFI", "ssid:%s", w.ssid[0] ? w.ssid : "(unset)");
+    at_data("WIFI", "ip:%s", w.ip[0] ? w.ip : "0.0.0.0");
+    /* 红线（契约 §3）：任何读指令不回显密码 */
+}
+
+static void cmd_wifi_set(const char *args)
+{
+    /* AT+WIFI=ssid,pass：首个逗号前为 ssid，其后整体为 pass（pass 可含逗号） */
+    const char *comma = strchr(args, ',');
     if (!comma) {
-        AT_ERR("Usage: AT+WIFI=ssid,password");
+        at_error("usage: AT+WIFI=ssid,pass");
         return;
     }
-    size_t slen = (size_t)(comma - p);
-    if (slen == 0 || slen >= sizeof(ssid)) {
-        AT_ERR("bad ssid");
+    char ssid[33];
+    size_t ssid_len = (size_t)(comma - args);
+    if (ssid_len == 0 || ssid_len >= sizeof(ssid)) {
+        at_error("invalid ssid");
         return;
     }
-    memcpy(ssid, p, slen);
-    strlcpy(pass, comma + 1, sizeof(pass));
-
-    config_lock();
-    strlcpy(config_get()->wifi_ssid, ssid, sizeof(config_get()->wifi_ssid));
-    strlcpy(config_get()->wifi_pass, pass, sizeof(config_get()->wifi_pass));
-    config_save();
-    config_unlock();
-
-    at_out("OK — WiFi set: SSID='%s', rebooting...\r\n", ssid);
-    vTaskDelay(pdMS_TO_TICKS(800));
-    esp_restart();
+    memcpy(ssid, args, ssid_len);
+    ssid[ssid_len] = '\0';
+    const char *pass = comma + 1;
+    if (!pass[0]) {
+        at_error("empty password");
+        return;
+    }
+    esp_err_t ret = at_port_wifi_set(ssid, pass);
+    if (ret != ESP_OK) {
+        at_error("save failed");
+        return;
+    }
+    at_ok();   /* 生效方式随板（§6）；port 需要时已打印 +REBOOTING 等行 */
 }
 
-static void cmd_ip(const char *p)
+static void cmd_wifi_scan(void)
 {
-    (void)p;
-    bool conn = (wifi_get_state() == WIFI_STATE_STA_CONNECTED);
-    at_out("IP: %s\r\n", conn ? wifi_get_ip_str() : "-");
-    AT_OK();
+    esp_err_t ret = at_port_wifi_scan(at_scan_emit_trampoline);
+    if (ret == ESP_OK) {
+        at_ok();
+    } else {
+        at_error("scan failed");
+    }
 }
 
-static void cmd_camres(const char *p)
+/* port 扫描回抛 → +AP: 行（核心统一格式） */
+static void at_scan_emit_trampoline(const char *ssid, int32_t rssi, int32_t auth)
 {
-    cam_config_t *cfg = config_get();
-    camera_res_t eff_max = camera_get_effective_max_res();
-    if (!p || p[0] == '?' || p[0] == '\0') {
-        at_out("Resolution: %s  supported: %d-%d (cap: %s, source: %s)\r\n",
-               camera_res_to_str(camera_get_resolution()),
-               (int)CAMERA_RES_VGA, (int)eff_max,
-               camera_res_to_str(eff_max), camera_res_cap_source());
-        AT_OK();
-        return;
-    }
-    int n = atoi(p);
-    /* 契约 v1.3 §5：家族刻度 framesize_t（10=VGA … 15=UXGA） */
-    if (n < (int)CAMERA_RES_VGA || n > (int)eff_max) {
-        at_out("ERROR: resolution must be %d-%d (cap: %s, source: %s)\r\n",
-               (int)CAMERA_RES_VGA, (int)eff_max,
-               camera_res_to_str(eff_max), camera_res_cap_source());
-        return;
-    }
-    if (n == (int)cfg->cam_framesize) {
-        AT_OK();
-        return;
-    }
-    config_lock();
-    config_get()->cam_framesize = (uint8_t)n;
-    config_save();
-    config_unlock();
-    /* PIT-019：本板分辨率变更必须重启应用 */
-    at_out("OK — resolution=%d saved, rebooting to apply\r\n", n);
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    esp_restart();
+    at_data("AP", "%s,%ld,%ld", ssid, (long)rssi, (long)auth);
 }
 
-static void cmd_camqual(const char *p)
+static void cmd_ip_query(void)
 {
-    cam_config_t *cfg = config_get();
-    if (!p || p[0] == '?' || p[0] == '\0') {
-        at_out("Quality: %u  range: [%d-%d] (hot)\r\n",
-               cfg->cam_quality, CAMERA_QUALITY_MIN, CAMERA_QUALITY_MAX);
-        AT_OK();
-        return;
-    }
-    int n = atoi(p);
-    if (n < CAMERA_QUALITY_MIN || n > CAMERA_QUALITY_MAX) {
-        at_out("ERROR: quality must be %d-%d\r\n", CAMERA_QUALITY_MIN, CAMERA_QUALITY_MAX);
-        return;
-    }
-    if (n == (int)cfg->cam_quality) {
-        AT_OK();
-        return;
-    }
-    config_lock();
-    config_get()->cam_quality = (uint8_t)n;
-    config_save();
-    config_unlock();
-    camera_set_quality((uint8_t)n);   /* 单寄存器写，热应用 */
-    at_out("OK — quality=%d (applied)\r\n", n);
+    at_wifi_info_t w;
+    at_port_wifi_info(&w);
+    at_data("IP", "ip:%s", w.ip[0] ? w.ip : "0.0.0.0");
+    if (w.mask[0]) at_data("IP", "mask:%s", w.mask);
+    if (w.gw[0])   at_data("IP", "gw:%s", w.gw);
 }
 
-static void cmd_reboot(const char *p)
+static void cmd_status(void)
 {
-    (void)p;
-    at_out("OK — rebooting...\r\n");
-    vTaskDelay(pdMS_TO_TICKS(800));
-    esp_restart();
+    char buf[32];
+    uint64_t us = esp_timer_get_time();
+    snprintf(buf, sizeof(buf), "%lus", (unsigned long)(us / 1000000ULL));
+    at_data("STATUS", "uptime:%s", buf);
+    snprintf(buf, sizeof(buf), "%u", (unsigned)(esp_get_free_heap_size() / 1024));
+    at_data("STATUS", "heap:%sKB", buf);
+
+    at_wifi_info_t w;
+    at_port_wifi_info(&w);
+    at_data("STATUS", "wifi:%s", w.state);
+    at_data("STATUS", "ssid:%s", w.ssid[0] ? w.ssid : "(unset)");
+    at_data("STATUS", "ip:%s", w.ip[0] ? w.ip : "0.0.0.0");
+
+    at_gmr_info_t g;
+    at_port_gmr_info(&g);
+    at_data("STATUS", "sensor:%s", g.sensor);
+
+    at_cam_res_info_t r;
+    if (at_port_cam_res_info(&r)) {
+        at_data("STATUS", "res:%s", at_framesize_label(r.cur));
+    }
+    int qmin = 0, qmax = 0;
+    int q = at_port_cam_qual_get(&qmin, &qmax);
+    at_data("STATUS", "qual:%d [%d-%d]", q, qmin, qmax);
+
+    /* 板级增量行（+TEMP: / +STREAM: 等） */
+    at_port_status_extra(at_status_emit_trampoline);
 }
 
-static void cmd_restore(const char *p)
+static void at_status_emit_trampoline(const char *name, const char *value)
 {
-    (void)p;
-    at_out("OK — factory reset, rebooting...\r\n");
-    config_reset();
-    vTaskDelay(pdMS_TO_TICKS(800));
-    esp_restart();
+    at_data("STATUS", "%s:%s", name, value);
 }
 
-/* ── 分发（前缀精确匹配，'='/“?”切参数） ────────────────────────── */
-
-typedef struct {
-    const char *name;                 /* 不含 AT 前缀，如 "+WIFI" */
-    void (*handler)(const char *params);
-} at_entry_t;
-
-static const at_entry_t s_cmds[] = {
-    { "",        cmd_at      },
-    { "+HELP",   cmd_help    },
-    { "+GMR",    cmd_gmr     },
-    { "+STATUS", cmd_status  },
-    { "+WIFI",   cmd_wifi    },
-    { "+IP",     cmd_ip      },
-    { "+CAMRES", cmd_camres  },
-    { "+CAMQUAL",cmd_camqual },
-    { "+REBOOT", cmd_reboot  },
-    { "+RESTORE",cmd_restore },
-};
-#define N_CMDS ((int)(sizeof(s_cmds) / sizeof(s_cmds[0])))
-
-static void process_line(char *line)
+static void cmd_camres_query(void)
 {
-    /* strip \r\n */
-    size_t len = strlen(line);
-    while (len > 0 && (line[len-1] == '\r' || line[len-1] == '\n')) {
-        line[--len] = '\0';
+    at_cam_res_info_t r;
+    if (!at_port_cam_res_info(&r)) {
+        at_error("camera not ready");
+        return;
     }
-    if (len == 0) return;
-    if (!(len >= 2 && (line[0]=='A'||line[0]=='a') && (line[1]=='T'||line[1]=='t'))) {
-        return;   /* 非 AT 行（日志噪声）静默忽略 */
+    at_data("CAMRES", "%d %s", r.cur, at_framesize_label(r.cur));
+    /* 列表与 GET /api/camera supported_resolutions 同源 */
+    char list[160] = {0};
+    size_t used = 0;
+    for (int i = 0; i < r.opt_count && used + 24 < sizeof(list); i++) {
+        used += snprintf(list + used, sizeof(list) - used, "%s%d=%s",
+                         i ? "," : "", r.opts[i].value, at_framesize_label(r.opts[i].value));
     }
-    const char *suffix = line + 2;
-    const char *params = "";
-    char buf[AT_LINE_MAX];
-    strlcpy(buf, suffix, sizeof(buf));
-    char *eq = strchr(buf, '=');
-    char *q  = strchr(buf, '?');
-    if (eq) { *eq = '\0'; params = eq + 1; }
-    else if (q) { *q = '\0'; params = "?"; }
+    at_data("CAMLIST", "%s", list);
+    at_data("CAMCAP", "%d %s (source: %s)", r.cap, at_framesize_label(r.cap), r.cap_source);
+}
 
-    for (int i = 0; i < N_CMDS; i++) {
-        if (strcmp(buf, s_cmds[i].name) == 0) {
-            s_cmds[i].handler(params);
+static void cmd_camres_set(const char *args)
+{
+    char *end = NULL;
+    long v = strtol(args, &end, 10);
+    if (end == args || *end != '\0') {
+        at_error("usage: AT+CAMRES=n");
+        return;
+    }
+    esp_err_t ret = at_port_cam_res_set((int)v);
+    if (ret == ESP_ERR_INVALID_ARG) {
+        at_cam_res_info_t r;
+        int cap = 0;
+        const char *src = "board";
+        if (at_port_cam_res_info(&r)) {
+            cap = r.cap;
+            src = r.cap_source;
+        }
+        char msg[64];
+        snprintf(msg, sizeof(msg), "unsupported (max %d %s, source: %s)",
+                 cap, at_framesize_label(cap), src);
+        at_error(msg);
+        return;
+    }
+    if (ret != ESP_OK) {
+        at_error("apply failed");
+        return;
+    }
+    at_ok();   /* 生效语义随板（§6）；port 已打印 +APPLY/+REBOOTING 行 */
+}
+
+static void cmd_camqual_query(void)
+{
+    int qmin = 0, qmax = 0;
+    int q = at_port_cam_qual_get(&qmin, &qmax);
+    at_data("CAMQUAL", "%d [%d-%d]", q, qmin, qmax);
+}
+
+static void cmd_camqual_set(const char *args)
+{
+    char *end = NULL;
+    long v = strtol(args, &end, 10);
+    if (end == args || *end != '\0') {
+        at_error("usage: AT+CAMQUAL=n");
+        return;
+    }
+    esp_err_t ret = at_port_cam_qual_set((int)v);
+    if (ret == ESP_ERR_INVALID_ARG) {
+        int qmin = 0, qmax = 0;
+        at_port_cam_qual_get(&qmin, &qmax);
+        char msg[48];
+        snprintf(msg, sizeof(msg), "out of range [%d-%d]", qmin, qmax);
+        at_error(msg);
+        return;
+    }
+    if (ret != ESP_OK) {
+        at_error("apply failed");
+        return;
+    }
+    at_ok();
+}
+
+static void cmd_cfgget(const char *args)
+{
+    int count = 0;
+    const at_cfg_field_t *fields = at_port_cfg_fields(&count);
+    for (int i = 0; i < count; i++) {
+        if (strcasecmp(fields[i].name, args) == 0) {
+            if (fields[i].secret) {
+                at_error("write-only field");
+                return;
+            }
+            char val[96];
+            val[0] = '\0';
+            if (fields[i].get) {
+                fields[i].get(val, sizeof(val));
+            }
+            at_data("CFGGET", "%s=%s", fields[i].name, val);
+            at_ok();
             return;
         }
     }
-    AT_ERR("unknown command. Type AT+HELP");
+    at_error("unknown field");
 }
 
-/* ── 任务与初始化 ──────────────────────────────────────────────── */
+static void cmd_cfgset(const char *args)
+{
+    const char *comma = strchr(args, ',');
+    if (!comma) {
+        at_error("usage: AT+CFGSET=field,value");
+        return;
+    }
+    char name[48];
+    size_t nlen = (size_t)(comma - args);
+    if (nlen == 0 || nlen >= sizeof(name)) {
+        at_error("invalid field name");
+        return;
+    }
+    memcpy(name, args, nlen);
+    name[nlen] = '\0';
+
+    int count = 0;
+    const at_cfg_field_t *fields = at_port_cfg_fields(&count);
+    for (int i = 0; i < count; i++) {
+        if (strcasecmp(fields[i].name, name) == 0) {
+            esp_err_t ret = fields[i].set ? fields[i].set(comma + 1) : ESP_ERR_NOT_SUPPORTED;
+            if (ret == ESP_ERR_INVALID_ARG) {
+                at_error("invalid value");
+            } else if (ret != ESP_OK) {
+                at_error("set failed");
+            } else {
+                at_ok();
+            }
+            return;
+        }
+    }
+    at_error("unknown field");
+}
+
+static void cmd_help(void);
+
+/* ── 核心指令表 ────────────────────────────────────────────────── */
+
+typedef enum { CAP_NONE = 0, CAP_WIFI_SCAN = 1, CAP_CFG = 2 } at_cap_bit_t;
+
+typedef struct {
+    const char *name;              /* 不含 AT+ 前缀，不含 ?/= */
+    at_cap_bit_t cap;              /* 能力门控 */
+    bool has_query;                /* 支持 NAME? 形式 */
+    bool has_set;                  /* 支持 NAME= 形式 */
+    const char *help;
+    void (*query)(void);
+    void (*set)(const char *args);
+} at_cmd_t;
+
+static const at_cmd_t s_core_cmds[] = {
+    { "HELP",     CAP_NONE, false, false, "list commands",            cmd_help,     NULL         },
+    { "GMR",      CAP_NONE, false, false, "fw / chip / board / sensor", cmd_gmr,   NULL         },
+    { "WIFI",     CAP_NONE, true,  true,  "WIFI? | WIFI=ssid,pass",   cmd_wifi_query, cmd_wifi_set },
+    { "WIFISCAN", CAP_WIFI_SCAN, false, false, "scan APs",            cmd_wifi_scan, NULL        },
+    { "IP",       CAP_NONE, true,  false, "IP/mask/gateway",          cmd_ip_query, NULL         },
+    { "STATUS",   CAP_NONE, false, false, "uptime/heap/wifi/camera",  cmd_status,   NULL         },
+    { "CAMRES",   CAP_NONE, true,  true,  "CAMRES? | CAMRES=n",       cmd_camres_query, cmd_camres_set },
+    { "CAMQUAL",  CAP_NONE, true,  true,  "CAMQUAL? | CAMQUAL=n",     cmd_camqual_query, cmd_camqual_set },
+    { "REBOOT",   CAP_NONE, false, false, "restart device",           NULL, NULL                  },
+    { "RESTORE",  CAP_NONE, false, false, "factory reset + reboot",   NULL, NULL                  },
+    { "CFGGET",   CAP_CFG,  false, true,  "CFGGET=field",             NULL, NULL                  },
+    { "CFGSET",   CAP_CFG,  false, true,  "CFGSET=field,value",       NULL, NULL                  },
+    { "SAVE",     CAP_CFG,  false, false, "persist config",           NULL, NULL                  },
+};
+
+static void cmd_help(void)
+{
+    const at_caps_t *caps = at_port_caps();
+    at_out("+HELP: core:\r\n");
+    for (size_t i = 0; i < sizeof(s_core_cmds) / sizeof(s_core_cmds[0]); i++) {
+        const at_cmd_t *c = &s_core_cmds[i];
+        bool allowed = (c->cap == CAP_NONE) ||
+                       (c->cap == CAP_WIFI_SCAN && caps->wifi_scan) ||
+                       (c->cap == CAP_CFG && caps->cfg);
+        if (!allowed) continue;
+        at_data("HELP", "%-22s %s", c->name, c->help);
+    }
+    int ext_count = 0;
+    const at_ext_cmd_t *exts = at_port_ext_cmds(&ext_count);
+    if (ext_count > 0) {
+        at_out("+HELP: board:\r\n");
+        for (int i = 0; i < ext_count; i++) {
+            at_data("HELP", "%-22s %s", exts[i].name, exts[i].help);
+        }
+    }
+    at_ok();
+}
+
+/* ── 分发 ──────────────────────────────────────────────────────── */
+
+static bool cap_allows(at_cap_bit_t cap)
+{
+    const at_caps_t *caps = at_port_caps();
+    if (cap == CAP_NONE) return true;
+    if (cap == CAP_WIFI_SCAN) return caps->wifi_scan;
+    if (cap == CAP_CFG) return caps->cfg;
+    return false;
+}
+
+static void dispatch(const char *line)
+{
+    /* 大小写不敏感的 AT 前缀（契约 §1） */
+    if (strncasecmp(line, "AT", 2) != 0) {
+        return;   /* 非 AT 行静默忽略 */
+    }
+    if (line[2] == '\0') {
+        at_ok();
+        return;
+    }
+    if (line[2] != '+') {
+        return;   /* AT<其他> 视为噪声，忽略 */
+    }
+
+    const char *cmd = line + 3;
+    if (!cmd[0]) {
+        at_error("empty command");
+        return;
+    }
+
+    /* 在首个 '=' 或 '?' 处切分：name / args */
+    char name[32];
+    char args[AT_LINE_MAX];
+    bool is_query = false;
+    const char *eq = strpbrk(cmd, "=?");
+    if (eq) {
+        is_query = (*eq == '?');
+        size_t nlen = (size_t)(eq - cmd);
+        if (nlen >= sizeof(name)) {
+            at_error("command too long");
+            return;
+        }
+        memcpy(name, cmd, nlen);
+        name[nlen] = '\0';
+        strlcpy(args, is_query ? "" : eq + 1, sizeof(args));
+    } else {
+        strlcpy(name, cmd, sizeof(name));
+        args[0] = '\0';
+    }
+
+    /* 历史别名（契约 §4；板级映射在 port） */
+    const char *canonical = at_port_alias(name);
+    if (canonical) {
+        strlcpy(name, canonical, sizeof(name));
+    }
+
+    for (size_t i = 0; i < sizeof(s_core_cmds) / sizeof(s_core_cmds[0]); i++) {
+        const at_cmd_t *c = &s_core_cmds[i];
+        if (strcasecmp(c->name, name) != 0) continue;
+
+        if (!cap_allows(c->cap)) {
+            at_error("not supported on this board");
+            return;
+        }
+        if (is_query && !c->has_query) {
+            at_error("query not supported");
+            return;
+        }
+        if (!is_query && args[0] != '\0' && !c->has_set) {
+            at_error("assignment not supported");
+            return;
+        }
+        if (!is_query && args[0] == '\0' && c->has_set) {
+            at_error("missing argument");
+            return;
+        }
+
+        /* 无参动作型指令 */
+        if (strcmp(c->name, "REBOOT") == 0) { at_ok(); at_port_reboot(); return; }
+        if (strcmp(c->name, "RESTORE") == 0) { at_ok(); at_port_restore(); return; }
+        if (strcmp(c->name, "SAVE") == 0) { at_port_save(); at_ok(); return; }
+        if (strcmp(c->name, "CFGGET") == 0) { cmd_cfgget(args); return; }
+        if (strcmp(c->name, "CFGSET") == 0) { cmd_cfgset(args); return; }
+
+        if (is_query) c->query ? c->query() : (void)0;
+        else if (args[0] != '\0') c->set ? c->set(args) : (void)0;
+        else c->query ? c->query() : (void)0;   /* 裸名视同查询 */
+        return;
+    }
+
+    /* 板级扩展（§5）：前缀匹配整串 */
+    int ext_count = 0;
+    const at_ext_cmd_t *exts = at_port_ext_cmds(&ext_count);
+    for (int i = 0; i < ext_count; i++) {
+        size_t nlen = strlen(exts[i].name);
+        if (strncasecmp(cmd, exts[i].name, nlen) == 0 &&
+            (cmd[nlen] == '\0' || cmd[nlen] == '=' || cmd[nlen] == '?')) {
+            esp_err_t ret = exts[i].handler ? exts[i].handler(cmd) : ESP_ERR_NOT_SUPPORTED;
+            if (ret != ESP_OK) {
+                at_error("extension failed");
+            }
+            return;
+        }
+    }
+
+    at_error("unknown command (AT+HELP for list)");
+}
+
+/* ── 任务 ──────────────────────────────────────────────────────── */
 
 static void at_task(void *arg)
 {
-    (void)arg;
     char line[AT_LINE_MAX];
-    int pos = 0;
-    uint8_t ch;
 
-    /* 等 USB 枚举 + 系统稳定 */
-    vTaskDelay(pdMS_TO_TICKS(3000));
+    /* 上电静默期：启动日志密集期不抢口 */
+    vTaskDelay(pdMS_TO_TICKS(AT_SETTLE_MS));
+
+    at_out("\r\n+READY: MiBee Cam AT console (AT+HELP)\r\n");
 
     while (1) {
-        int n = usb_serial_jtag_read_bytes(&ch, 1, pdMS_TO_TICKS(100));
-        if (n <= 0) continue;
-        if (ch == '\r' || ch == '\n') {
-            if (pos > 0) {
-                line[pos] = '\0';
-                process_line(line);
-                pos = 0;
-            }
-        } else if (pos < AT_LINE_MAX - 1) {
-            line[pos++] = (char)ch;
+        int n = at_port_getline(line, sizeof(line));
+        if (n < 0) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
         }
+        if (n == 0) {
+            continue;
+        }
+        dispatch(line);
     }
 }
 
 esp_err_t at_command_init(void)
 {
-    usb_serial_jtag_driver_config_t jtag_cfg = {
-        .tx_buffer_size = 1024,
-        .rx_buffer_size = 1024,
-    };
-    if (usb_serial_jtag_driver_install(&jtag_cfg) != ESP_OK) {
-        ESP_LOGE(TAG, "USB_SERIAL_JTAG driver install failed");
+    esp_err_t ret = at_port_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "port init failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    if (xTaskCreate(at_task, "at_cmd", AT_TASK_STACK, NULL, AT_TASK_PRIO, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "task create failed");
         return ESP_FAIL;
     }
-    if (xTaskCreatePinnedToCore(at_task, "at_cmd", 4096, NULL, 5, NULL, 0) != pdPASS) {
-        ESP_LOGE(TAG, "AT task create failed");
-        return ESP_FAIL;
-    }
-    ESP_LOGI(TAG, "AT command interface ready on USB-JTAG CDC (family contract v1.0)");
+    ESP_LOGI(TAG, "AT console core ready (contract v1.1)");
     return ESP_OK;
 }
