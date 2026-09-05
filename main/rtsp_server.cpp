@@ -21,7 +21,8 @@
  *   Track 0 — MJPEG video (payload type 26, RFC 2435)
  *   Track 1 — PCMU audio (payload type 0, RFC 3551)
  *
- * Digest authentication via config web_password.
+ * Digest authentication via config rtsp_user/rtsp_pass（契约 §3.2 rtsp 组；
+ * 迁移前本板用 web_password 鉴权，迁移函数已一次性种子）。
  *
  * Architecture:
  *   rtsp_server_init()
@@ -210,8 +211,10 @@ extern "C" esp_err_t rtsp_server_init(void)
             .accept_task_stack_size_bytes = 4096,
             .session_task_stack_size_bytes = 8192,
             .control_task_stack_size_bytes = 8192,
-            .auth_username = "admin",
-            .auth_password = cfg->web_password,
+            /* 契约 §3.2 rtsp 组（2026-09-05 起）：digest 鉴权用独立的
+             * rtsp_user/rtsp_pass（存量迁移一次性种子 = 原 web_password） */
+            .auth_username = cfg->rtsp_user,
+            .auth_password = cfg->rtsp_pass,
             .auth_realm = "MiBee Cam",
             .max_sessions = MAX_RTSP_CLIENTS,
         });
@@ -242,8 +245,8 @@ extern "C" esp_err_t rtsp_server_init(void)
             .packetizer = audio_packer,
         });
 
-        ESP_LOGI(TAG, "RTSP server initialized: rtsp://admin:***@%s:%d%s",
-                 ip.c_str(), RTSP_PORT, RTSP_PATH);
+        ESP_LOGI(TAG, "RTSP server initialized: rtsp://%s:***@%s:%d%s",
+                 config_get()->rtsp_user, ip.c_str(), RTSP_PORT, RTSP_PATH);
         return ESP_OK;
 
 }

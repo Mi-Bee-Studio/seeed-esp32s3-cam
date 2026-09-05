@@ -25,7 +25,6 @@
 typedef struct {
     bool motion_detected;         /* true if score above trigger threshold */
     uint8_t motion_score;         /* 0-100, percentage of changed pixels */
-    uint16_t current_interval_sec; /* computed capture interval for this cycle */
 } motion_result_t;
 
 /** Initialize motion detector (allocates internal buffers) */
@@ -36,29 +35,28 @@ esp_err_t motion_detector_init(void);
  * @param jpeg_data  JPEG buffer from camera_capture()
  * @param jpeg_len   JPEG buffer length
  * @param sensitivity  0-100 (higher = more sensitive, lower threshold for change)
- * @param active_interval_sec  interval when motion detected (seconds)
- * @param idle_interval_sec    interval when no motion (seconds)
- * @param result    Output: motion score and computed interval
+ * @param result    Output: motion score and active state
  * @return ESP_OK on success
+ *
+ * 契约 §3.2：interval 计算已移出（延时摄影的动态间隔由 video_recorder
+ * 基于 min/max/decay 模型自行衰减，本模块只提供运动状态信号）。
  */
 esp_err_t motion_detector_process(
     const uint8_t *jpeg_data, size_t jpeg_len,
     uint8_t sensitivity,
-    uint8_t active_interval_sec, uint8_t idle_interval_sec,
     motion_result_t *result);
 
 /** Get current motion score (0-100), thread-safe read */
 uint8_t motion_detector_get_score(void);
 
 /**
- * @brief Get the dynamic capture interval computed from the latest motion
- *        detection cycle (active_interval when motion seen, idle_interval
- *        otherwise). Returns 0 if motion detection hasn't run yet.
+ * @brief 运动状态信号（家族延时动态模型的运动钩子）。
  *
- * The async motion task (motion_detector_start) updates this continuously;
- * the recorder reads it instead of running motion detection inline.
+ * 返回最近一次分析周期是否处于运动状态（滞回判定）。video_recorder 的
+ * 动态延时分支以此驱动 min/max/decay 间隔衰减——选择该 getter 而非事件
+ * 回调是最小侵入钩子：无需新任务间耦合，读侧最多滞后一个分析周期。
  */
-uint16_t motion_detector_get_dynamic_interval(void);
+bool motion_detector_is_active(void);
 
 /**
  * @brief Start the async motion-detection task.
@@ -66,11 +64,12 @@ uint16_t motion_detector_get_dynamic_interval(void);
  * Subscribes to the frame broadcaster (FRAMESUB_MOTION) on Core 1, decodes
  * each received JPEG at 1/4 scale, and computes the motion score off the
  * recorder's hot path. Results are read via motion_detector_get_score() /
- * motion_detector_get_dynamic_interval(). Safe to call when not in dynamic
- * timelapse mode — the task just consumes frames and discards results.
+ * motion_detector_is_active(). Safe to call when not in dynamic timelapse
+ * mode — the task just consumes frames and discards results.
  *
- * Reads sensitivity/interval config live from config_get() each cycle, so
- * runtime config changes take effect without restart.
+ * Reads sensitivity config live from config_get() each cycle, so runtime
+ * config changes take effect without restart. motion_enabled=0 时检测照跑
+ * （供动态延时取信号/诊断），但 WS 触发事件被抑制（契约 §3.2 触发路径门控）。
  *
  * @return ESP_OK on success, ESP_ERR_INVALID_STATE if already running or
  *         motion_detector_init() not called.

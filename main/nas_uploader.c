@@ -305,10 +305,10 @@ static void upload_task(void *arg)
         const char *rec_part = strstr(filepath, "/recordings/");
         if (rec_part) {
             snprintf(remote_path, sizeof(remote_path), "%s%s",
-                     cfg->upload_base_path, rec_part + strlen("/recordings"));
+                     cfg->webdav_base_path, rec_part + strlen("/recordings"));
         } else {
             snprintf(remote_path, sizeof(remote_path), "%s/%s",
-                     cfg->upload_base_path, filename);
+                     cfg->webdav_base_path, filename);
         }
 
         /* Extract parent directory for mkdir */

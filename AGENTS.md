@@ -511,3 +511,43 @@ Creating a release:
 - MJPEG accept 补 `SO_SNDTIMEO=10s`（PIT-024 家族同步，探测本仓已有）。
 - 静态服务 MIME 表补 `.svg`/`.json`（favicon.svg 曾被当 text/html 回退）。
 - 统一 logo favicon.svg（四仓同 md5）；web_ui 新增文件需 `idf.py reconfigure`（PIT-026）。
+
+## 2026-09-05：配置子系统迁移到家族契约 v1.0（unify/v1.3）
+
+权威规范：`docs/config-contract.md` v1.0（配套 `docs/api-contract.md` v1.3）。
+本板已对齐 ai-thinker a12489b 的逐键 NVS 方案，要点：
+
+- **持久化**：NVS 命名空间 `cam_config` → **`mibee_cfg`**（逐键，`schema_ver`=u16=1）。
+  一次性幂等迁移（`migrate_legacy_namespace`）：旧命名空间只读保留作回滚备份；
+  迁移时套用全部历史语义（v3 字段改名回退、FTP→webdav、timelapse 兼容、
+  v1→v2 xclk/roam 补种、`pw_seed_v1` 密码种子跨命名空间生效）。
+  所有键 `_Static_assert` ≤15 字符（PIT-022）；单键写失败只 WARN。
+  顺带修复：旧键 `upload_base_path` 实为 16 字符从未持久化成功 → 新键 `webdav_base`。
+- **分辨率刻度**：`cam_framesize` 值 = esp32-camera `framesize_t`
+  （10=VGA,11=SVGA,12=XGA,13=HD,14=SXGA,15=UXGA；旧 0-5 由迁移函数翻译，
+  6/7 测试残留钳到 UXGA）。`CAMERA_RES_FHD/QXGA` 已从枚举删除（热限出局，
+  PIT-016）。分辨率变更仍走保存+重启（PIT-019 不变）。AT+CAMRES 值域 10-15。
+- **字段改名**（JSON=NVS 语义）：`fps`→`cam_fps`、`timelapse_interval_sec`→
+  `timelapse_interval_s`、`motion_idle_interval_sec`→`motion_cooldown_s`、
+  `motion_active_interval_sec`→`motion_active_interval_s`、
+  `wifi_roam_rssi_threshold`→`wifi_roam_rssi`、`wifi_roam_rssi_gap`→
+  `wifi_roam_gap_s`、`upload_base_path`→`webdav_base_path`。GET /api/config
+  新增 `schema_version`。
+- **timelapse 8 字段家族模型**：timelapse_enabled（总开关，0=连续录像）+
+  timelapse_mode（0=静态 1=动态）+ interval/burst/min/max/decay_factor/decay_period。
+  旧 2 字段迁移映射：mode 0→en=0/mode=0；mode 1/2→en=1/mode=1（契约 §6.1）。
+  动态间隔运行时在 video_recorder.c（min↔max 按 decay 衰减，镜像 ai-thinker
+  timelapse.c）；运动信号 = `motion_detector_is_active()`（最小侵入钩子）。
+- **motion_enabled**（新增，默认 1）：0 = 抑制 WS motion 事件（触发路径门控）；
+  检测任务在动态延时模式下仍运行（它是延时间隔的信号源）——与 ai-thinker
+  的"检测照跑不联动"语义一致。
+- **RTSP 鉴权独立**：`rtsp_user`/`rtsp_pass`（原用 web_password）；迁移一次性
+  种子 rtsp_pass = web_password；rtsp_server.cpp 已切换。GET 掩码 `****`。
+- **onvif_enable**（新增，默认 1）：0 = 不注册 SOAP 处理器 + 不启动
+  WS-Discovery；**变更需重启生效**（POST /api/config 响应带提示）。
+- **SD provisioning**：wifi.txt 接受家族键名（`wifi_ssid=` 等，旧大写键兼容）+
+  契约 §9 红线（NVS 已有凭据时不覆盖）；config/config.txt（契约键名）与
+  根目录旧 config.txt 兼容读；one_time 支持首行标记。
+- **注意**：`motion_act_int_s`（契约括注键）实为 16 字符超 NVS 上限，四仓实际
+  用 `motion_act_s`（与 ai-thinker 一致）；契约文档后续修正。
+

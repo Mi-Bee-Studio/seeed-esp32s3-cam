@@ -247,7 +247,8 @@ static esp_err_t api_status_handler(httpd_req_t *req)
         camera_get_sensor() == CAMERA_SENSOR_OV5640 ? "OV5640" : "unknown");
     cJSON_AddStringToObject(data, "resolution", camera_res_to_str(camera_get_resolution()));
 
-    /* Supported resolutions for the detected sensor (for dynamic UI filtering) */
+    /* Supported resolutions for the detected sensor (for dynamic UI filtering).
+     * 契约 v1.3 §5：value = 家族统一 framesize_t 刻度（10=VGA … 15=UXGA）。 */
     {
         camera_res_t max_res = camera_get_effective_max_res();
         cJSON *res_arr = cJSON_CreateArray();
@@ -260,8 +261,6 @@ static esp_err_t api_status_handler(httpd_req_t *req)
                 case CAMERA_RES_HD:   cJSON_AddStringToObject(item, "label", "HD (1280x720)");   break;
                 case CAMERA_RES_SXGA: cJSON_AddStringToObject(item, "label", "SXGA (1280x1024)");break;
                 case CAMERA_RES_UXGA: cJSON_AddStringToObject(item, "label", "UXGA (1600x1200)");break;
-                case CAMERA_RES_FHD:  cJSON_AddStringToObject(item, "label", "FHD (1920x1080)"); break;
-                case CAMERA_RES_QXGA: cJSON_AddStringToObject(item, "label", "QXGA (2048x1536)");break;
                 default: continue;
             }
             cJSON_AddNumberToObject(item, "value", r);
@@ -298,11 +297,14 @@ static esp_err_t api_status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "chip_temp", (double)get_chip_temp());
     cJSON_AddNumberToObject(data, "frames_dropped", (double)recorder_get_frames_dropped());
     cJSON_AddStringToObject(data, "firmware_version", FW_VERSION);
-    cJSON_AddNumberToObject(data, "timelapse_interval_sec", cfg->timelapse_interval_sec);
-    cJSON_AddNumberToObject(data, "timelapse_mode", cfg->timelapse_mode);
-    cJSON_AddNumberToObject(data, "motion_sensitivity", cfg->motion_sensitivity);
-    cJSON_AddNumberToObject(data, "motion_active_interval_sec", cfg->motion_active_interval_sec);
-    cJSON_AddNumberToObject(data, "motion_idle_interval_sec", cfg->motion_idle_interval_sec);
+    /* 家族 motion/timelapse 模型字段（契约 §3.2 命名） */
+    cJSON_AddBoolToObject(data, "timelapse_enabled", cfg->timelapse_enabled);
+    cJSON_AddNumberToObject(data, "timelapse_interval_s", (double)cfg->timelapse_interval_s);
+    cJSON_AddNumberToObject(data, "timelapse_mode", (double)cfg->timelapse_mode);
+    cJSON_AddBoolToObject(data, "motion_enabled", cfg->motion_enabled);
+    cJSON_AddNumberToObject(data, "motion_sensitivity", (double)cfg->motion_sensitivity);
+    cJSON_AddNumberToObject(data, "motion_cooldown_s", (double)cfg->motion_cooldown_s);
+    cJSON_AddNumberToObject(data, "motion_active_interval_s", (double)cfg->motion_active_interval_s);
     cJSON_AddNumberToObject(data, "motion_score", motion_detector_get_score());
 
     return json_ok(req, data);
@@ -341,57 +343,84 @@ static esp_err_t api_capabilities_handler(httpd_req_t *req)
 /*  GET /api/config                                                    */
 /* ------------------------------------------------------------------ */
 
-/** @brief 处理GET /api/config请求，返回当前配置（密码字段已脱敏显示） */
+/** @brief 处理GET /api/config请求，返回当前配置（契约字段名，密码类脱敏） */
 static esp_err_t api_config_get_handler(httpd_req_t *req)
 {
     cam_config_t *cfg = config_get();
     cJSON *data = cJSON_CreateObject();
 
+    /* WiFi + 身份（契约 §3.1） */
     cJSON_AddStringToObject(data, "wifi_ssid", cfg->wifi_ssid);
-    /* Mask password */
     cJSON_AddStringToObject(data, "wifi_pass", cfg->wifi_pass[0] ? "****" : "");
     cJSON_AddStringToObject(data, "wifi_ssid_2", cfg->wifi_ssid_2);
     cJSON_AddStringToObject(data, "wifi_pass_2", cfg->wifi_pass_2[0] ? "****" : "");
     cJSON_AddBoolToObject(data, "allow_ap_fallback", cfg->allow_ap_fallback);
     cJSON_AddStringToObject(data, "device_name", cfg->device_name);
-    cJSON_AddStringToObject(data, "upload_base_path", cfg->upload_base_path);
-    cJSON_AddBoolToObject(data, "webdav_enabled", cfg->webdav_enabled);
-    cJSON_AddStringToObject(data, "webdav_url", cfg->webdav_url);
-    cJSON_AddStringToObject(data, "webdav_user", cfg->webdav_user);
+    cJSON_AddStringToObject(data, "timezone", cfg->timezone);
+    cJSON_AddStringToObject(data, "web_password", cfg->web_password[0] ? "****" : "");
 
-    cJSON_AddNumberToObject(data, "cam_framesize", cfg->cam_framesize);
-    cJSON_AddNumberToObject(data, "fps", cfg->fps);
-    cJSON_AddNumberToObject(data, "segment_sec", cfg->segment_sec);
-    cJSON_AddNumberToObject(data, "cam_quality", cfg->cam_quality);
+    /* RTSP（契约 §3.2 rtsp 组，2026-09-05 起独立于 web_password） */
+    cJSON_AddStringToObject(data, "rtsp_user", cfg->rtsp_user);
+    cJSON_AddStringToObject(data, "rtsp_pass", cfg->rtsp_pass[0] ? "****" : "");
+
+    /* 相机（契约 §3.1 + §3.2 画质微调组） */
+    cJSON_AddNumberToObject(data, "cam_framesize", (double)cfg->cam_framesize);
+    cJSON_AddNumberToObject(data, "cam_fps", (double)cfg->cam_fps);
+    cJSON_AddNumberToObject(data, "cam_quality", (double)cfg->cam_quality);
     cJSON_AddBoolToObject(data, "cam_vflip", cfg->cam_vflip);
     cJSON_AddBoolToObject(data, "cam_hmirror", cfg->cam_hmirror);
-    cJSON_AddNumberToObject(data, "day_night_mode", cfg->day_night_mode);
+    cJSON_AddNumberToObject(data, "cam_brightness", (double)cfg->cam_brightness);
+    cJSON_AddNumberToObject(data, "cam_contrast", (double)cfg->cam_contrast);
+    cJSON_AddNumberToObject(data, "cam_saturation", (double)cfg->cam_saturation);
+    cJSON_AddNumberToObject(data, "cam_sharpness", (double)cfg->cam_sharpness);
+    cJSON_AddNumberToObject(data, "day_night_mode", (double)cfg->day_night_mode);
+    cJSON_AddNumberToObject(data, "onvif_enable", (double)cfg->onvif_enable);
+    cJSON_AddNumberToObject(data, "xclk_freq_mhz", (double)cfg->xclk_freq_mhz);
+    cJSON_AddNumberToObject(data, "wifi_roam_rssi", (double)cfg->wifi_roam_rssi);
+    cJSON_AddNumberToObject(data, "wifi_roam_gap_s", (double)cfg->wifi_roam_gap_s);
 
-    /* Mask web password */
-    cJSON_AddStringToObject(data, "web_password", cfg->web_password[0] ? "****" : "");
-    cJSON_AddStringToObject(data, "timezone", cfg->timezone);
-    cJSON_AddNumberToObject(data, "cleanup_low_pct", cfg->cleanup_low_pct);
-    cJSON_AddNumberToObject(data, "cleanup_high_pct", cfg->cleanup_high_pct);
+    /* 录像 / 存储（契约 §3.2 录像+SD 运维组） */
+    cJSON_AddNumberToObject(data, "segment_sec", (double)cfg->segment_sec);
     cJSON_AddBoolToObject(data, "frame_drop_enabled", cfg->frame_drop_enabled);
-    cJSON_AddNumberToObject(data, "timelapse_interval_sec", cfg->timelapse_interval_sec);
-    cJSON_AddNumberToObject(data, "timelapse_mode", cfg->timelapse_mode);
-    cJSON_AddNumberToObject(data, "motion_sensitivity", cfg->motion_sensitivity);
-    cJSON_AddNumberToObject(data, "motion_active_interval_sec", cfg->motion_active_interval_sec);
-    cJSON_AddNumberToObject(data, "motion_idle_interval_sec", cfg->motion_idle_interval_sec);
-    cJSON_AddStringToObject(data, "alert_webhook_url", cfg->alert_webhook_url);
-    cJSON_AddBoolToObject(data, "alert_webhook_enabled", cfg->alert_webhook_enabled);
     cJSON_AddBoolToObject(data, "video_record_to_sd", cfg->video_record_to_sd);
     cJSON_AddBoolToObject(data, "record_on_boot", cfg->record_on_boot);
     cJSON_AddBoolToObject(data, "audio_record_to_sd", cfg->audio_record_to_sd);
     cJSON_AddBoolToObject(data, "sd_log_enabled", cfg->sd_log_enabled);
-    cJSON_AddNumberToObject(data, "xclk_freq_mhz", cfg->xclk_freq_mhz);
-    cJSON_AddNumberToObject(data, "wifi_roam_rssi_threshold", cfg->wifi_roam_rssi_threshold);
-    cJSON_AddNumberToObject(data, "wifi_roam_rssi_gap", cfg->wifi_roam_rssi_gap);
+    cJSON_AddNumberToObject(data, "cleanup_low_pct", (double)cfg->cleanup_low_pct);
+    cJSON_AddNumberToObject(data, "cleanup_high_pct", (double)cfg->cleanup_high_pct);
+
+    /* Motion 家族超集（契约 §3.2） */
+    cJSON_AddBoolToObject(data, "motion_enabled", cfg->motion_enabled);
+    cJSON_AddNumberToObject(data, "motion_sensitivity", (double)cfg->motion_sensitivity);
+    cJSON_AddNumberToObject(data, "motion_cooldown_s", (double)cfg->motion_cooldown_s);
+    cJSON_AddNumberToObject(data, "motion_active_interval_s", (double)cfg->motion_active_interval_s);
+
+    /* Timelapse 家族动态模型 8 字段（契约 §3.2） */
+    cJSON_AddBoolToObject(data, "timelapse_enabled", cfg->timelapse_enabled);
+    cJSON_AddNumberToObject(data, "timelapse_interval_s", (double)cfg->timelapse_interval_s);
+    cJSON_AddNumberToObject(data, "timelapse_burst_count", (double)cfg->timelapse_burst_count);
+    cJSON_AddNumberToObject(data, "timelapse_mode", (double)cfg->timelapse_mode);
+    cJSON_AddNumberToObject(data, "timelapse_min_interval_s", (double)cfg->timelapse_min_interval_s);
+    cJSON_AddNumberToObject(data, "timelapse_max_interval_s", (double)cfg->timelapse_max_interval_s);
+    cJSON_AddNumberToObject(data, "timelapse_decay_factor", (double)cfg->timelapse_decay_factor);
+    cJSON_AddNumberToObject(data, "timelapse_decay_period_s", (double)cfg->timelapse_decay_period_s);
+
+    /* NAS/WebDAV + Webhook（契约 §3.2） */
+    cJSON_AddBoolToObject(data, "webdav_enabled", cfg->webdav_enabled);
+    cJSON_AddStringToObject(data, "webdav_url", cfg->webdav_url);
+    cJSON_AddStringToObject(data, "webdav_user", cfg->webdav_user);
+    cJSON_AddStringToObject(data, "webdav_pass", cfg->webdav_pass[0] ? "****" : "");
+    cJSON_AddStringToObject(data, "webdav_base_path", cfg->webdav_base_path);
+    cJSON_AddBoolToObject(data, "alert_webhook_enabled", cfg->alert_webhook_enabled);
+    cJSON_AddStringToObject(data, "alert_webhook_url", cfg->alert_webhook_url);
+
     cJSON_AddBoolToObject(data, "sd_present", storage_is_available());
 
     /* Add mDNS hostname for display in web UI */
     cJSON_AddStringToObject(data, "mdns_hostname", wifi_get_mdns_hostname());
 
+    /* 家族 schema 版本（契约 §1） */
+    cJSON_AddNumberToObject(data, "schema_version", (double)CONFIG_SCHEMA_VERSION);
 
     return json_ok(req, data);
 }
@@ -447,17 +476,17 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         cfg->device_name[sizeof(cfg->device_name) - 1] = '\0';
     }
 
-    if ((item = cJSON_GetObjectItem(json, "upload_base_path")) && cJSON_IsString(item)) {
+    if ((item = cJSON_GetObjectItem(json, "webdav_base_path")) && cJSON_IsString(item)) {
         if (strstr(item->valuestring, "..") != NULL) {
             cJSON_Delete(json);
             config_unlock();
-            return json_error(req, "Invalid upload_base_path (must not contain '..')", HTTPD_400_BAD_REQUEST);
+            return json_error(req, "Invalid webdav_base_path (must not contain '..')", HTTPD_400_BAD_REQUEST);
         }
-        strncpy(cfg->upload_base_path, item->valuestring, sizeof(cfg->upload_base_path) - 1);
-        cfg->upload_base_path[sizeof(cfg->upload_base_path) - 1] = '\0';
+        strncpy(cfg->webdav_base_path, item->valuestring, sizeof(cfg->webdav_base_path) - 1);
+        cfg->webdav_base_path[sizeof(cfg->webdav_base_path) - 1] = '\0';
     }
     if ((item = cJSON_GetObjectItem(json, "webdav_enabled")))
-        cfg->webdav_enabled = item->valueint;
+        cfg->webdav_enabled = item->valueint != 0;
     if ((item = cJSON_GetObjectItem(json, "webdav_url")) && cJSON_IsString(item)) {
         strncpy(cfg->webdav_url, item->valuestring, sizeof(cfg->webdav_url) - 1);
         cfg->webdav_url[sizeof(cfg->webdav_url) - 1] = '\0';
@@ -470,11 +499,26 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         strncpy(cfg->webdav_pass, item->valuestring, sizeof(cfg->webdav_pass) - 1);
         cfg->webdav_pass[sizeof(cfg->webdav_pass) - 1] = '\0';
     }
+    /* RTSP 凭据（契约 §3.2；pass 掩码回传不落盘） */
+    if ((item = cJSON_GetObjectItem(json, "rtsp_user")) && cJSON_IsString(item)) {
+        strncpy(cfg->rtsp_user, item->valuestring, sizeof(cfg->rtsp_user) - 1);
+        cfg->rtsp_user[sizeof(cfg->rtsp_user) - 1] = '\0';
+    }
+    if ((item = cJSON_GetObjectItem(json, "rtsp_pass")) && cJSON_IsString(item) && strcmp(item->valuestring, "****") != 0) {
+        if (strlen(item->valuestring) >= sizeof(cfg->rtsp_pass)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "rtsp_pass too long (max 63)", HTTPD_400_BAD_REQUEST);
+        }
+        strncpy(cfg->rtsp_pass, item->valuestring, sizeof(cfg->rtsp_pass) - 1);
+        cfg->rtsp_pass[sizeof(cfg->rtsp_pass) - 1] = '\0';
+    }
 
     uint8_t prev_resolution = cfg->cam_framesize;
     if ((item = cJSON_GetObjectItem(json, "cam_framesize"))) {
         int val = item->valueint;
-        if (!validate_uint_range(val, 0, (int)camera_get_effective_max_res())) {
+        /* 契约 v1.3 §5：家族刻度 10-15，且 ≤ 三层上限 */
+        if (!validate_uint_range(val, (int)CAMERA_RES_VGA, (int)camera_get_effective_max_res())) {
             char msg[96];
             snprintf(msg, sizeof(msg), "Invalid resolution (board-tested max: %s)",
                      camera_res_to_str(camera_get_effective_max_res()));
@@ -484,14 +528,14 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         }
         cfg->cam_framesize = (uint8_t)val;
     }
-    if ((item = cJSON_GetObjectItem(json, "fps"))) {
+    if ((item = cJSON_GetObjectItem(json, "cam_fps"))) {
         int val = item->valueint;
         if (!validate_uint_range(val, 1, 30)) {
             cJSON_Delete(json);
             config_unlock();
-            return json_error(req, "Invalid fps (must be 1-30)", HTTPD_400_BAD_REQUEST);
+            return json_error(req, "Invalid cam_fps (must be 1-30)", HTTPD_400_BAD_REQUEST);
         }
-        cfg->fps = (uint8_t)val;
+        cfg->cam_fps = (uint8_t)val;
     }
     if ((item = cJSON_GetObjectItem(json, "segment_sec"))) {
         int val = item->valueint;
@@ -534,24 +578,34 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
             return json_error(req, "Invalid xclk_freq_mhz (must be 10/16/20)", HTTPD_400_BAD_REQUEST);
         }
     }
-    if ((item = cJSON_GetObjectItem(json, "wifi_roam_rssi_threshold"))) {
+    uint8_t prev_onvif_enable = cfg->onvif_enable;
+    if ((item = cJSON_GetObjectItem(json, "onvif_enable"))) {
         int val = item->valueint;
-        /* Allow 0 (disabled) or -90 to -50 */
+        if (val < 0 || val > 1) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid onvif_enable (must be 0-1)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->onvif_enable = (uint8_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "wifi_roam_rssi"))) {
+        int val = item->valueint;
+        /* Allow 0 (disabled) or -90 to -50（契约 §4） */
         if (val != 0 && (val < -90 || val > -50)) {
             cJSON_Delete(json);
             config_unlock();
-            return json_error(req, "Invalid wifi_roam_rssi_threshold (must be 0 or -90 to -50)", HTTPD_400_BAD_REQUEST);
+            return json_error(req, "Invalid wifi_roam_rssi (must be 0 or -90 to -50)", HTTPD_400_BAD_REQUEST);
         }
-        cfg->wifi_roam_rssi_threshold = (int8_t)val;
+        cfg->wifi_roam_rssi = (int8_t)val;
     }
-    if ((item = cJSON_GetObjectItem(json, "wifi_roam_rssi_gap"))) {
+    if ((item = cJSON_GetObjectItem(json, "wifi_roam_gap_s"))) {
         int val = item->valueint;
         if (val < 5 || val > 15) {
             cJSON_Delete(json);
             config_unlock();
-            return json_error(req, "Invalid wifi_roam_rssi_gap (must be 5-15)", HTTPD_400_BAD_REQUEST);
+            return json_error(req, "Invalid wifi_roam_gap_s (must be 5-15)", HTTPD_400_BAD_REQUEST);
         }
-        cfg->wifi_roam_rssi_gap = (uint8_t)val;
+        cfg->wifi_roam_gap_s = (uint8_t)val;
     }
 
     
@@ -592,33 +646,93 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     }
     if ((item = cJSON_GetObjectItem(json, "cleanup_high_pct"))) {
         int val = item->valueint;
-        if (!validate_uint_range(val, 1, 100)) {
+        /* 契约 §4：high ≤80 且 ≥low+5（组合校验在 config_save 的 validate 兜底） */
+        if (!validate_uint_range(val, 1, 80) || val < (int)cfg->cleanup_low_pct + 5) {
             cJSON_Delete(json);
             config_unlock();
-            return json_error(req, "Invalid cleanup_high_pct (must be 1-100)", HTTPD_400_BAD_REQUEST);
+            return json_error(req, "Invalid cleanup_high_pct (must be 1-80 and >= cleanup_low_pct+5)",
+                              HTTPD_400_BAD_REQUEST);
         }
         cfg->cleanup_high_pct = (uint8_t)val;
     }
     if ((item = cJSON_GetObjectItem(json, "frame_drop_enabled")))
-        cfg->frame_drop_enabled = item->valueint;
-    if ((item = cJSON_GetObjectItem(json, "timelapse_interval_sec"))) {
+        cfg->frame_drop_enabled = item->valueint != 0;
+
+    /* Timelapse 家族动态模型 8 字段（契约 §3.2/§4） */
+    if ((item = cJSON_GetObjectItem(json, "timelapse_enabled")))
+        cfg->timelapse_enabled = item->valueint != 0;
+    if ((item = cJSON_GetObjectItem(json, "timelapse_interval_s"))) {
         int val = item->valueint;
-        if (!validate_uint_range(val, 0, 255)) {
+        if (!validate_uint_range(val, 1, 255)) {
             cJSON_Delete(json);
             config_unlock();
-            return json_error(req, "Invalid timelapse_interval_sec (must be 0-255)", HTTPD_400_BAD_REQUEST);
+            return json_error(req, "Invalid timelapse_interval_s (must be 1-255)", HTTPD_400_BAD_REQUEST);
         }
-        cfg->timelapse_interval_sec = (uint8_t)val;
+        cfg->timelapse_interval_s = (uint16_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "timelapse_burst_count"))) {
+        int val = item->valueint;
+        if (!validate_uint_range(val, 1, 10)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid timelapse_burst_count (must be 1-10)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->timelapse_burst_count = (uint8_t)val;
     }
     if ((item = cJSON_GetObjectItem(json, "timelapse_mode"))) {
         int val = item->valueint;
-        if (val < 0 || val > 2) {
+        if (val < 0 || val > 1) {
             cJSON_Delete(json);
             config_unlock();
-            return json_error(req, "Invalid timelapse_mode (must be 0-2)", HTTPD_400_BAD_REQUEST);
+            return json_error(req, "Invalid timelapse_mode (must be 0=static 1=dynamic)", HTTPD_400_BAD_REQUEST);
         }
         cfg->timelapse_mode = (uint8_t)val;
     }
+    if ((item = cJSON_GetObjectItem(json, "timelapse_min_interval_s"))) {
+        int val = item->valueint;
+        if (!validate_uint_range(val, 1, 3600)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid timelapse_min_interval_s (must be 1-3600)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->timelapse_min_interval_s = (uint16_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "timelapse_max_interval_s"))) {
+        int val = item->valueint;
+        if (!validate_uint_range(val, 1, 3600)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid timelapse_max_interval_s (must be 1-3600)", HTTPD_400_BAD_REQUEST);
+        }
+        if (val < (int)cfg->timelapse_min_interval_s) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "timelapse_max_interval_s must be >= timelapse_min_interval_s", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->timelapse_max_interval_s = (uint16_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "timelapse_decay_factor"))) {
+        int val = item->valueint;
+        if (!validate_uint_range(val, 1, 10)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid timelapse_decay_factor (must be 1-10)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->timelapse_decay_factor = (uint8_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "timelapse_decay_period_s"))) {
+        int val = item->valueint;
+        if (!validate_uint_range(val, 1, 3600)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid timelapse_decay_period_s (must be 1-3600)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->timelapse_decay_period_s = (uint16_t)val;
+    }
+
+    /* Motion 家族超集（契约 §3.2/§4） */
+    if ((item = cJSON_GetObjectItem(json, "motion_enabled")))
+        cfg->motion_enabled = item->valueint != 0;
     if ((item = cJSON_GetObjectItem(json, "motion_sensitivity"))) {
         int val = item->valueint;
         if (val < 0 || val > 100) {
@@ -628,23 +742,23 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         }
         cfg->motion_sensitivity = (uint8_t)val;
     }
-    if ((item = cJSON_GetObjectItem(json, "motion_active_interval_sec"))) {
+    if ((item = cJSON_GetObjectItem(json, "motion_cooldown_s"))) {
+        int val = item->valueint;
+        if (val < 1 || val > 300) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid motion_cooldown_s (must be 1-300)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->motion_cooldown_s = (uint16_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "motion_active_interval_s"))) {
         int val = item->valueint;
         if (val < 1 || val > 30) {
             cJSON_Delete(json);
             config_unlock();
-            return json_error(req, "Invalid motion_active_interval_sec (must be 1-30)", HTTPD_400_BAD_REQUEST);
+            return json_error(req, "Invalid motion_active_interval_s (must be 1-30)", HTTPD_400_BAD_REQUEST);
         }
-        cfg->motion_active_interval_sec = (uint8_t)val;
-    }
-    if ((item = cJSON_GetObjectItem(json, "motion_idle_interval_sec"))) {
-        int val = item->valueint;
-        if (val < 5 || val > 300) {
-            cJSON_Delete(json);
-            config_unlock();
-            return json_error(req, "Invalid motion_idle_interval_sec (must be 5-300)", HTTPD_400_BAD_REQUEST);
-        }
-        cfg->motion_idle_interval_sec = (uint8_t)val;
+        cfg->motion_active_interval_s = (uint8_t)val;
     }
     if ((item = cJSON_GetObjectItem(json, "alert_webhook_url")) && cJSON_IsString(item)) {
         size_t len = strlen(item->valuestring);
@@ -672,9 +786,22 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
 
 
     cJSON_Delete(json);
-    config_save();
+    esp_err_t save_ret = config_save();
 
     config_unlock();
+
+    if (save_ret != ESP_OK) {
+        /* config_validate 拒绝（契约 §4 越界组合，如 cleanup_high < low+5） */
+        return json_error(req, "Config validation failed (field combination out of range)",
+                          HTTPD_400_BAD_REQUEST);
+    }
+
+    /* onvif_enable 变化：重启后生效（SOAP 注册/WS-Discovery 都是启动期动作） */
+    bool onvif_changed = (cfg->onvif_enable != prev_onvif_enable);
+    if (onvif_changed) {
+        ESP_LOGW(TAG, "onvif_enable %u->%u — reboot required to apply",
+                 prev_onvif_enable, cfg->onvif_enable);
+    }
 
     /* 分辨率变化走保存+重启应用（OV5640 运行时 set_framesize 无效，
      * 见 camera_driver.c 注释；2026-09-04）。 */
@@ -688,6 +815,11 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         vTaskDelay(pdMS_TO_TICKS(1000));
         esp_restart();
         return send_ret;
+    }
+    if (onvif_changed) {
+        cJSON *data = cJSON_CreateObject();
+        cJSON_AddStringToObject(data, "status", "saved (reboot to apply ONVIF change)");
+        return json_ok(req, data);
     }
     return json_ok(req, NULL);
 }
@@ -1706,7 +1838,8 @@ static esp_err_t api_capture_handler(httpd_req_t *req)
 /*  GET/POST /api/camera — 传感器设置（契约 v1.0 统一端点）             */
 /* ------------------------------------------------------------------ */
 
-/** 构造 supported_resolutions 数组（与 /api/status 保持一致的标签/取值） */
+/** 构造 supported_resolutions 数组（与 /api/status 保持一致的标签/取值；
+ *  契约 v1.3 §5：value = 家族统一 framesize_t 刻度） */
 static cJSON *camera_supported_resolutions_json(void)
 {
     camera_res_t max_res = camera_get_effective_max_res();
@@ -1720,8 +1853,6 @@ static cJSON *camera_supported_resolutions_json(void)
             case CAMERA_RES_HD:   label = "HD (1280x720)";   break;
             case CAMERA_RES_SXGA: label = "SXGA (1280x1024)";break;
             case CAMERA_RES_UXGA: label = "UXGA (1600x1200)";break;
-            case CAMERA_RES_FHD:  label = "FHD (1920x1080)"; break;
-            case CAMERA_RES_QXGA: label = "QXGA (2048x1536)";break;
             default: continue;
         }
         cJSON *item = cJSON_CreateObject();
@@ -1739,12 +1870,12 @@ static esp_err_t api_camera_get_handler(httpd_req_t *req)
     cJSON *data = cJSON_CreateObject();
 
     cJSON_AddStringToObject(data, "resolution", camera_res_to_str(camera_get_resolution()));
-    cJSON_AddNumberToObject(data, "cam_framesize", cfg->cam_framesize);
-    cJSON_AddNumberToObject(data, "cam_quality", cfg->cam_quality);
+    cJSON_AddNumberToObject(data, "cam_framesize", (double)cfg->cam_framesize);
+    cJSON_AddNumberToObject(data, "cam_quality", (double)cfg->cam_quality);
     /* 契约扩展（2026-09-04）：画质滑杆边界由板端声明，前端据此钳制输入 */
     cJSON_AddNumberToObject(data, "quality_min", CAMERA_QUALITY_MIN);
     cJSON_AddNumberToObject(data, "quality_max", CAMERA_QUALITY_MAX);
-    cJSON_AddNumberToObject(data, "fps", cfg->fps);
+    cJSON_AddNumberToObject(data, "cam_fps", (double)cfg->cam_fps);
     cJSON_AddBoolToObject(data, "cam_vflip", cfg->cam_vflip);
     cJSON_AddBoolToObject(data, "cam_hmirror", cfg->cam_hmirror);
     cJSON_AddNumberToObject(data, "day_night_mode", cfg->day_night_mode);
@@ -1775,7 +1906,8 @@ static esp_err_t api_camera_post_handler(httpd_req_t *req)
     uint8_t prev_resolution = cfg->cam_framesize;
     if ((item = cJSON_GetObjectItem(json, "cam_framesize"))) {
         int val = item->valueint;
-        if (val < 0 || val > (int)camera_get_effective_max_res()) {
+        /* 契约 v1.3 §5：家族刻度 10-15，且 ≤ 三层上限 */
+        if (val < (int)CAMERA_RES_VGA || val > (int)camera_get_effective_max_res()) {
             char msg[96];
             snprintf(msg, sizeof(msg), "Invalid resolution (board-tested max: %s)",
                      camera_res_to_str(camera_get_effective_max_res()));
@@ -2008,10 +2140,15 @@ esp_err_t web_server_start(uint16_t port)
         httpd_register_uri_handler(s_server, &uri);
     }
 
-    /* Register ONVIF SOAP service handlers */
-    esp_err_t onvif_ret = onvif_register_handlers(s_server);
-    if (onvif_ret != ESP_OK) {
-        ESP_LOGW(TAG, "ONVIF handler registration: %s", esp_err_to_name(onvif_ret));
+    /* Register ONVIF SOAP service handlers（契约核心字段 onvif_enable=0 时
+     * 不注册 SOAP 处理器，与 main.c 的 WS-Discovery 启动门控同源；变更需重启） */
+    if (config_get()->onvif_enable) {
+        esp_err_t onvif_ret = onvif_register_handlers(s_server);
+        if (onvif_ret != ESP_OK) {
+            ESP_LOGW(TAG, "ONVIF handler registration: %s", esp_err_to_name(onvif_ret));
+        }
+    } else {
+        ESP_LOGI(TAG, "ONVIF disabled in config (onvif_enable=0), handlers not registered");
     }
 
     s_port = port;

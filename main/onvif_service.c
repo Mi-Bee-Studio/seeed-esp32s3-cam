@@ -54,37 +54,34 @@ static const char *TAG = "onvif_svc";
 /* ------------------------------------------------------------------ */
 
 /**
- * @brief Map internal resolution index (0=VGA, 1=SVGA, 2=XGA) to pixel dimensions.
+ * @brief Map resolution to pixel dimensions.
+ *
+ * 家族统一刻度（契约 v1.3 §5）：cam_framesize 值 = framesize_t 枚举
+ * （10=VGA, 11=SVGA, 12=XGA, 13=HD, 14=SXGA, 15=UXGA）。
  */
 static void resolution_to_wh(uint8_t res, int *w, int *h)
 {
     switch (res) {
-        case 0:
+        case 10:
             *w = 640;  *h = 480;
             break;
-        case 1:
+        case 11:
             *w = 800;  *h = 600;
             break;
-        case 2:
+        case 12:
             *w = 1024; *h = 768;
             break;
-        case 3:
+        case 13:
             *w = 1280; *h = 720;
             break;
-        case 4:
+        case 14:
             *w = 1280; *h = 1024;
             break;
-        case 5:
+        case 15:
             *w = 1600; *h = 1200;
             break;
-        case 6:
-            *w = 1920; *h = 1080;
-            break;
-        case 7:
-            *w = 2048; *h = 1536;
-            break;
         default:
-            *w = 640;  *h = 480;
+            *w = 800;  *h = 600;
             break;
     }
 }
@@ -367,7 +364,7 @@ static esp_err_t handle_get_profiles(httpd_req_t *req)
         "</s:Envelope>",
         width, height,
         width, height,
-        cfg->fps);
+        cfg->cam_fps);
 
     httpd_resp_set_type(req, "application/soap+xml");
     httpd_resp_send(req, resp, len);

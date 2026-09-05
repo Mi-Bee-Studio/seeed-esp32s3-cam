@@ -72,23 +72,15 @@ static void capture_timeout_cb(TimerHandle_t xTimer)
 
 /** @brief 将分辨率枚举转换为 esp_camera 驱动的帧大小枚举
  *
- * 内部辅助函数，将 camera_res_t 映射为 framesize_t。
- * @param res 分辨率枚举值
- * @return 对应的 framesize_t 值，未知时默认返回 FRAMESIZE_SVGA
+ * 家族统一刻度（契约 v1.3 §5）：camera_res_t 的值即 framesize_t 枚举，
+ * 映射为恒等变换，仅做值域保护。
  */
 static framesize_t res_to_framesize(camera_res_t res)
 {
-    switch (res) {
-        case CAMERA_RES_VGA:  return FRAMESIZE_VGA;
-        case CAMERA_RES_SVGA: return FRAMESIZE_SVGA;
-        case CAMERA_RES_XGA:  return FRAMESIZE_XGA;
-        case CAMERA_RES_HD:   return FRAMESIZE_HD;    /* 1280x720  */
-        case CAMERA_RES_SXGA: return FRAMESIZE_SXGA;  /* 1280x1024 */
-        case CAMERA_RES_UXGA: return FRAMESIZE_UXGA;  /* 1600x1200 */
-        case CAMERA_RES_FHD:  return FRAMESIZE_FHD;   /* 1920x1080 */
-        case CAMERA_RES_QXGA: return FRAMESIZE_QXGA;  /* 2048x1536 */
-        default:              return FRAMESIZE_SVGA;
+    if ((int)res >= FRAMESIZE_VGA && (int)res <= FRAMESIZE_UXGA) {
+        return (framesize_t)res;
     }
+    return FRAMESIZE_SVGA;
 }
 
 /* ── 三层上限之 memory 层：fb 预算运行时校验 ─────────────────────────
@@ -111,7 +103,7 @@ _Static_assert(FRAMESIZE_VGA == 10, "s_fs_dims pinned to esp32-camera 2.1.x enum
 /** @brief 该档位单个 JPEG fb 的字节数（宽*高/5），非法档位返回 0 */
 static size_t fb_bytes_for_res(camera_res_t res)
 {
-    int idx = (int)res;
+    int idx = (int)res - (int)FRAMESIZE_VGA;   /* 家族刻度：下标 0 = VGA */
     if (idx < 0 || (size_t)idx >= sizeof(s_fs_dims) / sizeof(s_fs_dims[0])) {
         return 0;
     }
@@ -142,6 +134,11 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
     if (s_initialized) {
         ESP_LOGW(TAG, "Camera already initialized");
         return ESP_OK;
+    }
+    /* 参数校验（家族刻度 10-15；越界回退 SVGA=本板默认档） */
+    if ((int)res < (int)CAMERA_RES_VGA || (int)res > (int)CAMERA_RES_UXGA) {
+        ESP_LOGW(TAG, "Invalid resolution %d, defaulting to SVGA", res);
+        res = CAMERA_RES_SVGA;
     }
     if (quality < CAMERA_QUALITY_MIN || quality > CAMERA_QUALITY_MAX) {
         ESP_LOGW(TAG, "Quality %d out of range [%d-%d], clamping",
@@ -190,10 +187,7 @@ esp_err_t camera_init(camera_res_t res, uint8_t fps, uint8_t quality)
             return err;
         }
         res = CAMERA_RES_VGA;
-    }
-
-
-    /* Auto-detect sensor */
+    }    /* Auto-detect sensor */
     sensor_t *sensor = esp_camera_sensor_get();
     if (sensor) {
         switch (sensor->id.PID) {
@@ -288,14 +282,14 @@ camera_res_t camera_get_max_resolution(camera_sensor_t sensor)
 {
     /* sensor 层：直接查 esp32-camera 组件自带的传感器能力表
      * （camera_sensor[].max_size，单一事实源——不在此维护第二份 PID 表）。
-     * 本地枚举只到 QXGA，组件给的更大上限（如 OV5640=QSXGA）钳到 QXGA。 */
+     * 家族统一刻度下组件表值即本枚举值，只需钳到本板枚举天花板 UXGA。 */
     if (s_initialized) {
         sensor_t *s = esp_camera_sensor_get();
         camera_sensor_info_t *info = s ? esp_camera_sensor_get_info(&s->id) : NULL;
         if (info && info->max_size >= FRAMESIZE_VGA) {
-            int res = (int)info->max_size - (int)FRAMESIZE_VGA;
-            if (res > (int)CAMERA_RES_QXGA) {
-                res = (int)CAMERA_RES_QXGA;
+            int res = (int)info->max_size;
+            if (res > (int)CAMERA_RES_UXGA) {
+                res = (int)CAMERA_RES_UXGA;
             }
             return (camera_res_t)res;
         }
@@ -495,8 +489,6 @@ const char *camera_res_to_str(camera_res_t res)
         case CAMERA_RES_HD:   return "HD";
         case CAMERA_RES_SXGA: return "SXGA";
         case CAMERA_RES_UXGA: return "UXGA";
-        case CAMERA_RES_FHD:  return "FHD";
-        case CAMERA_RES_QXGA: return "QXGA";
         default:              return "UNKNOWN";
     }
 }
