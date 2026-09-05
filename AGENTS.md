@@ -368,7 +368,7 @@ use-after-free。对已释放内存的删除是"俄罗斯轮盘"——多数时�
 ### 2026-09-03 深夜 推流吞吐 + 契约 v1.2（已烧录验证）
 
 1. **"推流没有内容"根因 = 信道拥塞 × TCP 窗口过小**。实测 ping RTT 169-330ms、
-   丢包 40%（本板在 ch11 拥塞网 MiBeeAP1；对照 ai-thinker 在 ch2：8ms/0%），
+   丢包 40%（本板在 ch11 拥塞网，真实 SSID 脱敏；对照 ai-thinker 在 ch2：8ms/0%），
    16KB SND_BUF × 250ms RTT 把每条 MJPEG 流钳在 ~64KB/s ≈ <1fps@55KB。
    修复：`CONFIG_LWIP_TCP_SND_BUF_DEFAULT 16384→49152`、
    `CONFIG_LWIP_TCP_WND_DEFAULT 16384→32768`（defaults 与生成 sdkconfig 同步手改，
