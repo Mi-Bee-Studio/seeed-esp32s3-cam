@@ -1,41 +1,59 @@
+# MiBee Cam family .gitignore (byte-identical across the four cam repos)
+
 # Build artifacts
 build/
-sdkconfig.old
+build2/
+build3/
+out/
+output/
+dist/
+partition_table/
+bootloader/build/
+
+# ESP-IDF generated config (sdkconfig.defaults stays tracked; local sdkconfig
+# is the injection point for local-only credentials — never commit it)
 sdkconfig
+sdkconfig.old
 managed_components/
 dependencies.lock
 
-# Internal tools and temp files
-.sisyphus/
-.omo/
-setup_idf_env.ps1
-*.bak
-*.swp
-*.swo
-*~
-*#
-
-# Editor directories
-.vscode/
-.idea/
-*.iml
-
-# ESP-IDF specific
-bootloader/build/
-partition_table/
-*.map
-*.lst
+# Binary / object artifacts
 *.o
+*.obj
 *.a
+*.so
+*.d
 *.elf
 *.bin
 *.hex
+*.map
+*.lst
+
+# Editor / IDE / index
+.vscode/
+.idea/
+*.iml
+*.user
+.clangd/
+.ccls-cache/
+compile_commands.json
+.trae/
+codegraph/
+.codegraph/
+
+# Internal tool caches
+.sisyphus/
+.omo/
+.cache/
+setup_idf_env.ps1
+package-lock.json
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.egg-info/
 .Python
 env/
 venv/
@@ -43,35 +61,45 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-
-# Logs and coverage
-*.log
+.pytest_cache/
+.coverage
+htmlcov/
 *.gcda
 *.gcno
 *.gcov
-.coverage
-htmlcov/
-.pytest_cache/
+
+# Logs and local runtime artifacts (serial collectors etc.)
+*.log
+*.out
+*.tmp
+*.temp
+tools/overnight_serial.log
+tools/overnight_reboots.log
 
 # OS generated files
 .DS_Store
-.DS_Store?
+Thumbs.db
+Desktop.ini
+*.lnk
 ._*
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Thumbs.db
-Desktop.ini
-.playwright-mcp
-build_log.txt
+*~
+*.swp
+*.swo
+*.bak
+*#
 
-# Test screenshots (root only)
+# Local-only content
 /*-test.png
 /*-check.png
 tmp/
-AGENTS.md
 docs/superpowers/
-.trae/
-.clangd
 docs/stream-push-analysis/
+.github/copilot-instructions.md
+config.txt
+verify_hardware.bat
+build_log.txt
+.playwright-mcp/
 $null
