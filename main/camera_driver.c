@@ -282,8 +282,13 @@ camera_res_t camera_get_max_resolution(camera_sensor_t sensor)
 {
     /* sensor 层：直接查 esp32-camera 组件自带的传感器能力表
      * （camera_sensor[].max_size，单一事实源——不在此维护第二份 PID 表）。
-     * 家族统一刻度下组件表值即本枚举值，只需钳到本板枚举天花板 UXGA。 */
-    if (s_initialized) {
+     * 家族统一刻度下组件表值即本枚举值，只需钳到本板枚举天花板 UXGA。
+     *
+     * 判活用 esp_camera_sensor_get() 句柄而非 s_initialized 旗标：
+     * camera_init 中途（esp_camera_init 已成、旗标未置位）会调用本函数
+     * 做三层钳制，按旗标判定会错误走 XGA 回退，把 HD/SXGA/UXGA 全部
+     * 钳到 XGA（v0.4.0 起的实机行为，2026-09-05 实拍 SOF 证实）。 */
+    {
         sensor_t *s = esp_camera_sensor_get();
         camera_sensor_info_t *info = s ? esp_camera_sensor_get_info(&s->id) : NULL;
         if (info && info->max_size >= FRAMESIZE_VGA) {
@@ -293,10 +298,11 @@ camera_res_t camera_get_max_resolution(camera_sensor_t sensor)
             }
             return (camera_res_t)res;
         }
-        ESP_LOGW(TAG, "Unknown sensor PID — sensor layer falls back to XGA");
+        if (s) {
+            ESP_LOGW(TAG, "Unknown sensor PID — sensor layer falls back to XGA");
+        }
     }
-    /* 相机未初始化/未知传感器：保守回退（历史行为，仅在初始化前的
-     * 调用窗口内生效；初始化后 always 走组件表） */
+    /* 相机未初始化（无传感器句柄）：保守回退（仅在初始化前的调用窗口生效） */
     (void)sensor;
     return CAMERA_RES_XGA;
 }
