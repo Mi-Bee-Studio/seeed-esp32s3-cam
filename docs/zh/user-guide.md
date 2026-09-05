@@ -17,7 +17,7 @@
 | AP 模式 | `http://192.168.4.1` |
 | STA 模式 | `http://<设备IP>` |
 
-- AP 模式：连接 WiFi 热点 `MiBee Cam-XXXX`（密码 `12345678`），然后访问 `http://192.168.4.1`
+- AP 模式：连接 WiFi 热点 `MiBee Cam-XXXX`（密码 `mibeecam2026`），然后访问 `http://192.168.4.1`
 - STA 模式：设备连接路由器后，通过路由器分配的 IP 访问
 
 ### 登录密码
@@ -183,7 +183,7 @@ ON 200ms → OFF 200ms → ON 200ms → OFF 1000ms → 循环
 设备首次启动或未配置 WiFi 时自动进入 AP 模式：
 
 - SSID：`MiBee Cam-XXXX`（XXXX 为 MAC 地址后 4 位十六进制）
-- 密码：`12345678`
+- 密码：`mibeecam2026`
 - IP 地址：`192.168.4.1`
 - 加密方式：WPA2-PSK
 - 最大连接数：4
