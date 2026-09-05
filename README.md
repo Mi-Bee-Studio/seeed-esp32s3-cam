@@ -123,7 +123,7 @@ Dynamic timelapse is the killer feature — set `timelapse_mode=2`, tune sensiti
 | GET | `/api/audio` | No | HTTP chunked G.711 audio stream (Web preview) |
 | RTSP | `rtsp://<IP>:554/stream` | Digest | MJPEG+G.711 dual-track stream for NVR |
 
-Default password: `admin` 👉 [Complete API docs](docs/en/api/overview.md)
+Default password: `mibeecam2026` 👉 [Complete API docs](docs/en/api/overview.md)
 
 ---
 

@@ -132,7 +132,7 @@ Press `Ctrl+]` to exit serial monitoring.
 Power on → LED solid (booting) → LED slow blink (AP mode)
     → Connect to WiFi "MiBee Cam-XXXX"
     → Open browser at 192.168.4.1
-    → Login with password admin
+    → Login with password mibeecam2026
     → Fill WiFi information in config page
     → Device automatically switches to STA mode
     → LED off (normal operation, recording started)

@@ -21,10 +21,10 @@ Some endpoints require password authentication. Two methods are supported:
 
 | Method | Format | Example |
 |--------|--------|---------|
-| Request Header | `X-Password: <password>` | `X-Password: admin` |
-| Query Parameter | `?password=<password>` | `?password=admin` |
+| Request Header | `X-Password: <password>` | `X-Password: mibeecam2026` |
+| Query Parameter | `?password=<password>` | `?password=mibeecam2026` |
 
-- **Default Password**: `admin` (can be modified via `POST /api/config` by changing `web_password` field)
+- **Default Password**: `mibeecam2026` (can be modified via `POST /api/config` by changing `web_password` field)
 - Authentication logic first checks `X-Password` request header, then checks `password` query parameter
 - Authentication failure returns `401 Unauthorized` with response body: `{"ok": false, "error": "Unauthorized"}`
 

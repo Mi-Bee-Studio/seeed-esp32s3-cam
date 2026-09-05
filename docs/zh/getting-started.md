@@ -150,7 +150,7 @@ idf.py -p COM3 flash
 上电 → LED 常亮（启动中） → LED 慢闪（AP 模式）
     → 连接 WiFi "MiBee Cam-XXXX"
     → 浏览器打开 192.168.4.1
-    → 使用密码 admin 登录
+    → 使用密码 mibeecam2026 登录
     → 配置页填写 WiFi 信息
     → 设备自动切换 STA 模式
     → LED 熄灭（正常运行，开始录像）

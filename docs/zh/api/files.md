@@ -98,7 +98,7 @@ data.files.forEach(f => {
 **cURL 示例**：
 ```bash
 curl -X DELETE "http://192.168.4.1/api/files?name=20260424_120000.avi" \
-  -H "X-Password: admin"
+  -H "X-Password: mibeecam2026"
 ```
 
 **JavaScript 示例**：
@@ -108,7 +108,7 @@ async function deleteFile(filename) {
     `/api/files?name=${encodeURIComponent(filename)}`,
     {
       method: 'DELETE',
-      headers: { 'X-Password': 'admin' }
+      headers: { 'X-Password': 'mibeecam2026' }
     }
   );
   return await resp.json();
