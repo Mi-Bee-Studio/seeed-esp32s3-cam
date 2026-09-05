@@ -318,7 +318,7 @@ static esp_err_t api_capabilities_handler(httpd_req_t *req)
     cJSON *data = cJSON_CreateObject();
 
     /* 契约 v1.1：12 个布尔能力位 + api_version/wifi_scan（见 docs/api-contract.md） */
-    cJSON_AddStringToObject(data, "api_version", "1.2");
+    cJSON_AddStringToObject(data, "api_version", "1.3");
     cJSON_AddBoolToObject(data, "wifi_scan", true);
     cJSON_AddBoolToObject(data, "ai", false);           /* On-device AI detection */
     cJSON_AddBoolToObject(data, "sd", storage_is_available());  /* SD card storage */
@@ -1881,6 +1881,29 @@ static esp_err_t api_auth_handler(httpd_req_t *req)
     return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
 }
 
+/* ------------------------------------------------------------------ */
+/*  GET /api/storage — SD 存储详情（契约 v1.3 收编，字段对齐 ai-thinker） */
+/* ------------------------------------------------------------------ */
+
+static esp_err_t api_storage_handler(httpd_req_t *req)
+{
+    cJSON *data = cJSON_CreateObject();
+
+    storage_info_t info;
+    if (storage_get_info(&info) == ESP_OK && storage_is_available()) {
+        double total_mb = (double)info.total_bytes / (1024.0 * 1024.0);
+        double free_mb  = (double)info.free_bytes  / (1024.0 * 1024.0);
+        cJSON_AddNumberToObject(data, "total_mb", total_mb);
+        cJSON_AddNumberToObject(data, "free_mb", free_mb);
+        cJSON_AddNumberToObject(data, "usage_pct",
+                                total_mb > 0 ? (total_mb - free_mb) * 100.0 / total_mb : 0.0);
+    }
+    cJSON_AddNumberToObject(data, "mounted", storage_is_available() ? 1 : 0);
+    /* photo_count 为 ai-thinker 板级扩展字段，本板不适用即省略（契约 §4 规则） */
+
+    return json_ok(req, data);
+}
+
 
 typedef struct {
     const char  *uri;
@@ -1907,6 +1930,7 @@ static const uri_entry_t s_uris[] = {
     { "/api/record",   HTTP_POST,   api_record_handler        },
     { "/api/record",   HTTP_GET,    api_record_get_handler    },
     { "/api/reset",    HTTP_POST,   api_reset_handler         },
+    { "/api/storage",  HTTP_GET,    api_storage_handler       },
     { "/api/format",   HTTP_POST,   api_format_handler        },
     { "/api/ota",     HTTP_POST,   api_ota_handler           },
     { "/api/ota/info",   HTTP_GET,   api_ota_info_handler    },
