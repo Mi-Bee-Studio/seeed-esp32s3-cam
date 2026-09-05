@@ -8,7 +8,7 @@
 
 ```javascript
 class MiBee Cam API {
-  constructor(baseURL = '', password = 'admin') {
+  constructor(baseURL = '', password = 'mibeecam2026') {
     this.base = baseURL;
     this.password = password;
   }
@@ -157,13 +157,13 @@ curl http://192.168.4.1/api/config
 # 修改设备名称
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: admin" \
+  -H "X-Password: mibeecam2026" \
   -d '{"device_name": "KitchenCam"}'
 
 # 配置 WiFi 连接（重启后生效）
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: admin" \
+  -H "X-Password: mibeecam2026" \
   -d '{"wifi_ssid": "HomeWiFi", "wifi_pass": "wifipassword"}'
 ```
 
@@ -172,11 +172,11 @@ curl -X POST http://192.168.4.1/api/config \
 ```bash
 # 开始录像
 curl -X POST "http://192.168.4.1/api/record?action=start" \
-  -H "X-Password: admin"
+  -H "X-Password: mibeecam2026"
 
 # 停止录像
 curl -X POST "http://192.168.4.1/api/record?action=stop" \
-  -H "X-Password: admin"
+  -H "X-Password: mibeecam2026"
 ```
 
 ### 文件管理
@@ -190,7 +190,7 @@ curl -o recording.avi "http://192.168.4.1/api/download?name=20260424_120000.avi"
 
 # 删除指定文件
 curl -X DELETE "http://192.168.4.1/api/files?name=20260424_120000.avi" \
-  -H "X-Password: admin"
+  -H "X-Password: mibeecam2026"
 ```
 
 ### 网络与时间
@@ -202,7 +202,7 @@ curl http://192.168.4.1/api/scan
 # 手动设置时间
 curl -X POST http://192.168.4.1/api/time \
   -H "Content-Type: application/json" \
-  -H "X-Password: admin" \
+  -H "X-Password: mibeecam2026" \
   -d '{"year": 2026, "month": 4, "day": 24, "hour": 14, "min": 30, "sec": 0}'
 ```
 
@@ -212,7 +212,7 @@ curl -X POST http://192.168.4.1/api/time \
 # 配置上传方式为 WebDAV
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: admin" \
+  -H "X-Password: mibeecam2026" \
   -d '{
     "upload_method": 1,
     "webdav_url": "https://dav.example.com/MiBee Cam",
@@ -224,7 +224,7 @@ curl -X POST http://192.168.4.1/api/config \
 # 配置上传方式为 HTTP(S)
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: admin" \
+  -H "X-Password: mibeecam2026" \
   -d '{
     "upload_method": 2,
     "http_upload_url": "https://upload.example.com/api/cam",
@@ -239,13 +239,13 @@ curl -X POST http://192.168.4.1/api/config \
 # 设置为 XGA 分辨率、15 FPS
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: admin" \
+  -H "X-Password: mibeecam2026" \
   -d '{"resolution": 2, "fps": 15}'
 
 # 设置高质量 JPEG（数值越小质量越高）
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: admin" \
+  -H "X-Password: mibeecam2026" \
   -d '{"jpeg_quality": 6}'
 ```
 
@@ -253,5 +253,5 @@ curl -X POST http://192.168.4.1/api/config \
 
 ```bash
 curl -X POST http://192.168.4.1/api/reset \
-  -H "X-Password: admin"
+  -H "X-Password: mibeecam2026"
 ```

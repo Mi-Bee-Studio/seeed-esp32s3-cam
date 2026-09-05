@@ -222,19 +222,19 @@ The four password fields (`wifi_pass`, `webdav_pass`, `http_upload_pass`, `web_p
 # Modify WiFi configuration
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: admin" \
+  -H "X-Password: mibeecam2026" \
   -d '{"wifi_ssid": "HomeWiFi", "wifi_pass": "mypassword"}'
 
 # Only modify resolution and frame rate
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: admin" \
+  -H "X-Password: mibeecam2026" \
   -d '{"resolution": 2, "fps": 15}'
 
 # Keep original password unchanged (pass ****)
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: admin" \
+  -H "X-Password: mibeecam2026" \
   -d '{"wifi_ssid": "NewNet", "wifi_pass": "****", "web_password": "****"}'
 ```
 
@@ -246,7 +246,7 @@ async function switchToHttp() {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Password': 'admin'
+      'X-Password': 'mibeecam2026'
     },
     body: JSON.stringify({
       upload_method: 2,
@@ -291,7 +291,7 @@ All four password fields (`wifi_pass`, `webdav_pass`, `http_upload_pass`, `web_p
 // Echoing back "****" keeps password unchanged
 await fetch('/api/config', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json', 'X-Password': 'admin' },
+  headers: { 'Content-Type': 'application/json', 'X-Password': 'mibeecam2026' },
   body: JSON.stringify({
     device_name: 'NewName',
     wifi_pass: '****',
@@ -305,7 +305,7 @@ await fetch('/api/config', {
 // When password fields are not included, passwords are not modified
 await fetch('/api/config', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json', 'X-Password': 'admin' },
+  headers: { 'Content-Type': 'application/json', 'X-Password': 'mibeecam2026' },
   body: JSON.stringify({ fps: 15, resolution: 2 })
 });
 ```
@@ -314,7 +314,7 @@ await fetch('/api/config', {
 ```javascript
 await fetch('/api/config', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json', 'X-Password': 'admin' },
+  headers: { 'Content-Type': 'application/json', 'X-Password': 'mibeecam2026' },
   body: JSON.stringify({ web_password: 'newpassword' })
 });
 // Subsequent requests must use new password

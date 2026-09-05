@@ -21,10 +21,10 @@
 
 | 方式 | 格式 | 示例 |
 |------|------|------|
-| 请求头 | `X-Password: <密码>` | `X-Password: admin` |
-| 查询参数 | `?password=<密码>` | `?password=admin` |
+| 请求头 | `X-Password: <密码>` | `X-Password: mibeecam2026` |
+| 查询参数 | `?password=<密码>` | `?password=mibeecam2026` |
 
-- **默认密码**：`admin`（可通过 `POST /api/config` 修改 `web_password` 字段）
+- **默认密码**：`mibeecam2026`（可通过 `POST /api/config` 修改 `web_password` 字段）
 - 认证逻辑优先检查 `X-Password` 请求头，其次检查 `password` 查询参数
 - 认证失败返回 `401 Unauthorized`，响应体：`{"ok": false, "error": "Unauthorized"}`
 

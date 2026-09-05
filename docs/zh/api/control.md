@@ -69,11 +69,11 @@
 ```bash
 # 开始录像
 curl -X POST "http://192.168.4.1/api/record?action=start" \
-  -H "X-Password: admin"
+  -H "X-Password: mibeecam2026"
 
 # 停止录像
 curl -X POST "http://192.168.4.1/api/record?action=stop" \
-  -H "X-Password: admin"
+  -H "X-Password: mibeecam2026"
 ```
 
 **JavaScript 示例**：
@@ -82,7 +82,7 @@ async function toggleRecording(start) {
   const action = start ? 'start' : 'stop';
   const resp = await fetch(`/api/record?action=${action}`, {
     method: 'POST',
-    headers: { 'X-Password': 'admin' }
+    headers: { 'X-Password': 'mibeecam2026' }
   });
   const { data } = await resp.json();
   console.log(`操作: ${data.action}, 状态: ${data.status}`);
@@ -146,7 +146,7 @@ async function toggleRecording(start) {
 ```bash
 curl -X POST http://192.168.4.1/api/time \
   -H "Content-Type: application/json" \
-  -H "X-Password: admin" \
+  -H "X-Password: mibeecam2026" \
   -d '{"year": 2026, "month": 4, "day": 24, "hour": 14, "min": 30, "sec": 0}'
 ```
 
@@ -157,7 +157,7 @@ async function setDeviceTime(date) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Password': 'admin'
+      'X-Password': 'mibeecam2026'
     },
     body: JSON.stringify({
       year: date.getFullYear(),
@@ -198,7 +198,7 @@ setDeviceTime(new Date());
 ```
 
 > **注意**：设备在发送此响应后立即执行重启。客户端收到此响应后应预期连接断开。
-> 重启后设备将使用默认配置启动（默认进入 AP 模式，密码恢复为 `admin`）。
+> 重启后设备将使用默认配置启动（默认进入 AP 模式，密码恢复为 `mibeecam2026`）。
 
 **出厂默认值**：
 
@@ -207,7 +207,7 @@ setDeviceTime(new Date());
 | wifi_ssid | `""` (AP 模式) |
 | wifi_pass | `""` |
 | device_name | `"MiBee Cam"` |
-| web_password | `"admin"` |
+| web_password | `"mibeecam2026"` |
 | resolution | `1` (SVGA) |
 | fps | `10` |
 | segment_sec | `300` |
@@ -224,7 +224,7 @@ setDeviceTime(new Date());
 **cURL 示例**：
 ```bash
 curl -X POST http://192.168.4.1/api/reset \
-  -H "X-Password: admin"
+  -H "X-Password: mibeecam2026"
 ```
 
 **JavaScript 示例**：
@@ -233,7 +233,7 @@ async function factoryReset() {
   if (!confirm('确定要恢复出厂设置吗？设备将重启。')) return;
   const resp = await fetch('/api/reset', {
     method: 'POST',
-    headers: { 'X-Password': 'admin' }
+    headers: { 'X-Password': 'mibeecam2026' }
   });
   const result = await resp.json();
   if (result.ok) {

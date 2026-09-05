@@ -123,7 +123,7 @@ idf.py -p COM3 flash monitor
 | GET | `/api/audio` | 否 | HTTP 分块 G.711 音频流（网页预览） |
 | RTSP | `rtsp://<IP>:554/stream` | 摘要认证 | MJPEG+G.711 双轨道流，供 NVR 使用 |
 
-默认密码：`admin` 👉 [完整 API 文档](docs/zh/api/overview.md)
+默认密码：`mibeecam2026` 👉 [完整 API 文档](docs/zh/api/overview.md)
 
 ---
 
