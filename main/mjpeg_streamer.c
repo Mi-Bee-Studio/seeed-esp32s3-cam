@@ -222,7 +222,7 @@ static void mjpeg_client_task(void *arg)
 
     while (1) {
         TickType_t cycle_start = xTaskGetTickCount();
-        fps = config_get()->fps;
+        fps = config_get()->cam_fps;
         TickType_t target_ticks = (fps > 0) ? pdMS_TO_TICKS(1000 / fps) : pdMS_TO_TICKS(100);
 
 

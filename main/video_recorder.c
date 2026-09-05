@@ -112,22 +112,21 @@ typedef struct {
 static QueueHandle_t s_write_q = NULL;
 static TaskHandle_t s_writer_handle = NULL;
 
-/* Resolution → pixel dimensions */
+/* Resolution → pixel dimensions（家族刻度 framesize_t：10=VGA … 15=UXGA，
+ * 契约 v1.3 §5；与 camera_driver.c res_to_framesize 恒等映射同源） */
 /**
  * @brief 根据分辨率编号获取对应的像素宽度和高度
  */
 static void resolution_dims(uint8_t res, uint16_t *w, uint16_t *h)
 {
     switch (res) {
-        case 0:  *w = 640;  *h = 480;  break;   /* VGA  */
-        case 1:  *w = 800;  *h = 600;  break;   /* SVGA */
-        case 2:  *w = 1024; *h = 768;  break;   /* XGA  */
-        case 3:  *w = 1280; *h = 720;  break;   /* HD   */
-        case 4:  *w = 1280; *h = 1024; break;   /* SXGA */
-        case 5:  *w = 1600; *h = 1200; break;   /* UXGA */
-        case 6:  *w = 1920; *h = 1080; break;   /* FHD  */
-        case 7:  *w = 2048; *h = 1536; break;   /* QXGA */
-        default: *w = 800;  *h = 600;  break;
+        case 10:  *w = 640;  *h = 480;  break;   /* VGA  */
+        case 11:  *w = 800;  *h = 600;  break;   /* SVGA */
+        case 12:  *w = 1024; *h = 768;  break;   /* XGA  */
+        case 13:  *w = 1280; *h = 720;  break;   /* HD   */
+        case 14:  *w = 1280; *h = 1024; break;   /* SXGA */
+        case 15:  *w = 1600; *h = 1200; break;   /* UXGA */
+        default:  *w = 800;  *h = 600;  break;   /* SVGA（本板默认档） */
     }
 }
 
@@ -785,11 +784,21 @@ static void recording_task(void *arg)
     cam_config_t *cfg = config_get();
     uint16_t w, h;
     resolution_dims(cfg->cam_framesize, &w, &h);
-uint8_t fps = cfg->fps > 0 ? cfg->fps : 10;
-uint8_t tl_mode = cfg->timelapse_mode;
-bool timelapse = tl_mode > 0;
-uint8_t playback_fps = timelapse ? 15 : fps;
-const char *prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
+    uint8_t fps = cfg->cam_fps > 0 ? cfg->cam_fps : 10;
+    /* 家族延时动态模型（契约 §3.2）：timelapse_enabled 总开关 +
+     * timelapse_mode 0=静态（固定 interval_s）/ 1=动态（min/max/decay 衰减） */
+    uint8_t tl_mode = cfg->timelapse_mode;
+    bool timelapse = cfg->timelapse_enabled;
+    bool tl_dynamic = timelapse && tl_mode == 1;
+    uint8_t playback_fps = timelapse ? 15 : fps;
+    const char *prefix = tl_dynamic ? "DTL_" : timelapse ? "TLM_" : "REC_";
+
+    /* 动态延时衰减状态（镜像 ai-thinker timelapse.c 的 s_current_interval_s
+     * 逻辑：有运动 = min；每 decay_period_s 无运动 ×decay_factor，封顶 max）。
+     * 运动信号 = motion_detector_is_active()（Core 1 异步任务滞回判定，
+     * 最多滞后一个分析周期）——最小侵入钩子，无新增任务间耦合。 */
+    uint16_t cur_interval_s = cfg->timelapse_min_interval_s ? cfg->timelapse_min_interval_s : 1;
+    int64_t last_motion_us = esp_timer_get_time();
 
     bool segment_open = false;
     uint32_t total_bytes = 0;
@@ -797,8 +806,8 @@ const char *prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
     /* Register with task watchdog */
     esp_task_wdt_add(NULL);
 
-    ESP_LOGI(TAG, "Recording task started: mode=%d %ux%u @ %u fps, segment=%u s",
-    tl_mode, w, h, playback_fps, cfg->segment_sec);
+    ESP_LOGI(TAG, "Recording task started: tl_en=%u mode=%u %ux%u @ %u fps, segment=%u s",
+             timelapse, tl_mode, w, h, playback_fps, cfg->segment_sec);
 
     while (s_state == RECORDER_RECORDING || s_state == RECORDER_PAUSED ||
            s_state == RECORDER_PREVIEW) {
@@ -815,11 +824,45 @@ const char *prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
 
         /* Re-read config in case it changed */
         cfg = config_get();
-fps = cfg->fps > 0 ? cfg->fps : 10;
-tl_mode = cfg->timelapse_mode;
-timelapse = tl_mode > 0;
-playback_fps = timelapse ? 15 : fps;
-prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
+        fps = cfg->cam_fps > 0 ? cfg->cam_fps : 10;
+        tl_mode = cfg->timelapse_mode;
+        timelapse = cfg->timelapse_enabled;
+        tl_dynamic = timelapse && tl_mode == 1;
+        playback_fps = timelapse ? 15 : fps;
+        prefix = tl_dynamic ? "DTL_" : timelapse ? "TLM_" : "REC_";
+
+        /* 本周期延时摄影拍摄间隔（ms）。预览态不间隔（实时出帧）。 */
+        int tl_delay_ms = 0;
+        if (timelapse && !preview_active) {
+            if (tl_dynamic) {
+                if (motion_detector_is_active()) {
+                    if (cur_interval_s != cfg->timelapse_min_interval_s) {
+                        ESP_LOGI(TAG, "Motion active, tl interval reset to %us",
+                                 cfg->timelapse_min_interval_s);
+                    }
+                    cur_interval_s = cfg->timelapse_min_interval_s;
+                    last_motion_us = esp_timer_get_time();
+                } else {
+                    int64_t elapsed_s = (esp_timer_get_time() - last_motion_us) / 1000000;
+                    if (elapsed_s >= (int64_t)cfg->timelapse_decay_period_s) {
+                        uint16_t next = (uint16_t)(cur_interval_s * cfg->timelapse_decay_factor);
+                        if (next > cfg->timelapse_max_interval_s || next < cur_interval_s) {
+                            next = cfg->timelapse_max_interval_s;
+                        }
+                        if (next != cur_interval_s) {
+                            ESP_LOGI(TAG, "No motion for %llds, tl interval decayed %us->%us",
+                                     (long long)elapsed_s, cur_interval_s, next);
+                        }
+                        cur_interval_s = next;
+                        last_motion_us = esp_timer_get_time();
+                    }
+                }
+                tl_delay_ms = (cur_interval_s > 0 ? cur_interval_s : 1) * 1000;
+            } else {
+                tl_delay_ms = (cfg->timelapse_interval_s > 0)
+                              ? cfg->timelapse_interval_s * 1000 : 30000;
+            }
+        }
 
         bool write_to_sd = cfg->video_record_to_sd && storage_is_available()
                            && !preview_active;
@@ -902,16 +945,6 @@ prefix = tl_mode == 2 ? "DTL_" : timelapse ? "TLM_" : "REC_";
             fbroadcast_publish(jpeg_data, jpeg_data_len);
         }
 
-/* Dynamic timelapse: read the interval computed asynchronously by the
- * motion detector task (FRAMESUB_MOTION subscriber on Core 1). This avoids
- * blocking the recorder's capture loop on JPEG decode + scoring. The result
- * is from the most recent motion cycle, so it lags by at most one frame. */
-uint16_t dynamic_interval_sec = cfg->timelapse_interval_sec;
-if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
-    uint16_t md_interval = motion_detector_get_dynamic_interval();
-    dynamic_interval_sec = (md_interval > 0) ? md_interval : cfg->motion_idle_interval_sec;
-}
-
         /* Smart frame dropping: skip write if cycle exceeds threshold.
          * Motion detection now uses JPEG_IMAGE_SCALE_4X (~30ms instead of ~500ms),
          * so dynamic timelapse no longer needs a relaxed threshold — unified at 500ms. */
@@ -936,7 +969,7 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
             }
             {
                 int drop_delay_ms = preview_active ? broker_frame_delay() :
-                    (tl_mode == 2 ? dynamic_interval_sec * 1000 : broker_frame_delay());
+                    (tl_delay_ms > 0 ? tl_delay_ms : broker_frame_delay());
                 while (drop_delay_ms > 0 && (s_state == RECORDER_RECORDING ||
                                              s_state == RECORDER_PREVIEW)) {
                     int chunk_ms = (drop_delay_ms > 5000) ? 5000 : drop_delay_ms;
@@ -1086,10 +1119,8 @@ if (tl_mode == 2 && s_state == RECORDER_RECORDING) {
             if (preview_active) {
                 /* 预览按正常帧率出帧（延时摄影间隔对实时预览无意义） */
                 delay_ms = broker_frame_delay();
-            } else if (tl_mode == 2) {
-                delay_ms = dynamic_interval_sec * 1000;
             } else if (timelapse) {
-                delay_ms = (cfg->timelapse_interval_sec > 0) ? cfg->timelapse_interval_sec * 1000 : 30000;
+                delay_ms = (tl_delay_ms > 0) ? tl_delay_ms : 1000;
             } else {
                 delay_ms = broker_frame_delay();
             }
@@ -1199,11 +1230,12 @@ esp_err_t recorder_start(void)
 }
 
 /* 创建采集/写盘任务（调用方持有 s_mutex，s_state 已置为目标态）。
- * 动态延时的运动检测任务在此一并启动（延时模式才需要）。 */
+ * 动态延时模式一并启动运动检测任务（家族动态模型的运动信号源）。 */
 static esp_err_t spawn_capture_tasks_locked(void)
 {
-/* Initialize motion detector if dynamic timelapse mode */
-if (config_get()->timelapse_mode == 2) {
+/* Initialize motion detector if dynamic timelapse mode（契约 §3.2：
+ * enabled + mode=1 时需要 motion_detector_is_active() 供衰减逻辑取信号） */
+if (config_get()->timelapse_enabled && config_get()->timelapse_mode == 1) {
     motion_detector_init();
     /* Start async motion detection task on Core 1. Subscribes to the frame
      * broadcaster and runs JPEG decode + scoring off the recorder's hot path.

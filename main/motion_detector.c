@@ -48,10 +48,9 @@ static SemaphoreHandle_t s_mutex = NULL;
 
 /* Async task state — motion detection runs on its own task (Core 1),
  * decoupled from the recorder's hot path. The recorder reads the latest
- * computed dynamic interval via motion_detector_get_dynamic_interval(). */
+ * motion state via motion_detector_is_active()（家族延时动态模型信号源）. */
 static TaskHandle_t   s_task_handle = NULL;
 static frame_sub_t   *s_sub         = NULL;
-static uint16_t       s_dynamic_interval_sec = 0;  /* guarded by s_mutex */
 
 /* Throttle motion state change logs to once per 5 seconds */
 static TickType_t s_last_log_tick = 0;
@@ -179,7 +178,6 @@ esp_err_t motion_detector_init(void)
 esp_err_t motion_detector_process(
     const uint8_t *jpeg_data, size_t jpeg_len,
     uint8_t sensitivity,
-    uint8_t active_interval_sec, uint8_t idle_interval_sec,
     motion_result_t *result)
 {
     if (jpeg_data == NULL || jpeg_len == 0 || result == NULL) {
@@ -208,10 +206,9 @@ esp_err_t motion_detector_process(
     /* First, get image info to allocate decode buffer */
     esp_err_t err = esp_jpeg_get_image_info(&jpeg_cfg, &outimg);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "JPEG get info failed, using idle interval");
-        result->motion_detected = false;
+        ESP_LOGW(TAG, "JPEG get info failed");
+        result->motion_detected = s_motion_active;
         result->motion_score = 0;
-        result->current_interval_sec = idle_interval_sec;
         return ESP_FAIL;
     }
 
@@ -225,10 +222,9 @@ esp_err_t motion_detector_process(
         /* Resolution higher than FHD — fall back to dynamic alloc */
         decode_buf = (uint8_t *)heap_caps_malloc(decode_buf_size, MALLOC_CAP_SPIRAM);
         if (decode_buf == NULL) {
-            ESP_LOGW(TAG, "Failed to allocate decode buffer (%zu bytes), using idle interval", decode_buf_size);
-            result->motion_detected = false;
+            ESP_LOGW(TAG, "Failed to allocate decode buffer (%zu bytes)", decode_buf_size);
+            result->motion_detected = s_motion_active;
             result->motion_score = 0;
-            result->current_interval_sec = idle_interval_sec;
             return ESP_FAIL;
         }
     }
@@ -238,11 +234,10 @@ esp_err_t motion_detector_process(
 
     err = esp_jpeg_decode(&jpeg_cfg, &outimg);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "JPEG decode failed, using idle interval");
+        ESP_LOGW(TAG, "JPEG decode failed");
         if (!using_pool) { heap_caps_free(decode_buf); }
-        result->motion_detected = false;
+        result->motion_detected = s_motion_active;
         result->motion_score = 0;
-        result->current_interval_sec = idle_interval_sec;
         return ESP_FAIL;
     }
 
@@ -278,8 +273,10 @@ esp_err_t motion_detector_process(
             ESP_LOGI(TAG, "Motion %s (score=%d)", motion_now ? "detected" : "cleared", score);
             s_last_log_tick = now;
         }
-        /* WS 事件推送（契约 v1.0: motion_started / motion_cleared） */
-        {
+        /* WS 事件推送（契约 v1.0: motion_started / motion_cleared）。
+         * 契约 §3.2 触发路径门控：motion_enabled=0 时检测照跑（动态延时
+         * 仍需运动信号），但不产生对外触发事件。 */
+        if (config_get()->motion_enabled) {
             char ws_data[32];
             snprintf(ws_data, sizeof(ws_data), "{\"score\":%u}", (unsigned)score);
             ws_broadcast(motion_now ? "motion_started" : "motion_cleared", ws_data);
@@ -290,7 +287,6 @@ esp_err_t motion_detector_process(
 
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     s_last_score = score;
-    s_dynamic_interval_sec = s_motion_active ? active_interval_sec : idle_interval_sec;
     xSemaphoreGive(s_mutex);
 
     /* Swap buffers: current becomes previous */
@@ -298,7 +294,6 @@ esp_err_t motion_detector_process(
 
     result->motion_detected = s_motion_active;
     result->motion_score = score;
-    result->current_interval_sec = s_motion_active ? active_interval_sec : idle_interval_sec;
 
     return ESP_OK;
 }
@@ -314,15 +309,10 @@ uint8_t motion_detector_get_score(void)
     return score;
 }
 
-uint16_t motion_detector_get_dynamic_interval(void)
+bool motion_detector_is_active(void)
 {
-    uint16_t interval = 0;
-    if (s_mutex != NULL) {
-        xSemaphoreTake(s_mutex, portMAX_DELAY);
-        interval = s_dynamic_interval_sec;
-        xSemaphoreGive(s_mutex);
-    }
-    return interval;
+    /* s_motion_active 只在本模块内单写（process 滞回判定），volatile 读足够 */
+    return s_motion_active;
 }
 
 /* ---- Async task ------------------------------------------------------- */
@@ -354,11 +344,9 @@ static void motion_task(void *arg)
         (void)motion_detector_process(
             msg.fb->data, msg.fb->len,
             cfg->motion_sensitivity,
-            cfg->motion_active_interval_sec,
-            cfg->motion_idle_interval_sec,
             &mr);
-        /* mr.current_interval_sec is also stored into s_dynamic_interval_sec
-         * inside process() under s_mutex — the recorder reads it from there. */
+        /* 运动状态（s_motion_active）供 recorder 的动态延时分支经
+         * motion_detector_is_active() 读取。 */
 
         fbroadcast_release(&msg);
     }
@@ -419,12 +407,8 @@ void motion_detector_stop(void)
         s_sub = NULL;
     }
 
-    /* Clear the dynamic interval so recorder falls back to its default. */
-    if (s_mutex != NULL) {
-        xSemaphoreTake(s_mutex, portMAX_DELAY);
-        s_dynamic_interval_sec = 0;
-        xSemaphoreGive(s_mutex);
-    }
+    /* 复位运动状态，recorder 动态延时分支回到无信号默认。 */
+    s_motion_active = false;
 }
 
 void motion_detector_deinit(void)
@@ -448,7 +432,6 @@ void motion_detector_deinit(void)
 
     s_motion_active = false;
     s_last_score = 0;
-    s_dynamic_interval_sec = 0;
     s_initialized = false;
     s_last_log_tick = 0;
 }

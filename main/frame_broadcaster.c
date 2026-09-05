@@ -299,11 +299,11 @@ bool fbroadcast_get_latest(frame_msg_t *msg)
 
 /* 推荐的帧间延迟（毫秒）
  * 无 MJPEG 客户端时降到 2fps 节省 CPU/PSRAM/传感器功耗
- * 有客户端时用配置的 fps
+ * 有客户端时用配置的帧率
  */
 int broker_frame_delay(void)
 {
-    uint8_t fps = config_get()->fps;
+    uint8_t fps = config_get()->cam_fps;
     if (fps == 0) fps = 15;
 
     /* Idle 模式：无 MJPEG 客户端时降到 2fps */

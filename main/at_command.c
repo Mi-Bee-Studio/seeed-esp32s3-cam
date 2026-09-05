@@ -156,16 +156,19 @@ static void cmd_camres(const char *p)
     cam_config_t *cfg = config_get();
     camera_res_t eff_max = camera_get_effective_max_res();
     if (!p || p[0] == '?' || p[0] == '\0') {
-        at_out("Resolution: %s  supported: 0-%d (cap: %s, source: %s)\r\n",
-               camera_res_to_str(camera_get_resolution()), (int)eff_max,
+        at_out("Resolution: %s  supported: %d-%d (cap: %s, source: %s)\r\n",
+               camera_res_to_str(camera_get_resolution()),
+               (int)CAMERA_RES_VGA, (int)eff_max,
                camera_res_to_str(eff_max), camera_res_cap_source());
         AT_OK();
         return;
     }
     int n = atoi(p);
-    if (n < 0 || n > (int)eff_max) {
-        at_out("ERROR: resolution must be 0-%d (cap: %s, source: %s)\r\n",
-               (int)eff_max, camera_res_to_str(eff_max), camera_res_cap_source());
+    /* 契约 v1.3 §5：家族刻度 framesize_t（10=VGA … 15=UXGA） */
+    if (n < (int)CAMERA_RES_VGA || n > (int)eff_max) {
+        at_out("ERROR: resolution must be %d-%d (cap: %s, source: %s)\r\n",
+               (int)CAMERA_RES_VGA, (int)eff_max,
+               camera_res_to_str(eff_max), camera_res_cap_source());
         return;
     }
     if (n == (int)cfg->cam_framesize) {

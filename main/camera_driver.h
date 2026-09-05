@@ -33,24 +33,22 @@ typedef enum {
     CAMERA_SENSOR_OV5640,
 } camera_sensor_t;
 
-/** Resolution options */
+/** Resolution options — 家族统一刻度 = esp32-camera framesize_t（契约 v1.3 §5：
+ *  VGA=10, SVGA=11, XGA=12, HD=13, SXGA=14, UXGA=15）。本仓旧刻度 0-5 由
+ *  config_manager 迁移函数翻译（0→10 … 5→15）。 */
 typedef enum {
     /** VGA 分辨率 (640x480) */
-    CAMERA_RES_VGA  = 0,   /* 640x480  */
+    CAMERA_RES_VGA  = 10,  /* FRAMESIZE_VGA   640x480  */
     /** SVGA 分辨率 (800x600) */
-    CAMERA_RES_SVGA = 1,   /* 800x600  */
+    CAMERA_RES_SVGA = 11,  /* FRAMESIZE_SVGA  800x600  */
     /** XGA 分辨率 (1024x768) */
-    CAMERA_RES_XGA  = 2,   /* 1024x768  */
+    CAMERA_RES_XGA  = 12,  /* FRAMESIZE_XGA   1024x768 */
     /** HD 分辨率 (1280x720) */
-    CAMERA_RES_HD   = 3,   /* 1280x720  */
+    CAMERA_RES_HD   = 13,  /* FRAMESIZE_HD    1280x720  */
     /** SXGA 分辨率 (1280x1024) */
-    CAMERA_RES_SXGA = 4,   /* 1280x1024 */
+    CAMERA_RES_SXGA = 14,  /* FRAMESIZE_SXGA  1280x1024 */
     /** UXGA 分辨率 (1600x1200) */
-    CAMERA_RES_UXGA = 5,   /* 1600x1200 */
-    /** FHD 分辨率 (1920x1080) */
-    CAMERA_RES_FHD  = 6,   /* 1920x1080 */
-    /** QXGA 分辨率 (2048x1536) */
-    CAMERA_RES_QXGA = 7,   /* 2048x1536 */
+    CAMERA_RES_UXGA = 15,  /* FRAMESIZE_UXGA  1600x1200 */
 } camera_res_t;
 
 /* ── 分辨率三层上限（2026-09-04 家族统一，PIT-021 附录）──────────────

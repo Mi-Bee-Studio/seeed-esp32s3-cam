@@ -515,21 +515,12 @@ void app_main(void)
     /* ---- 5. Camera (GPIO10 as XCLK) --------------------------------- */
     /* 第5步：初始化摄像头（必须在SD卡之前，避免GDMA通道冲突） */
     {
-        camera_res_t res = CAMERA_RES_VGA; /* Force VGA for initial bring-up */
+        /* 家族刻度（契约 v1.3 §5）：cam_framesize 值即 camera_res_t 枚举
+         * （10=VGA … 15=UXGA），恒等传递；越界由 camera_init 内部钳制。 */
+        camera_res_t res = (camera_res_t)cfg->cam_framesize;
         uint8_t quality = cfg->cam_quality;
         if (quality < 10) quality = 10; // Floor to prevent oversized frames
-        switch (cfg->cam_framesize) {
-            case 0:  res = CAMERA_RES_VGA;  break;
-            case 1:  res = CAMERA_RES_SVGA; break;
-        case 2:  res = CAMERA_RES_XGA;  break;
-        case 3:  res = CAMERA_RES_HD;   break;
-        case 4:  res = CAMERA_RES_SXGA; break;
-        case 5:  res = CAMERA_RES_UXGA; break;
-        case 6:  res = CAMERA_RES_FHD;  break;
-        case 7:  res = CAMERA_RES_QXGA; break;
-            default: res = CAMERA_RES_VGA; break;
-        }
-        esp_err_t cam_err = camera_init(res, cfg->fps, quality);
+        esp_err_t cam_err = camera_init(res, cfg->cam_fps, quality);
         if (cam_err == ESP_OK) {
             s_camera_ok = true;
         } else {
@@ -655,7 +646,14 @@ void app_main(void)
 
         if (wifi_get_state() == WIFI_STATE_STA_CONNECTED) {
             time_sync_init();   /* retry / ensure synced */
-            onvif_discovery_init();  /* start WS-Discovery after WiFi connected */
+            /* 契约核心字段 onvif_enable（默认 1=历史行为）：0 = 不启动
+             * WS-Discovery（SOAP 处理器注册在 web_server_start 内同受门控）。
+             * 变更经 POST /api/config 保存，重启生效。 */
+            if (config_get()->onvif_enable) {
+                onvif_discovery_init();  /* start WS-Discovery after WiFi connected */
+            } else {
+                ESP_LOGI(TAG, "ONVIF disabled in config (onvif_enable=0)");
+            }
             led_set_status(LED_RUNNING);
         }
     }
