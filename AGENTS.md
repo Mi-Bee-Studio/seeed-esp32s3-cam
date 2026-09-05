@@ -147,7 +147,7 @@ This board returns the following from `GET /api/capabilities`:
 | mic | ✅ |
 | flash_led | ❌ |
 | recording | ✅ |
-| timelapse | ❌ |
+| timelapse | ✅（录像 3 模式含 continuous/timelapse/dynamic，见 video_recorder.c） |
 | onvif | ✅ |
 | rtsp | ✅ |
 | websocket | ✅ |
