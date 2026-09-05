@@ -53,7 +53,7 @@
 | `POST /api/ai` + `GET /api/ai/status` | `{face,motion,qr}` 开关；检测结果 | — | ✅ | — | — |
 | `POST /api/record?action=start\|stop` + `GET /api/record` | 录像控制/状态 | ✅ | — | — | ✅(v1.1 补 GET) |
 | `/api/files` GET/DELETE(+`type=`) · `POST /api/files/batch` · `/api/download` · `POST /api/format` | SD 文件管理（v1.2 见 §11） | ✅ | — | — | ✅ |
-| `/api/ota/info` · `/api/ota/upload` · `/api/ota/spiffs` | OTA | ✅ | 分区已备、端点未实现（能力位=false） | — | ✅(+URL 触发) |
+| `/api/ota/info` · `/api/ota/upload` · `/api/ota/spiffs` | OTA | ✅ | ✅(v1.2 移植完成, ota=true) | — | ✅(+URL 触发) |
 | `GET /api/audio` | G.711 μ-law 裸流 8kHz | — | — | — | ✅ |
 | `GET /ws` | WebSocket 事件推送（见 §6） | — | — | ✅ | ✅ |
 | `/onvif/device_service` · `/onvif/media_service` | ONVIF SOAP | ✅ | ✅ | ✅ | ✅ |
@@ -171,7 +171,7 @@ q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-think
 - config 键：`wifi_ssid2/pass2` → `wifi_ssid_2/wifi_pass_2`、`onvif_enabled` → `onvif_enable`（luatos）。
 - WS 事件：`motion_detected/motion_end` → `motion_started/motion_cleared`（luatos）。
 - n16r8 `POST /api/camera` framesize 合法域 0-24 → 0-15（与广播列表一致）。
-- n16r8 RTSP 自 v1.0 起强制 digest 鉴权（rtsp_user/rtsp_pass，默认 admin/admin）。
+- n16r8 RTSP 自 v1.0 起强制 digest 鉴权（rtsp_user/rtsp_pass，默认 admin/mibeecam2026，2026-09-05 轮换）。
 
 ## 10. v1.1 变更清单（2026-09-02）
 

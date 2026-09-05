@@ -17,7 +17,7 @@ The device has a built-in HTTP server providing Web management interface and RES
 | AP Mode | `http://192.168.4.1` |
 | STA Mode | `http://<deviceIP>` |
 
-- AP Mode: Connect to WiFi hotspot `MiBee Cam-XXXX` (password `12345678`), then access `http://192.168.4.1`
+- AP Mode: Connect to WiFi hotspot `MiBee Cam-XXXX` (password `mibeecam2026`), then access `http://192.168.4.1`
 - STA Mode: After device connects to router, access via the IP assigned by router
 
 ### Login Password
@@ -207,7 +207,7 @@ ON 200ms → OFF 200ms → ON 200ms → OFF 1000ms → Loop
 Device automatically enters AP mode on first boot or when WiFi is not configured:
 
 - SSID: `MiBee Cam-XXXX` (XXXX is last 4 hex digits of MAC address)
-- Password: `12345678`
+- Password: `mibeecam2026`
 - IP Address: `192.168.4.1`
 - Encryption: WPA2-PSK
 - Max connections: 4

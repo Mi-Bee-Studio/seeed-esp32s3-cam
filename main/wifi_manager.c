@@ -335,7 +335,7 @@ esp_err_t wifi_start_ap(void)
 
     wifi_config_t ap_config = {0};
     get_ap_ssid((char *)ap_config.ap.ssid, sizeof(ap_config.ap.ssid));
-    strlcpy((char *)ap_config.ap.password, "12345678", sizeof(ap_config.ap.password));
+    strlcpy((char *)ap_config.ap.password, "mibeecam2026", sizeof(ap_config.ap.password));
     ap_config.ap.channel = 6;  // Avoid channel 1 on ESP32-S3 (known issue)
     ap_config.ap.max_connection = 4;
     ap_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
