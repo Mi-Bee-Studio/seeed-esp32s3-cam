@@ -65,7 +65,7 @@
 | 画质微调 | 板支持 | cam_brightness / cam_contrast / cam_saturation / cam_sharpness（i8 -2..2）、day_night_mode（u8 0-2） |
 | SD 运维 | sd | sd_log_enabled、cleanup_low_pct（1-99）、cleanup_high_pct（`cleanup_high`；5-80 且 ≥low+5；语义=空闲百分比，api-contract §11.6） |
 | 录像 | recording | record_mode、segment_sec（u16 5-3600）、frame_drop_enabled（`frame_drop_en`）、record_on_boot、video_record_to_sd（`video_to_sd`）、audio_record_to_sd（`audio_to_sd`，兼 audio 能力） |
-| 延时摄影 | timelapse | **家族标准 = 动态模型 8 字段**：timelapse_enabled（`timelapse_en`）、timelapse_interval_s（1-255）、timelapse_burst_count、timelapse_mode（u8 0=静态 1=动态）、timelapse_min_interval_s（`tl_min_int_s`）、timelapse_max_interval_s（`tl_max_int_s`）、timelapse_decay_factor、timelapse_decay_period_s（`tl_decay_p_s`） |
+| 延时摄影 | timelapse | **家族标准 = 动态模型 8 字段**：timelapse_enabled（`tl_en`）、timelapse_interval_s（1-255）、timelapse_burst_count、timelapse_mode（u8 0=静态 1=动态）、timelapse_min_interval_s（`tl_min_int_s`）、timelapse_max_interval_s（`tl_max_int_s`）、timelapse_decay_factor、timelapse_decay_period_s（`tl_decay_p_s`） |
 | 移动侦测 | 板支持 | **家族超集模型**：motion_enabled、motion_sensitivity（u8 0-100，越大越灵敏）、motion_cooldown_s（u16 1-300，两次触发最小间隔）、motion_active_interval_s（`motion_act_int_s`；u8 1-30，持续活动期再触发间隔） |
 | AI 管线 | ai | ai_face_en、ai_motion_en、ai_qr_en（u8 {0,1}） |
 | RTSP | rtsp | rtsp_user（str≤32，默认 `admin`）、rtsp_pass（str≤64） |
