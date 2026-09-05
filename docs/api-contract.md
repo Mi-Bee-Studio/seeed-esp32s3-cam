@@ -1,4 +1,4 @@
-# MiBee Cam 家族 API 契约 v1.2
+# MiBee Cam 家族 API 契约 v1.3
 
 > 适用四仓：`ai-thinker-esp32-cam` · `esp32s3-n16r8-cam` · `luatos-esp32s3-a10-camera` · `seeed-esp32s3-cam`
 >
@@ -8,6 +8,9 @@
 >
 > **v1.1 变更（2026-09-02）**：家族统一默认密码、密码修改入口、遗留差异收敛（见 §8/§9）。
 > **v1.2 变更（2026-09-03）**：SD 文件批量管理 + 安全格式化 + cleanup 语义统一（见 §11）。
+> **v1.3 变更（2026-09-05）**：分辨率刻度统一为 framesize_t、配置契约独立成文
+> （`docs/config-contract.md`）、能力值语义条款、OTA URL 触发补齐、`GET /api/storage`
+> 收编、`/api/ai/status` 桩移除（见 §12）。
 
 ## 1. 信封与鉴权（所有板一致）
 
@@ -46,6 +49,11 @@
 规则：`capabilities.X == true` ⇒ 对应端点必须存在且语义一致；`== false` ⇒ 端点不注册
 （404/405 可接受），**前端保证永不调用**。
 
+**能力值语义（v1.3 条款）**：布尔能力在单次运行的设备上必须**恒定**——只允许
+编译期常量或 Kconfig 条件（luatos 模式）；唯一例外是**硬件在场性**探测
+（如 seeed `sd` 随卡插拔）允许运行时探测。功能开关类能力（`ai`/`ota`/`recording`…）
+禁止运行时翻转。`api_version` 必须与本文档版本一致（禁止漂移）。
+
 | 端点 | 统一语义 | ai | n16r8 | luatos | seeed |
 |---|---|---|---|---|---|
 | `POST /api/led` `{"brightness":0-100}` | 亮度语义；简单 GPIO 板 0=灭/＞0=亮 | ✅(兼容 `?action=`) | ✅ | — | — |
@@ -53,7 +61,9 @@
 | `POST /api/ai` + `GET /api/ai/status` | `{face,motion,qr}` 开关；检测结果 | — | ✅ | — | — |
 | `POST /api/record?action=start\|stop` + `GET /api/record` | 录像控制/状态 | ✅ | — | — | ✅(v1.1 补 GET) |
 | `/api/files` GET/DELETE(+`type=`) · `POST /api/files/batch` · `/api/download` · `POST /api/format` | SD 文件管理（v1.2 见 §11） | ✅ | — | — | ✅ |
-| `/api/ota/info` · `/api/ota/upload` · `/api/ota/spiffs` | OTA | ✅ | ✅(v1.2 移植完成, ota=true) | — | ✅(+URL 触发) |
+| `/api/ota/info` · `/api/ota/upload` · `/api/ota/spiffs` | OTA | ✅ | ✅(v1.2 移植完成, ota=true) | — | ✅ |
+| `POST /api/ota {"url":...}` | OTA URL 触发下载（v1.3 起全部 OTA 板统一，ai-thinker 补齐） | ✅(v1.3 补) | ✅ | — | ✅ |
+| `GET /api/storage` | 存储详情（v1.3 收编；sd 能力板语义统一，seeed 补齐） | ✅ | — | — | ✅(v1.3 补) |
 | `GET /api/audio` | G.711 μ-law 裸流 8kHz | — | — | — | ✅ |
 | `GET /ws` | WebSocket 事件推送（见 §6） | — | — | ✅ | ✅ |
 | `/onvif/device_service` · `/onvif/media_service` | ONVIF SOAP | ✅ | ✅ | ✅ | ✅ |
@@ -99,7 +109,16 @@
   报告分辨率上限被哪一层钳制，诊断用）**，以及该板支持的传感器微调字段
   （`cam_brightness/contrast/saturation/sharpness`、`cam_hmirror`、`cam_vflip`、`day_night_mode`
   —— 不支持的省略）。
-- **`value` 数值刻度是板相关的**（ai 0-3 / seeed 0-5（上限 UXGA）/ n16r8 10-14（上限 SXGA，2026-09-05 复测）/ luatos 仅 0（上限 VGA））。
+- **`value` 数值刻度全家族统一为 esp32-camera 组件的 `framesize_t` 枚举值**（v1.3 起；
+  四仓组件 sensor.h md5 一致：QVGA=6, VGA=10, SVGA=11, XGA=12, HD=13, SXGA=14, UXGA=15）。
+  各板旧自有刻度在固件升级时由 NVS 迁移函数翻译：
+
+  | 板 | 旧刻度 → framesize_t |
+  |---|---|
+  | ai-thinker | 0=VGA→10, 1=SVGA→11, 2=XGA→12, 3=UXGA→15 |
+  | seeed | 0=VGA→10, 1=SVGA→11, 2=XGA→12, 3=HD→13, 4=SXGA→14, 5=UXGA→15 |
+  | luatos | 0=VGA→10, 1=SVGA→11, 2=XGA→12, 3=UXGA→15（板上限 VGA，>10 一律钳到 10） |
+  | n16r8 | 恒等（本就使用 framesize_t 原值） |
 - **上限是三层交集（2026-09-04 家族统一）**：`min(传感器上限, 板级实测上限, 运行时 fb 预算)`。
   传感器层查 esp32-camera 组件能力表（`camera_sensor_info_t.max_size`，按实戴型号自动检测）——
   换接传感器后 `supported_resolutions` 随之收缩/放宽；板级层是各板实测常数（§5.1 表，唯一手工数字）；
@@ -158,7 +177,7 @@ q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-think
 | ~~ai-thinker `/api/led?action=`~~ | **v1.1 已解决**：JSON body 为主语义，`?action=` 保留兼容 | — |
 | seeed `/api/record` 无 GET | 状态在 status.recording | 补 GET |
 | ~~n16r8 OTA 端点~~ | **v1.1 已解决**：ota_updater 移植完成，ota=true | — |
-| 配置内部存储 | blob+version(ai/luatos/seeed) vs 逐键(n16r8/seeed逐键) | HTTP 契约已统一；内部模型不强改 |
+| ~~配置内部存储~~ | **v1.3 已解决**：全家族统一逐键 NVS + 家族 schema，独立契约见 `docs/config-contract.md` v1.0 | — |
 | ai-thinker OTA 401 响应 | 直发等价 JSON 字节（未走 send_json_error） | 已合入 |
 | seeed 历史密码未知 | v1.1 一次性种子迁移（NVS 标记 `pw_seed_v1`）统一为默认密码 | 已合入 |
 
@@ -213,3 +232,25 @@ q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-think
    删到已用<30% 为止"，会清掉近半卡内容），V16 迁移重置为家族默认 20/30。
 7. SPA 存储页新增：类型筛选、分页（加载更多）、勾选批量删除、按类型清空、
    格式化（双重确认）；串流页新增 MJPEG/RTSP 地址只读展示。
+
+## 12. v1.3 变更清单（2026-09-05，刻度统一与配置契约独立）
+
+1. **`cam_framesize` 刻度统一**：value 全家族统一为 esp32-camera `framesize_t`
+   （§5 迁移表）。`supported_resolutions` / 三层上限 / `res_cap_source` / 前端
+   "禁止硬编码分辨率表" 规则不变，仅值域统一。存量设备由各仓 config 迁移函数
+   翻译 NVS 旧值。
+2. **配置契约独立成文**：`docs/config-contract.md` v1.0（持久化逐键 NVS、
+   字段总表、校验矩阵、默认值与板级覆盖、SD provisioning 格式、motion/timelapse
+   家族模型）。本文件 §8 "内部模型不强改" 条款废除。
+3. **能力值语义条款**（§3）：布尔能力恒定（编译期/Kconfig），仅硬件在场性
+   （seeed `sd`）允许运行时探测；`api_version` 禁止漂移（本次修正 n16r8/luatos
+   陈旧的 "1.1"）。
+4. **OTA URL 触发统一**：`POST /api/ota {"url":...}` 全部 OTA 板实现
+   （ai-thinker 补齐）。
+5. **`GET /api/storage` 收编**：sd 能力板统一端点（seeed 补齐；此前仅 ai-thinker
+   私有）。
+6. **`/api/ai/status` 桩移除**：SPA 轮询改为 `Caps.ai` 门控（v1.3），ai-thinker
+   桩端点删除，恢复 "false ⇒ 不注册" 红线。
+7. **ai-thinker 补 `POST /api/time`**（§2 核心端点违约修复）。
+8. AT 契约同步升 v1.1（`docs/at-command.md`）：共享核心纪律、WIFISCAN 四板
+   必备、`AT+RESET` 删除、GMR 真版本。
