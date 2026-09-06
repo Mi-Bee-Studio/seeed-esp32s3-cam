@@ -611,13 +611,34 @@ static void close_segment(void)
     put_u32(idx1_hdr + 4, idx1_data_size);
     fwrite(idx1_hdr, 1, 8, s_seg.fp);
 
-    for (int i = 0; i < s_seg.idx.count; i++) {
-        uint8_t entry[16];
-        memcpy(entry, &s_seg.idx.entries[i].fourcc, 4);         /* dwChunkId          */
-        put_u32(entry + 4,  AVIIF_KEYFRAME);                    /* dwFlags            */
-        put_u32(entry + 8,  s_seg.idx.entries[i].offset + 4);   /* dwOffset (from movi)*/
-        put_u32(entry + 12, s_seg.idx.entries[i].size);          /* dwSize             */
-        fwrite(entry, 1, 16, s_seg.fp);
+    /* Batch idx1 entries through one PSRAM buffer: 512 entries (8KB) per
+     * fwrite instead of a 16-byte fwrite per frame — a 5-min segment carries
+     * 2500-3000 entries and the per-entry writes dominated the multi-second
+     * segment-rotation stall. */
+    {
+        const size_t k_chunk_entries = 512;
+        uint8_t *chunk = heap_caps_malloc(k_chunk_entries * 16, MALLOC_CAP_SPIRAM);
+        size_t n = 0;
+        for (int i = 0; i < s_seg.idx.count; i++) {
+            uint8_t entry[16];
+            memcpy(entry, &s_seg.idx.entries[i].fourcc, 4);         /* dwChunkId          */
+            put_u32(entry + 4,  AVIIF_KEYFRAME);                    /* dwFlags            */
+            put_u32(entry + 8,  s_seg.idx.entries[i].offset + 4);   /* dwOffset (from movi)*/
+            put_u32(entry + 12, s_seg.idx.entries[i].size);          /* dwSize             */
+            if (chunk) {
+                memcpy(chunk + n * 16, entry, 16);
+                if (++n == k_chunk_entries) {
+                    fwrite(chunk, 1, n * 16, s_seg.fp);
+                    n = 0;
+                }
+            } else {
+                fwrite(entry, 1, 16, s_seg.fp);   /* PSRAM exhausted: per-entry fallback */
+            }
+        }
+        if (chunk) {
+            if (n > 0) fwrite(chunk, 1, n * 16, s_seg.fp);
+            free(chunk);
+        }
     }
 
     /* Patch RIFF size: file_size - 8 */
@@ -1063,15 +1084,17 @@ static void recording_task(void *arg)
         if (write_to_sd) {
             total_bytes += jpeg_data_len;
 
-            /* Sync to SD: every frame in timelapse (sparse), every ~1s in continuous.
-             * fflush drains the libc stdio buffer into FatFS; fsync (-> f_sync)
-             * additionally flushes FAT directory/FAT-table entries so a power
-             * loss mid-recording leaves a playable, correctly-sized AVI rather
-             * than a truncated/zero-length file. */
+            /* Sync to SD: every frame in timelapse (sparse), every ~30 frames
+             * (~3-4s) in continuous. fflush drains the libc stdio buffer into
+             * FatFS; fsync (-> f_sync) additionally flushes FAT directory/
+             * FAT-table entries so a power loss mid-recording leaves a
+             * playable, correctly-sized AVI rather than a truncated/zero-
+             * length file. Was 10 frames; 30 cuts periodic FAT sync I/O on
+             * the shared SPI bus while keeping the loss window bounded. */
             if (timelapse) {
                 fflush(s_seg.fp);
                 fsync(fileno(s_seg.fp));
-            } else if (++s_seg.flush_counter >= 10) {
+            } else if (++s_seg.flush_counter >= 30) {
                 fflush(s_seg.fp);
                 fsync(fileno(s_seg.fp));
                 s_seg.flush_counter = 0;
@@ -1097,8 +1120,19 @@ static void recording_task(void *arg)
                 close_segment();
                 segment_open = false;
 
-                /* Safety net: remove any zero-byte files left by close_segment() failures */
-                cleanup_orphan_zero_byte_files();
+                /* Safety net: remove zero-byte files left by close_segment()
+                 * failures. Full recursive scan — throttled to at most once
+                 * per hour; it used to run at EVERY rotation (5 min) and was
+                 * a major contributor to the segment-rotation stall. */
+                {
+                    static int64_t s_last_orphan_scan_us = 0;
+                    int64_t now_us = esp_timer_get_time();
+                    if (s_last_orphan_scan_us == 0 ||
+                        now_us - s_last_orphan_scan_us > 3600LL * 1000000) {
+                        cleanup_orphan_zero_byte_files();
+                        s_last_orphan_scan_us = now_us;
+                    }
+                }
 
                 /* Notify via callback */
                 if (s_segment_cb && completed_size > 0) {
@@ -1260,8 +1294,11 @@ if (config_get()->timelapse_enabled && config_get()->timelapse_mode == 1) {
         return ESP_FAIL;
     }
 
-    /* Create write queue and dedicated SD writer task (Core 1, prio 2) */
-    s_write_q = xQueueCreate(2, sizeof(write_msg_t));
+    /* Create write queue and dedicated SD writer task (Core 1, prio 2).
+     * Depth 4: each slot is a PSRAM-copied frame; 2 extra slots absorb SD
+     * transient stalls (card GC / FAT sync) that used to drop frames when
+     * the queue hit its old depth of 2. */
+    s_write_q = xQueueCreate(4, sizeof(write_msg_t));
     if (!s_write_q) {
         ESP_LOGE(TAG, "Failed to create write queue");
         s_state = RECORDER_IDLE;

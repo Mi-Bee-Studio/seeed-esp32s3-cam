@@ -241,25 +241,16 @@ esp_err_t storage_init(void)
  */
 float storage_get_free_percent(void)
 {
-    if (!s_sd_available || !s_card) {
+    /* Route through storage_get_info() so frequent callers (/api/status,
+     * /metrics — polled every few seconds) share its 60s-throttled f_getfree
+     * cache + write/delete delta counters instead of stalling the SPI bus
+     * with a raw f_getfree on every poll (50-200ms each, contends with
+     * recording writes). */
+    storage_info_t info;
+    if (storage_get_info(&info) != ESP_OK || info.total_bytes == 0) {
         return 0.0f;
     }
-    /* Use FatFs f_getfree since IDF v6.0 FAT VFS does not support statvfs */
-    DWORD free_clusters = 0;
-    FATFS *fs = NULL;
-    FRESULT res = f_getfree("0:", &free_clusters, &fs);
-    if (res != FR_OK || !fs) {
-        ESP_LOGE(TAG, "f_getfree failed: %d", res);
-        return 0.0f;
-    }
-    uint32_t total_clusters = (fs->n_fatent - 2);  /* FAT has 2 reserved entries */
-    uint64_t sector_size = fs->ssize;
-    uint64_t sectors_per_cluster = fs->csize;
-    uint64_t cluster_size = sector_size * sectors_per_cluster;
-    uint64_t total = (uint64_t)total_clusters * cluster_size;
-    uint64_t free_space = (uint64_t)free_clusters * cluster_size;
-    if (total == 0) return 0.0f;
-    return (float)free_space / (float)total * 100.0f;
+    return (float)info.free_bytes * 100.0f / (float)info.total_bytes;
 }
 
 /**
