@@ -113,7 +113,7 @@ The system has 27 modules, all located in the `main/` directory, each module wit
 | ONVIF Service | `onvif_service.c` | SOAP handlers for GetDeviceInformation, GetCapabilities, GetProfiles, GetStreamUri | `onvif_register_handlers()` |
 | Status LED | `status_led.c` | 5 LED mode control | `led_init()`, `led_set_status()` |
 | Time Sync | `time_sync.c` | SNTP sync, manual time setting | `time_sync_init()`, `time_is_synced()` |
-| Motion Detector | `motion_detector.c` | Frame-difference based motion detection | `motion_detector_init()`, `motion_detector_process()` |
+| Motion Detector | `motion_detect.c` | Frame-difference based motion detection | `motion_detector_init()`, `motion_detector_process()` |
 | OTA Updater | `ota_updater.c` | Firmware OTA updates via URL | `ota_updater_init()`, `ota_update_start()` |
 | Webhook | `webhook.c` | HTTP event notifications for motion/recordings | `webhook_send()`, `webhook_init()` |
 | WebSocket Server | `ws_server.c` | Real-time push updates to WebUI clients | `ws_server_init()`, `ws_broadcast()` |

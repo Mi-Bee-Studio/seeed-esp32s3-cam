@@ -134,7 +134,7 @@ main/  —  27 C modules + main.c + cJSON (flat layout)
 ├── main.c                 # Entry, 20-step boot, watchdog
 ├── camera_driver.c/h      # OV2640/OV3660 + JPEG capture
 ├── video_recorder.c/h     # AVI MJPEG segmented recorder (3 modes), async SD write via dedicated Core 1 task
-├── motion_detector.c/h    # Frame-difference motion analysis
+├── motion_detect.c/h    # Frame-difference motion analysis
 ├── mjpeg_streamer.c/h     # HTTP MJPEG live stream
 ├── frame_broadcaster.c/h  # Frame buffer distributor (decouples FB consumers)
 ├── onvif_service.c/h      # ONVIF SOAP service handlers
