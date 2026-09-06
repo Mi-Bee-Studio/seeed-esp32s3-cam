@@ -19,3 +19,5 @@ jobs:
           python-version: "3.12"
       - name: 泄密扫描
         run: python3 scripts/security-check.py
+        env:
+          MIBEE_SECURITY_DENYLIST: ${{ secrets.SECURITY_DENYLIST }}
