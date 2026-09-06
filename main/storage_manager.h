@@ -44,7 +44,7 @@ typedef struct {
     uint64_t total_bytes;
     uint64_t free_bytes;
 } storage_info_t;
-/** @brief 初始化SD卡，配置1线SDMMC模式并挂载FAT文件系统 */
+/** @brief 初始化SD卡（SDSPI 模式，SPI3，20MHz）并挂载FAT文件系统 */
 esp_err_t storage_init(void);
 /** @brief 获取SD卡剩余空间占总空间的百分比 */
 float storage_get_free_percent(void);
