@@ -34,7 +34,7 @@
 #include "logging.h"
 #include "ws_server.h"
 
-static const char *TAG = "wifi";
+static const char *TAG = "wifi_manager";
 
 /* ---- state ---- */
 static wifi_state_t s_state = WIFI_STATE_AP;

@@ -47,7 +47,7 @@
 #include <errno.h>
 #include <netinet/tcp.h>
 
-static const char *TAG = "mjpeg";
+static const char *TAG = "mjpeg_streamer";
 
 #define STREAM_PORT        81
 #define MJPEG_BOUNDARY     "frame"

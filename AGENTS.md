@@ -57,7 +57,7 @@ testing; read it from the boot log or `GET /api/status` (`camera` field).
 | Boot sequence | `main/main.c` `app_main()` | 20-step init, see comment block lines 19-41 |
 | REST API (16 endpoints) | `main/web_server.c` | Handler table at line 1196 |
 | Recording (3 modes) | `main/video_recorder.c` | AVI MJPEG segmented, continuous/timelapse/dynamic |
-| Motion detection | `main/motion_detector.c` | Frame-difference, score 0-100 |
+| Motion detection | `main/motion_detect.c` | Frame-difference, score 0-100 |
 | ONVIF auto-discovery | `main/onvif_discovery.c` + `main/onvif_service.c` | WS-Discovery + SOAP, Synology/Milestone compatible |
 | Frame broadcaster | `main/frame_broadcaster.c` | Decouples camera FB consumers (record + stream) |
 | Config system | `main/config_manager.c` | NVS + SD card override (wifi.txt/config.txt/nas.txt) |

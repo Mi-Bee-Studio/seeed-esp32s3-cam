@@ -30,7 +30,7 @@
  * C++ (rtsp_server.cpp) with a consistent ABI. On Xtensa ESP32-S3 dual-core,
  * 32-bit atomic inc/dec compile to LOCK-prefixed instructions (lock-free). */
 
-static const char *TAG = "fbcast";
+static const char *TAG = "frame_broadcaster";
 
 /* ---- Internal subscriber structure ---- */
 

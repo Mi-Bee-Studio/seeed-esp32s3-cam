@@ -28,7 +28,7 @@
 #include "freertos/timers.h"
 
 
-static const char *TAG = "camera";
+static const char *TAG = "camera_driver";
 
 /* XIAO ESP32S3 Sense DVP pin mapping（与 Arduino CameraWebServer 官方定义一致） */
 #define CAM_PIN_PWDN  -1
