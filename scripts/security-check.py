@@ -29,22 +29,40 @@ import re
 import subprocess
 import sys
 
-# ---- A. 真实内网网段（脱敏规范：真实家庭网段必须写成 192.168.1.x） ----------
-FORBIDDEN_SUBNETS = [
-    ipaddress.ip_network("192.0.2.0/24"),
-    ipaddress.ip_network("192.0.2.0/24"),
-]
+# ---- A/B/C. 真实网段 / 基础设施地址 / 泄露标识 ------------------------------
+# 真实值严禁入库（PIT-027 教训：denylist 字面量本身也是泄密，历史曾因此重写）。
+# 通过环境变量 MIBEE_SECURITY_DENYLIST 注入，条目以 | 分隔，三种形式：
+#   subnet:<CIDR>   host:<IPv4>   str:<子串>
+# CI 由仓库 secret SECURITY_DENYLIST 提供（.github/workflows/security-check.yml
+# 已接线）；本地自查从根工作区 AGENTS.md 机密清单取值导出。未配置时 A/B/C
+# 规则为空并打印告警（仅 D/E/F 生效）。
+FORBIDDEN_SUBNETS = []
+FORBIDDEN_HOSTS = set()
+FORBIDDEN_STRINGS = []
 
-# ---- B. 已知基础设施地址（生产/内网服务，禁止出现在公开仓库） --------------
-FORBIDDEN_HOSTS = {
-    "203.0.113.138",   # 官网生产服务器（阿里云）
-}
+def _load_denylist_from_env():
+    raw = os.environ.get("MIBEE_SECURITY_DENYLIST", "")
+    if not raw:
+        print("⚠ MIBEE_SECURITY_DENYLIST 未配置——规则 A/B/C（真实网段/主机/泄露标识）"
+              "为空，仅 D/E/F（密钥格式/公网IP/凭据白名单）生效")
+        return
+    for item in raw.split("|"):
+        item = item.strip()
+        if not item:
+            continue
+        kind, _, val = item.partition(":")
+        val = val.strip()
+        try:
+            if kind == "subnet" and val:
+                FORBIDDEN_SUBNETS.append(ipaddress.ip_network(val))
+            elif kind == "host" and val:
+                FORBIDDEN_HOSTS.add(val)
+            elif kind == "str" and val:
+                FORBIDDEN_STRINGS.append(val)
+        except ValueError:
+            print(f"⚠ denylist 条目无效已忽略: {kind}")
 
-# ---- C. 已知泄露标识（真实 SSID / 网名 / 设备名，按审计持续补充） ----------
-FORBIDDEN_STRINGS = [
-    "MyHomeWiFi",   # 真实家庭 WiFi SSID（2026-09-05 审计）
-    "MiBeeAP1",     # 真实家庭 WiFi SSID（含 MiBeeAP2 备用 AP，2026-09-06 审计）
-]
+_load_denylist_from_env()
 
 # ---- D. 密钥 / token 格式 ---------------------------------------------------
 SECRET_PATTERNS = [
