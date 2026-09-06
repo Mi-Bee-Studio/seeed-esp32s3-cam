@@ -58,7 +58,7 @@ seeed-esp32s3-cam/
 │   ├── time_sync.c       # SNTP time synchronization
 │   ├── webdav_client.c   # WebDAV client
 │   ├── http_upload_client.c # HTTP/HTTPS upload client
-│   ├── motion_detector.c # Motion detection engine
+│   ├── motion_detect.c # Motion detection engine
 │   ├── ota_updater.c     # OTA firmware update
 │   ├── webhook.c         # HTTP event notification
 │   ├── ws_server.c       # WebSocket real-time push

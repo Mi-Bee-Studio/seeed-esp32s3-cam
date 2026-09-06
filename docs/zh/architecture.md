@@ -113,7 +113,7 @@ ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP
 | ONVIF 服务 | `onvif_service.c` | SOAP 处理：GetDeviceInformation, GetCapabilities, GetProfiles, GetStreamUri | `onvif_register_handlers()` |
 | 状态 LED | `status_led.c` | 5 种 LED 模式控制 | `led_init()`, `led_set_status()` |
 | 时间同步 | `time_sync.c` | SNTP 同步，手动设置时间 | `time_sync_init()`, `time_is_synced()` |
-| 运动检测 | `motion_detector.c` | 帧差分析，运动评分，告警触发 | `motion_detector_init()`, `motion_detector_process()` |
+| 运动检测 | `motion_detect.c` | 帧差分析，运动评分，告警触发 | `motion_detector_init()`, `motion_detector_process()` |
 | OTA 更新器 | `ota_updater.c` | 固件升级，版本管理 | `ota_updater_init()`, `ota_update_start()` |
 | Webhook | `webhook.c` | HTTP 事件通知 | `webhook_send()`, `webhook_init()` |
 | WebSocket 服务器 | `ws_server.c` | 实时推送更新到 WebUI 客户端 | `ws_server_init()`, `ws_broadcast()` |

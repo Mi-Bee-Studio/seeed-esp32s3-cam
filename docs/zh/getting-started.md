@@ -73,7 +73,7 @@ seeed-esp32s3-cam/
 
 │   ├── http_upload_client.c # HTTP/HTTPS 上传客户端
 
-│   ├── motion_detector.c  # 运动检测模块
+│   ├── motion_detect.c  # 运动检测模块
 
 │   ├── ota_updater.c     # OTA 固件升级模块
 

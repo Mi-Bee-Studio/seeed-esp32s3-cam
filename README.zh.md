@@ -134,7 +134,7 @@ main/  —  27 个 C 模块 + main.c + cJSON（平面布局）
 ├── main.c                 # 入口，20 步启动流程，看门狗
 ├── camera_driver.c/h      # OV2640/OV3660 摄像头驱动
 ├── video_recorder.c/h     # AVI MJPEG 分段录像（3 种模式），异步 SD 写入，独立 Core 1 任务
-├── motion_detector.c/h    # 帧差运动检测分析
+├── motion_detect.c/h    # 帧差运动检测分析
 ├── mjpeg_streamer.c/h     # HTTP MJPEG 实时推流
 ├── frame_broadcaster.c/h  # 帧缓冲分发器（解耦 FB 消费者）
 ├── onvif_service.c/h      # ONVIF SOAP 服务处理
