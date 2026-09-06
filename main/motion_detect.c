@@ -15,7 +15,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "motion_detector.h"
+#include "motion_detect.h"
 
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -31,7 +31,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static const char *TAG = "motion";
+static const char *TAG = "motion_detect";
 
 #define DETECT_W  80
 #define DETECT_H  60

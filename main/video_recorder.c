@@ -23,7 +23,7 @@
 #include "time_sync.h"
 #include "status_led.h"
 #include "logging.h"
-#include "motion_detector.h"
+#include "motion_detect.h"
 #include "audio_broadcaster.h"
 #include "audio_common.h"
 #include "ws_server.h"

@@ -28,7 +28,7 @@
 #include "video_recorder.h"
 #include "web_server.h"
 
-static const char *TAG = "ota";
+static const char *TAG = "ota_updater";
 
 static SemaphoreHandle_t s_ota_mutex = NULL;
 

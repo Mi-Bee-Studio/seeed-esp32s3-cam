@@ -34,7 +34,7 @@
 #include "esp_system.h"
 #include "nas_uploader.h"
 #include "ws_server.h"
-#include "motion_detector.h"
+#include "motion_detect.h"
 
 #include "ota_updater.h"
 #include "audio_broadcaster.h"
@@ -52,7 +52,7 @@
 #include "lwip/tcp.h"
 #include "frame_broadcaster.h"
 
-static const char *TAG = "web";
+static const char *TAG = "web_server";
 
 extern float get_chip_temp(void);
 
