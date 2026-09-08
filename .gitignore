@@ -103,3 +103,6 @@ verify_hardware.bat
 build_log.txt
 .playwright-mcp/
 $null
+
+# SPA gzip build inputs (PIT-038, tools/compress_ui.py)
+main/web_ui/*.gz

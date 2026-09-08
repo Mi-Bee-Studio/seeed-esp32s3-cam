@@ -28,6 +28,7 @@
  */
 
 #include "onvif_service.h"
+#include "onvif_events.h"   /* 契约 v1.5：Pull-Point 事件服务 */
 #include "esp_log.h"
 #include "config_manager.h"
 #include "wifi_manager.h"
@@ -241,6 +242,9 @@ static esp_err_t handle_get_capabilities(httpd_req_t *req)
         "<tcr:Media>"
         "<tcr:XAddr>http://%s:80/onvif/media_service</tcr:XAddr>"
         "</tcr:Media>"
+        "<tcr:Events>"
+        "<tcr:XAddr>http://%s:80/onvif/events_service</tcr:XAddr>"
+        "</tcr:Events>"
         "<tcr:Audio>"
         "<tcr:AudioSources>"
         "<tcr:AudioSource token=\"AudioSource_1\"/>"
@@ -253,7 +257,7 @@ static esp_err_t handle_get_capabilities(httpd_req_t *req)
         "</tcr:GetCapabilitiesResponse>"
         "</s:Body>"
         "</s:Envelope>",
-        ip_str, ip_str);
+        ip_str, ip_str, ip_str);
 
     httpd_resp_set_type(req, "application/soap+xml");
     httpd_resp_send(req, resp, len);
@@ -297,10 +301,18 @@ static esp_err_t handle_get_services(httpd_req_t *req)
         "<tcr:Minor>0</tcr:Minor>"
         "</tcr:Version>"
         "</tcr:Service>"
+        "<tcr:Service>"
+        "<tcr:Namespace>http://www.onvif.org/ver10/events/wsdl</tcr:Namespace>"
+        "<tcr:XAddr>http://%s:80/onvif/events_service</tcr:XAddr>"
+        "<tcr:Version>"
+        "<tcr:Major>2</tcr:Major>"
+        "<tcr:Minor>0</tcr:Minor>"
+        "</tcr:Version>"
+        "</tcr:Service>"
         "</tcr:GetServicesResponse>"
         "</s:Body>"
         "</s:Envelope>",
-        ip_str, ip_str);
+        ip_str, ip_str, ip_str);
 
     httpd_resp_set_type(req, "application/soap+xml");
     httpd_resp_send(req, resp, len);
@@ -671,6 +683,9 @@ esp_err_t onvif_register_handlers(httpd_handle_t server)
     } else {
         ESP_LOGI(TAG, "Registered /onvif/media_service");
     }
+
+    /* 契约 v1.5：Pull-Point 事件服务（MotionAlarm ← CSI 运动） */
+    onvif_events_register(server);
 
     return ESP_OK;
 }

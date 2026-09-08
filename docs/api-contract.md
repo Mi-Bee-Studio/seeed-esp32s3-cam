@@ -1,4 +1,4 @@
-# MiBee Cam 家族 API 契约 v1.3
+# MiBee Cam 家族 API 契约 v1.5
 
 > 适用四仓：`ai-thinker-esp32-cam` · `esp32s3-n16r8-cam` · `luatos-esp32s3-a10-camera` · `seeed-esp32s3-cam`
 >
@@ -11,6 +11,11 @@
 > **v1.3 变更（2026-09-05）**：分辨率刻度统一为 framesize_t、配置契约独立成文
 > （`docs/config-contract.md`）、能力值语义条款、OTA URL 触发补齐、`GET /api/storage`
 > 收编、`/api/ai/status` 桩移除（见 §12）。
+> **v1.4 变更（2026-09-07）**：WS §6 新增 `csi_status` 心跳事件、`motion_*` 增补可选
+> `source` 字段；capabilities 增补 `csi_motion` 编译期能力位（见 §3/§6）。
+> **v1.5 变更（2026-09-08）**：ONVIF Pull-Point 事件服务 `/onvif/events_service`
+> （MotionAlarm ← CSI 运动，NVR 联动录像）；capabilities 增补 `onvif_events`
+> 编译期能力位，事件生成由 config 键 `onvif_events` 运行时门控（见 §3/§13）。
 
 ## 1. 信封与鉴权（所有板一致）
 
@@ -67,9 +72,17 @@
 | `GET /api/audio` | G.711 μ-law 裸流 8kHz | — | — | — | ✅ |
 | `GET /ws` | WebSocket 事件推送（见 §6） | — | — | ✅ | ✅ |
 | `/onvif/device_service` · `/onvif/media_service` | ONVIF SOAP | ✅ | ✅ | ✅ | ✅ |
+| `/onvif/events_service` | ONVIF Pull-Point 事件（v1.5 §13：MotionAlarm ← CSI） | — | ✅ | — | ✅ |
 | RTSP `:554/stream` | **必须 digest 鉴权** | — | ✅(rtsp_user/pass) | — | ✅(web_password) |
 
 非布尔扩展键：`api_version`（本契约版本字符串）、`wifi_scan`。
+`csi_motion`（布尔，v1.4）：编译期 Kconfig `MIBEE_CSI_MOTION` 门控，恒定不翻转。
+`true` ⇒ `/ws` 持续推送 `csi_status` 心跳、运动事件带 `source:"csi"`（见 §6）；
+`false` ⇒ 上述事件不产生，无对应端点。
+`onvif_events`（布尔，v1.5）：编译期恒定（seeed/n16r8 编入 `main/onvif_events.c`）。
+`true` ⇒ `/onvif/events_service` 提供 Pull-Point 订阅（§13）；**事件生成**由
+config 键 `onvif_events`（默认 0）运行时门控——即商用相机的"运动侦测开关"
+（订阅服务常在，报警随开关）。
 延时摄影：统一走 config 的 `timelapse_*` 字段 + `/api/record`（ai-thinker 的
 `/api/timelapse/*` 端点为遗留 tolerated variant，计划收敛）。
 
@@ -155,7 +168,8 @@ q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-think
 
 | type | data | 触发 |
 |---|---|---|
-| `motion_started` / `motion_cleared` | `{"score":0-100}`（有则给） | 移动侦测状态翻转 |
+| `motion_started` / `motion_cleared` | `{"score":0-100,"source":"csi"}`（`source` 仅 CSI 来源时携带） | 移动侦测状态翻转（像素或 CSI 感知） |
+| `csi_status` | `{"state":"warming\|IDLE\|MOTION","score":0-1,"thr":0-1}` | CSI 门控板（`csi_motion:true`）~1s 心跳，v1.4 |
 | `recording_started` / `recording_stopped` | `{}` | 录像启停 |
 | `wifi_state_changed` | `{"state":"connected\|..."}` | WiFi 状态变化 |
 | `stream_client_connected/disconnected`、`health_warning`、`upload_success/failed`、`wifi_switched_ssid` | 板级扩展 | 按板订阅 |
@@ -254,3 +268,20 @@ q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-think
 7. **ai-thinker 补 `POST /api/time`**（§2 核心端点违约修复）。
 8. AT 契约同步升 v1.1（`docs/at-command.md`）：共享核心纪律、WIFISCAN 四板
    必备、`AT+RESET` 删除、GMR 真版本。
+
+## 13. v1.5 变更清单（2026-09-08，ONVIF MotionAlarm 事件）
+
+1. **`/onvif/events_service`（Pull-Point，WS-BaseNotification 最小子集）**：
+   `CreatePullPointSubscription` → 循环 `PullMessages`（+ `Renew`/`Unsubscribe`）。
+   单订阅模型（新订阅顶替旧订阅）；`TerminationTime` 固定授予 1h，120s 无拉取
+   自动过期（NVR 重连重建）；**无长轮询**——`PullMessages` 立即返回（esp httpd
+   worker 绝不阻塞），轮询节奏由 NVR 侧决定。
+2. **事件载荷**：主题 `tns1:VideoSource/MotionAlarm`；`Source` SimpleItem
+   `Name="Source" Value="CSI"`；`Data` 带 `State`（true=进入运动 / false=清除）
+   与 `Score`（0-100 家族刻度，同 §6 `motion_*`）；`UtcTime` 为 SNTP UTC
+   （未同步时仍发送）。
+3. **事件源与门控**：CSI 运动状态转移（`csi_motion:true` 板的
+   `on_motion_state_changed`）扇出；事件**生成**由 config 键 `onvif_events`
+   （默认 0）门控，订阅服务本身常注册（同商用相机）。能力位 `onvif_events`
+   恒定；仅 seeed/n16r8 编入（ai/luatos 为 CSI-off 生产形态）。
+4. **验证工具**：`tools/onvif_events_probe.py`（家族工具，raw SOAP 无三方依赖）。

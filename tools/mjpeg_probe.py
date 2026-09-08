@@ -94,7 +94,9 @@ def probe(ip, port, duration):
             stream_once(ip, port, deadline, state)
         except Exception:
             state["disconnects"] += 1
-            time.sleep(0.3)
+            # ≥设备防锤护栏的 5s 最小接入间隔（2026-09-08 多 peer 护栏）：
+            # 快速重连环会被设备侧 503+指数退避钉死，探针自身就成了锤子。
+            time.sleep(6)
     poller.stop.set()
     poller.join(timeout=10)
 

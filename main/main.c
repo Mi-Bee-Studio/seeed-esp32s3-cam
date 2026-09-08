@@ -67,6 +67,7 @@
 #include "video_recorder.h"
 #include "web_server.h"
 #include "at_command.h"
+#include "csi_motion.h"
 #include "mjpeg_streamer.h"
 #include "nas_uploader.h"
 #include "ota_updater.h"
@@ -563,6 +564,11 @@ void app_main(void)
             esp_ota_mark_app_invalid_rollback_and_reboot();
         }
     }
+
+    /* ---- 8b. ESPectre CSI motion sensing (optional) ----------------- */
+    /* 第8b步：启动 WiFi CSI 运动感知（CONFIG_MIBEE_CSI_MOTION，默认关；
+     * 运行时自行挂 WiFi/IP 事件并处理已连接场景，须在 wifi_init() 之后） */
+    csi_motion_init();
 
     /* ---- 9. Time sync (only if STA connected) ----------------------- */
 

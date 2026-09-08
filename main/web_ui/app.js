@@ -343,6 +343,21 @@ function statChip(labelKey, value, tone, iconName, titleKey) {
            `${icon(iconName)}<i>${t(labelKey)}</i><b>${value}</b></span>`;
 }
 
+/* CSI 感知状态（仅 CSI 门控板：经 /ws csi_status 心跳驱动；无事件则 UI 全静默） */
+const CSI = { data: null, seen: 0 };
+
+function renderCsi() {
+    const pill = $('csi-pill');
+    if (!pill) return;
+    if (!CSI.data || Date.now() - CSI.seen > 15000) { pill.hidden = true; return; }
+    pill.hidden = false;
+    pill.title = window.i18n.t('csi.hint');
+    pill.classList.toggle('is-motion', CSI.data.state === 'MOTION');
+    $('csi-text').textContent = CSI.data.state === 'warming'
+        ? window.i18n.t('csi.warming')
+        : 'CSI ' + Number(CSI.data.score || 0).toFixed(2);
+}
+
 async function pollStatus() {
     let d;
     try { d = await api('/api/status', {}, { noAuthSheet: true }); }
@@ -417,6 +432,10 @@ async function pollStatus() {
             pct < 20 ? 'tone-danger' : pct < 40 ? 'tone-warn' : 'tone-ok', 'sd', 'stats.sd.hint'));
     }
     chips.push(statChip('stats.uptime', fmtUptime(d.uptime), '', 'clock', 'stats.uptime.hint'));
+    if (CSI.data && Date.now() - CSI.seen < 30000) {
+        chips.push(statChip('stats.csi', Number(CSI.data.score || 0).toFixed(2),
+            CSI.data.state === 'MOTION' ? 'tone-warn' : 'tone-ok', 'wifi', 'csi.hint'));
+    }
     $('stats-strip').innerHTML = chips.join('');
 
     /* system card */
@@ -953,8 +972,9 @@ async function loadConfig() {
     if (d.rtsp_user !== undefined) { $('row-rtsp-user').hidden = false; $('rtsp-user').value = d.rtsp_user || ''; }
     if (d.rtsp_pass !== undefined) { $('row-rtsp-pass').hidden = false; }
     if (d.onvif_enable !== undefined) { $('row-onvif-enable').hidden = false; setToggle('onvif-enable', d.onvif_enable); }
+    if (d.onvif_events !== undefined) { $('row-onvif-events').hidden = false; setToggle('onvif-events', d.onvif_events); }   /* 契约 v1.5 */
     /* 没有任何可编辑项时隐藏 Save（RTSP 凭据走 web_password 的板，该页只读展示） */
-    const anyEditable = !$('row-rtsp-user').hidden || !$('row-rtsp-pass').hidden || !$('row-onvif-enable').hidden;
+    const anyEditable = !$('row-rtsp-user').hidden || !$('row-rtsp-pass').hidden || !$('row-onvif-enable').hidden || !$('row-onvif-events').hidden;
     $('btn-streaming-save').hidden = !anyEditable;
 }
 
@@ -1078,6 +1098,7 @@ async function saveStreaming() {
                 if (p) payload.rtsp_pass = p;
             }
             if (!$('row-onvif-enable').hidden) payload.onvif_enable = $('onvif-enable').classList.contains('active');
+            if (!$('row-onvif-events').hidden) payload.onvif_events = $('onvif-events').classList.contains('active');
             if (!Object.keys(payload).length) return;
             await api('/api/config', {
                 method: 'POST',
@@ -1177,7 +1198,12 @@ const WS = {
             try { m = JSON.parse(ev.data); } catch (_) { return; }
             const t = window.i18n.t;
             switch (m.type) {
-                case 'motion_started': toast(t('ws.motion_started', { score: String((m.data || {}).score ?? '') }), { type: 'info', duration: 2200 }); break;
+                case 'csi_status':
+                    CSI.data = m.data || {}; CSI.seen = Date.now(); renderCsi(); break;
+                case 'motion_started': {
+                    const src = (m.data || {}).source === 'csi' ? 'CSI · ' : '';
+                    toast(src + t('ws.motion_started', { score: String((m.data || {}).score ?? '') }), { type: 'info', duration: 2200 }); break;
+                }
                 case 'motion_cleared': toast(t('ws.motion_cleared'), { duration: 1800 }); break;
                 case 'recording_started':
                 case 'recording_stopped': toast(t('ws.' + m.type), { type: 'success', duration: 2200 }); pollStatus(); break;
@@ -1185,6 +1211,8 @@ const WS = {
             }
         };
         this.sock.onclose = () => {
+            const p = $('csi-pill');
+            if (p) p.hidden = true;
             setTimeout(() => this.connect(), this.retry);
             this.retry = Math.min(this.retry * 1.5, 15000);
         };
@@ -1420,6 +1448,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initToggle('ai-motion', () => saveAI());
     initToggle('ai-qr', () => saveAI());
     initToggle('onvif-enable', () => saveStreaming());
+    initToggle('onvif-events', () => saveStreaming());
 
     /* sliders */
     ['cam-quality', 'cam-brightness', 'cam-contrast', 'cam-saturation', 'cam-sharpness', 'led-brightness']

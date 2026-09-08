@@ -270,6 +270,11 @@ button { cursor: pointer; }
   pointer-events: none; gap: 8px;
 }
 
+.stage-top-left {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  min-width: 0;
+}
+
 .rec-pill {
   display: inline-flex; align-items: center; gap: 7px;
   max-width: 62%;
@@ -286,6 +291,26 @@ button { cursor: pointer; }
 }
 .rec-pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @keyframes pulse { 50% { opacity: 0.35; } }
+
+/* CSI 感知悬浮指示（仅 CSI 门控板经 /ws csi_status 驱动，无事件则隐藏） */
+.csi-pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 11px 4px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: var(--fs-xs); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.csi-pill .csi-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.4);
+}
+.csi-pill.is-motion .csi-dot {
+  background: var(--warning);
+  animation: pulse 1.4s ease-in-out infinite;
+}
 
 .chip-clients {
   display: inline-flex; align-items: center; gap: 6px;

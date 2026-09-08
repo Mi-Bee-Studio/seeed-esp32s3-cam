@@ -77,6 +77,7 @@ KEY_ASSERT("cam_saturation");
 KEY_ASSERT("cam_sharpness");
 KEY_ASSERT("day_night");
 KEY_ASSERT("onvif_enable");
+KEY_ASSERT("onvif_events");
 KEY_ASSERT("rtsp_user");
 KEY_ASSERT("rtsp_pass");
 KEY_ASSERT("xclk_mhz");
@@ -182,6 +183,7 @@ static void apply_defaults(cam_config_t *cfg)
     cfg->cam_sharpness = 0;
     cfg->day_night_mode = 0;
     cfg->onvif_enable = 1;               /* 契约核心字段；本板历史始终开启 */
+    cfg->onvif_events = 0;               /* 契约 v1.5：默认关（MotionAlarm 生成开关） */
     cfg->xclk_freq_mhz = 16;             /* 板值（§5） */
     cfg->wifi_roam_rssi = -75;           /* 板级覆盖（§5） */
     cfg->wifi_roam_gap_s = 10;
@@ -379,6 +381,7 @@ static void load_keys_from_nvs(nvs_handle_t h, cam_config_t *cfg)
     rd_i8(h, "cam_sharpness", &cfg->cam_sharpness);
     rd_u8(h, "day_night", &cfg->day_night_mode);
     rd_u8(h, "onvif_enable", &cfg->onvif_enable);
+    rd_u8(h, "onvif_events", &cfg->onvif_events);
     rd_u8(h, "xclk_mhz", &cfg->xclk_freq_mhz);
     rd_i8(h, "wifi_roam_rssi", &cfg->wifi_roam_rssi);
     rd_u8(h, "wifi_roam_gap", &cfg->wifi_roam_gap_s);
@@ -434,6 +437,7 @@ static void write_keys_to_nvs(nvs_handle_t h, const cam_config_t *cfg)
     wr_i8(h, "cam_sharpness", cfg->cam_sharpness);
     wr_u8(h, "day_night", cfg->day_night_mode);
     wr_u8(h, "onvif_enable", cfg->onvif_enable);
+    wr_u8(h, "onvif_events", cfg->onvif_events);
     wr_u8(h, "xclk_mhz", cfg->xclk_freq_mhz);
     wr_i8(h, "wifi_roam_rssi", cfg->wifi_roam_rssi);
     wr_u8(h, "wifi_roam_gap", cfg->wifi_roam_gap_s);
@@ -771,6 +775,7 @@ static void parse_config_txt(void)
             parse_bool(line, "sd_log_enabled", &s_config.sd_log_enabled);
             parse_bool(line, "record_on_boot", &s_config.record_on_boot);
             parse_bool(line, "onvif_enable", (bool *)&s_config.onvif_enable);
+            parse_bool(line, "onvif_events", (bool *)&s_config.onvif_events);
         }
     }
     fclose(f);
@@ -1165,6 +1170,7 @@ cJSON *config_get_json(void)
     cJSON_AddNumberToObject(root, "cam_sharpness", (double)cfg->cam_sharpness);
     cJSON_AddNumberToObject(root, "day_night_mode", (double)cfg->day_night_mode);
     cJSON_AddNumberToObject(root, "onvif_enable", (double)cfg->onvif_enable);
+    cJSON_AddNumberToObject(root, "onvif_events", (double)cfg->onvif_events);
     cJSON_AddNumberToObject(root, "xclk_freq_mhz", (double)cfg->xclk_freq_mhz);
     cJSON_AddNumberToObject(root, "wifi_roam_rssi", (double)cfg->wifi_roam_rssi);
     cJSON_AddNumberToObject(root, "wifi_roam_gap_s", (double)cfg->wifi_roam_gap_s);
