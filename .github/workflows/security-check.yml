@@ -1,13 +1,14 @@
 name: security-check
 
 # MiBee Cam 家族泄密扫描门禁（PITFALLS PIT-027 防线，四仓字节一致）
-# 除官方公开默认密码（mibeecam2026）外，任何疑似泄密（真实内网 IP、真实 SSID、
-# 密钥格式、未登记白名单的凭据取值、日期形密码）都会令 CI 失败。
+# 焊死级触发：任何分支 push / 任何 PR / 每日定时巡检。
+# main 分支保护已把 scan 设为必需检查 —— 直推被拒，必须 PR 过闸。
 
 on:
   pull_request:
   push:
-    branches: [main]
+  schedule:
+    - cron: '23 19 * * *'
 
 jobs:
   scan:
