@@ -87,6 +87,7 @@
       'streaming.rtsp': 'RTSP (VLC / NVR)',
       'streaming.onvif_hint': 'ONVIF discovery',
       'streaming.onvif_note': 'Search via WS-Discovery in Synology / Milestone / etc.',
+      'streaming.onvif_events': 'ONVIF Motion Alarm (NVR)',
 
       /* ---------- Stream status ---------- */
       'stream.connecting': 'Connecting\u2026',
@@ -255,6 +256,9 @@
       'stats.sd.hint': '存储卡剩余空间',
       'stats.uptime': '已运行',
       'stats.uptime.hint': '开机时长',
+      'stats.csi': 'CSI',
+      'csi.hint': 'WiFi CSI motion sensing (live score 0-1)',
+      'csi.warming': 'CSI calibrating…',
     },
 
     zh: {
@@ -340,6 +344,7 @@
       'streaming.rtsp': 'RTSP（VLC / NVR）',
       'streaming.onvif_hint': 'ONVIF 自动发现',
       'streaming.onvif_note': '在群晖 / Milestone 等 NVR 中用 WS-Discovery 搜索',
+      'streaming.onvif_events': 'ONVIF 运动报警（NVR 联动）',
 
       /* ---------- 串流状态 ---------- */
       'stream.connecting': '\u8fde\u63a5\u4e2d\u2026',
@@ -508,6 +513,9 @@
       'stats.sd.hint': '存储卡剩余空间',
       'stats.uptime': '已运行',
       'stats.uptime.hint': '开机时长',
+      'stats.csi': 'CSI',
+      'csi.hint': 'WiFi CSI 运动感知（实时分数 0-1）',
+      'csi.warming': 'CSI 校准中…',
     },
   };
 

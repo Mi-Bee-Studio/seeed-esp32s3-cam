@@ -15,6 +15,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/*
+ * IDF v6 客户端追踪只存 fd，广播/收割统一走 httpd_ws_send_frame_async——
+ * 不再持有 httpd_req_t*：v6 上握手请求的 req 在回调返回后即失效，
+ * 存指针跨任务发送 = LoadProhibited（2026-09-07 实测 Guru Meditation
+ * Core 1，ws_broadcast 首发即崩）。发送经 s_send_mutex 串行化，避免
+ * csi_motion 心跳与收割 PING 对同一 socket 交错写。
+ */
+
 #include "ws_server.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -31,67 +39,67 @@ static const char *TAG = "ws";
 #define MAX_WS_CLIENTS 4  /* 4 is realistic for ESP32-S3 alongside streaming; was 10 */
 
 /* ------------------------------------------------------------------ */
-/*  Client tracking                                                     */
+/*  Client tracking (fd only — safe across tasks on IDF v6)            */
 /* ------------------------------------------------------------------ */
 
-typedef struct {
-    httpd_req_t *req;
-    int fd;
-} ws_client_t;
-
-static ws_client_t s_clients[MAX_WS_CLIENTS];
+static int s_client_fds[MAX_WS_CLIENTS];
 static int s_client_count = 0;
-static SemaphoreHandle_t s_mutex = NULL;
+static SemaphoreHandle_t s_mutex = NULL;    /* protects the fd list */
+static SemaphoreHandle_t s_send_mutex = NULL; /* serializes socket writes */
+static httpd_handle_t s_server = NULL;
 
 static void add_client(httpd_req_t *req)
 {
+    int fd = httpd_req_to_sockfd(req);
     xSemaphoreTake(s_mutex, portMAX_DELAY);
+    /* 幂等去重：入册路径有两条（v5 握手后以 GET 进 handler / v6 走
+     * ws_post_handshake_cb），同一 fd 只入册一次。 */
+    for (int i = 0; i < s_client_count; i++) {
+        if (s_client_fds[i] == fd) {
+            xSemaphoreGive(s_mutex);
+            return;
+        }
+    }
     if (s_client_count >= MAX_WS_CLIENTS) {
         ESP_LOGW(TAG, "Max WS clients reached (%d)", MAX_WS_CLIENTS);
         xSemaphoreGive(s_mutex);
         return;
     }
-    s_clients[s_client_count].req = req;
-    s_clients[s_client_count].fd  = httpd_req_to_sockfd(req);
-    s_client_count++;
+    s_client_fds[s_client_count++] = fd;
 
     /* 记录对端 IP：2026-09-04 WS 洪水事件（未掩码帧 50Hz 打满 httpd → TWDT
      * 复位 ×19）时无法定位凶手，此后每个 WS 连接都可追溯 */
     char ipstr[INET_ADDRSTRLEN] = "?";
     struct sockaddr_in peer;
     socklen_t plen = sizeof(peer);
-    if (getpeername(s_clients[s_client_count - 1].fd,
-                    (struct sockaddr *)&peer, &plen) == 0) {
+    if (getpeername(fd, (struct sockaddr *)&peer, &plen) == 0) {
         inet_ntop(AF_INET, &peer.sin_addr, ipstr, sizeof(ipstr));
     }
-    ESP_LOGI(TAG, "WS client added, fd=%d ip=%s (total=%d)",
-             s_clients[s_client_count - 1].fd, ipstr, s_client_count);
+    ESP_LOGI(TAG, "WS client added, fd=%d ip=%s (total=%d)", fd, ipstr, s_client_count);
     xSemaphoreGive(s_mutex);
 }
 
-static void remove_client(httpd_req_t *req)
+static void remove_client_fd(int fd)
 {
-    int fd = httpd_req_to_sockfd(req);
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     for (int i = 0; i < s_client_count; i++) {
-        if (s_clients[i].fd == fd) {
-            s_clients[i] = s_clients[--s_client_count];
+        if (s_client_fds[i] == fd) {
+            s_client_fds[i] = s_client_fds[--s_client_count];
             ESP_LOGI(TAG, "WS client removed, fd=%d (total=%d)", fd, s_client_count);
-            xSemaphoreGive(s_mutex);
-            return;
+            break;
         }
     }
     xSemaphoreGive(s_mutex);
 }
 
 /* ------------------------------------------------------------------ */
-/*  WebSocket handler                                                   */
+/*  WebSocket handler                                                  */
 /* ------------------------------------------------------------------ */
 
 static esp_err_t ws_handler(httpd_req_t *req)
 {
     if (req->method == HTTP_GET) {
-        /* WebSocket upgrade handshake — client connecting */
+        /* IDF v5：握手完成后以 GET 进 handler（v6 不再走此分支）。 */
         add_client(req);
         return ESP_OK;
     }
@@ -103,23 +111,34 @@ static esp_err_t ws_handler(httpd_req_t *req)
          * 必须 return 非 OK 让 httpd 关闭该会话——返回 ESP_OK 会让坏客户端
          * 无限重发坏帧（2026-09-04 实测 50Hz 打满 httpd CPU0 → IDLE0 饿死
          * → TWDT 复位循环）。 */
-        remove_client(req);
+        remove_client_fd(httpd_req_to_sockfd(req));
         return ESP_FAIL;
     }
 
     if (ws_pkt.type == HTTPD_WS_TYPE_CLOSE) {
-        remove_client(req);
+        remove_client_fd(httpd_req_to_sockfd(req));
     }
 
     return ESP_OK;
 }
 
 /* ------------------------------------------------------------------ */
-/*  Public API                                                          */
+/*  Public API                                                         */
 /* ------------------------------------------------------------------ */
 
 /* Forward decl — defined below init */
 static void reaper_task(void *arg);
+
+#ifdef CONFIG_HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT
+/* IDF v6 起握手请求不再调用 uri handler（httpd_uri.c 握手分支直接 return OK），
+ * GET 分支永不执行 → 客户端列表恒空 → 广播静默失效（2026-09-07 排查）。
+ * 客户端入册挂到握手完成回调；v5 的 GET 分支保留，add_client 幂等去重。 */
+static esp_err_t ws_post_handshake(httpd_req_t *req)
+{
+    add_client(req);
+    return ESP_OK;
+}
+#endif /* CONFIG_HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT */
 
 esp_err_t ws_server_init(httpd_handle_t server)
 {
@@ -127,8 +146,10 @@ esp_err_t ws_server_init(httpd_handle_t server)
     if (s_initialized) return ESP_OK;
     s_initialized = true;
 
+    s_server = server;
     s_mutex = xSemaphoreCreateMutex();
-    if (s_mutex == NULL) {
+    s_send_mutex = xSemaphoreCreateMutex();
+    if (s_mutex == NULL || s_send_mutex == NULL) {
         ESP_LOGE(TAG, "Failed to create mutex");
         return ESP_FAIL;
     }
@@ -136,7 +157,7 @@ esp_err_t ws_server_init(httpd_handle_t server)
     /* 死客户端回收器：每 30s 向所有客户端发 WS ping。
      * 浏览器异常断开（关标签页/断网）不会发 CLOSE 帧，死连接会一直占着
      * httpd 的 open socket；ping 失败即摘除，防止套接字被慢性耗尽。 */
-    xTaskCreate(reaper_task, "ws_reaper", 3072, server, 1, NULL);
+    xTaskCreate(reaper_task, "ws_reaper", 3072, NULL, 1, NULL);
 
     httpd_uri_t ws_uri = {
         .uri          = "/ws",
@@ -144,6 +165,9 @@ esp_err_t ws_server_init(httpd_handle_t server)
         .handler      = ws_handler,
         .user_ctx     = NULL,
         .is_websocket = true,
+#ifdef CONFIG_HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT
+        .ws_post_handshake_cb = ws_post_handshake,
+#endif
     };
     esp_err_t ret = httpd_register_uri_handler(server, &ws_uri);
     if (ret == ESP_ERR_HTTPD_HANDLER_EXISTS) {
@@ -160,35 +184,29 @@ esp_err_t ws_server_init(httpd_handle_t server)
 
 static void reaper_task(void *arg)
 {
-    httpd_handle_t server = (httpd_handle_t)arg;
+    httpd_ws_frame_t ping = {
+        .type    = HTTPD_WS_TYPE_PING,
+        .payload = NULL,
+        .len     = 0,
+    };
 
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(30000));
 
-        httpd_ws_frame_t ping = {
-            .type    = HTTPD_WS_TYPE_PING,
-            .payload = NULL,
-            .len     = 0,
-        };
-
         xSemaphoreTake(s_mutex, portMAX_DELAY);
+        int fds[MAX_WS_CLIENTS];
         int count = s_client_count;
-        httpd_req_t *reqs[MAX_WS_CLIENTS];
-        for (int i = 0; i < count; i++) reqs[i] = s_clients[i].req;
+        for (int i = 0; i < count; i++) fds[i] = s_client_fds[i];
         xSemaphoreGive(s_mutex);
 
         for (int i = 0; i < count; i++) {
-            if (httpd_ws_send_frame(reqs[i], &ping) != ESP_OK) {
-                int fd = httpd_req_to_sockfd(reqs[i]);
-                xSemaphoreTake(s_mutex, portMAX_DELAY);
-                for (int j = 0; j < s_client_count; j++) {
-                    if (s_clients[j].fd == fd) {
-                        s_clients[j] = s_clients[--s_client_count];
-                        ESP_LOGW(TAG, "Reaped dead WS client fd=%d (total=%d)", fd, s_client_count);
-                        break;
-                    }
-                }
-                xSemaphoreGive(s_mutex);
+            esp_err_t ret;
+            xSemaphoreTake(s_send_mutex, portMAX_DELAY);
+            ret = httpd_ws_send_frame_async(s_server, fds[i], &ping);
+            xSemaphoreGive(s_send_mutex);
+            if (ret != ESP_OK) {
+                ESP_LOGW(TAG, "Reaped dead WS client fd=%d (total=%d)", fds[i], s_client_count - 1);
+                remove_client_fd(fds[i]);
             }
         }
     }
@@ -214,31 +232,25 @@ void ws_broadcast(const char *type, const char *data)
         .len     = len,
     };
 
-    /* Snapshot client list under mutex, then send without holding mutex */
-    httpd_req_t *reqs[MAX_WS_CLIENTS];
+    /* Snapshot fd list under mutex, then send without holding list mutex
+     * (s_send_mutex serializes the actual socket writes). */
+    int fds[MAX_WS_CLIENTS];
     int count;
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     count = s_client_count;
     for (int i = 0; i < count; i++) {
-        reqs[i] = s_clients[i].req;
+        fds[i] = s_client_fds[i];
     }
     xSemaphoreGive(s_mutex);
 
-    /* Send to all snapshot clients without holding mutex */
     for (int i = 0; i < count; i++) {
-        esp_err_t ret = httpd_ws_send_frame(reqs[i], &pkt);
+        esp_err_t ret;
+        xSemaphoreTake(s_send_mutex, portMAX_DELAY);
+        ret = httpd_ws_send_frame_async(s_server, fds[i], &pkt);
+        xSemaphoreGive(s_send_mutex);
         if (ret != ESP_OK) {
-            /* Client disconnected — remove under mutex */
-            int fd = httpd_req_to_sockfd(reqs[i]);
-            xSemaphoreTake(s_mutex, portMAX_DELAY);
-            for (int j = 0; j < s_client_count; j++) {
-                if (s_clients[j].fd == fd) {
-                    s_clients[j] = s_clients[--s_client_count];
-                    ESP_LOGI(TAG, "WS client removed (send failed), fd=%d (total=%d)", fd, s_client_count);
-                    break;
-                }
-            }
-            xSemaphoreGive(s_mutex);
+            /* Client disconnected — drop from list */
+            remove_client_fd(fds[i]);
         }
     }
 }

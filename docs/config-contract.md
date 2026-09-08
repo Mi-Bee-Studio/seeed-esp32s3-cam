@@ -1,4 +1,4 @@
-# MiBee Cam 家族配置契约（v1.0，2026-09-05）
+# MiBee Cam 家族配置契约（v1.1，2026-09-08）
 
 > **定位**：四仓（ai-thinker / esp32s3-n16r8 / luatos / seeed）配置子系统的统一契约：
 > 持久化格式、字段名与取值域、校验矩阵、默认值、迁移策略、SD 卡 provisioning 格式。
@@ -64,6 +64,7 @@
 |---|---|---|
 | 画质微调 | 板支持 | cam_brightness / cam_contrast / cam_saturation / cam_sharpness（i8 -2..2）、day_night_mode（u8 0-2） |
 | SD 运维 | sd | sd_log_enabled、cleanup_low_pct（1-99）、cleanup_high_pct（`cleanup_high`；5-80 且 ≥low+5；语义=空闲百分比，api-contract §11.6） |
+| ONVIF 运动报警 | onvif_events（v1.5，api-contract §3/§13） | onvif_events：u8 {0,1}，默认 0（仅 seeed/n16r8）；true = CSI 运动生成 MotionAlarm（订阅服务常在） |
 | 录像 | recording | record_mode、segment_sec（u16 5-3600）、frame_drop_enabled（`frame_drop_en`）、record_on_boot、video_record_to_sd（`video_to_sd`）、audio_record_to_sd（`audio_to_sd`，兼 audio 能力） |
 | 延时摄影 | timelapse | **家族标准 = 动态模型 8 字段**：timelapse_enabled（`tl_en`）、timelapse_interval_s（1-255）、timelapse_burst_count、timelapse_mode（u8 0=静态 1=动态）、timelapse_min_interval_s（`tl_min_int_s`）、timelapse_max_interval_s（`tl_max_int_s`）、timelapse_decay_factor、timelapse_decay_period_s（`tl_decay_p_s`） |
 | 移动侦测 | 板支持 | **家族超集模型**：motion_enabled、motion_sensitivity（u8 0-100，越大越灵敏）、motion_cooldown_s（u16 1-300，两次触发最小间隔）、motion_active_interval_s（`motion_act_int_s`；u8 1-30，持续活动期再触发间隔） |
@@ -136,6 +137,9 @@ timelapse_interval_s 1-255 · xclk_freq_mhz ∈{10,16,20} · wifi_roam_rssi 0 �
   核心字段表/能力门控字段组/校验矩阵/默认值与板级覆盖；motion 超集与 timelapse
   动态模型定标；SD provisioning 统一格式（§9）；四仓旧格式迁移方案。
 - （后续变更在此追加：字段增删、语义变更、迁移步骤，均须 bump schema_ver。）
+- **v1.1（2026-09-08）**：§3.2 新增 `onvif_events`（u8 {0,1}，默认 0，仅
+  seeed/n16r8）。可选能力门控键、缺键即默认值 ⇒ **无需 bump schema_ver、无需
+  迁移**（存量 NVS 行为不变；语义见 api-contract v1.5 §13）。
 
 ## 9. SD 卡 provisioning 统一格式
 

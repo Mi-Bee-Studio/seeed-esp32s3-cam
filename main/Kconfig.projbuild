@@ -12,3 +12,21 @@ menu "mibee-cam Security Defaults"
             via the git-ignored sdkconfig.
 
 endmenu
+
+menu "mibee-cam CSI Motion Sensing (ESPectre)"
+
+    config MIBEE_CSI_MOTION
+        bool "Enable ESPectre WiFi CSI motion sensing"
+        default n
+        select ESP_WIFI_CSI_ENABLED if SOC_WIFI_CSI_SUPPORT
+        help
+            Embed the ESPectre sensing runtime (components/espectre, GPLv3)
+            and start it after WiFi init. Logs motion-state changes only —
+            no API/contract surface yet (pilot, 2026-09-06). Detection
+            profile / CSI cadence are tuned under "ESPectre Sensing".
+            Enabling this also compiles CSI support into esp_wifi
+            (ESP_WIFI_CSI_ENABLED, ~a few KB RAM while sensing runs);
+            with this option off the firmware is byte-identical to the
+            pre-ESPectre baseline (verified 2026-09-06).
+
+endmenu

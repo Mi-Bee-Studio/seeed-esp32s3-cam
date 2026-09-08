@@ -80,9 +80,15 @@
           <span id="stage-hint" data-i18n="stream.connecting">Connecting…</span>
         </div>
         <div class="stage-top">
-          <div class="rec-pill" id="rec-pill" hidden>
-            <span class="rec-dot"></span>
-            <span id="rec-file"></span>
+          <div class="stage-top-left">
+            <div class="rec-pill" id="rec-pill" hidden>
+              <span class="rec-dot"></span>
+              <span id="rec-file"></span>
+            </div>
+            <div class="csi-pill" id="csi-pill" hidden>
+              <span class="csi-dot"></span>
+              <span id="csi-text">CSI</span>
+            </div>
           </div>
           <div class="chip-clients" id="chip-clients">0</div>
         </div>
@@ -343,6 +349,10 @@
             <div class="field-label" data-i18n="streaming.onvif">ONVIF Discovery</div>
             <div class="toggle" id="onvif-enable" role="switch" aria-checked="false" tabindex="0"></div>
           </div>
+          <div class="field" id="row-onvif-events" hidden>
+            <div class="field-label" data-i18n="streaming.onvif_events">ONVIF Motion Alarm</div>
+            <div class="toggle" id="onvif-events" role="switch" aria-checked="false" tabindex="0"></div>
+          </div>
           <button class="btn btn-primary btn-block" id="btn-streaming-save" style="margin-top:10px" hidden>
             <svg class="icon"><use href="#i-check"/></svg><span data-i18n="btn.save">Save</span>
           </button>
@@ -401,7 +411,29 @@
 <div id="toast-root"></div>
 <div id="modal-root"></div>
 
-<script src="/i18n.js"></script>
-<script src="/app.js"></script>
+<script>
+/* SPA 自愈加载（PIT-038）：弱射频板（ai/luatos + CSI）存在秒级射频死窗，
+ * 首屏脚本一次夭折 = 页面永久静态壳（须手动刷新）。此处按依赖顺序加载，
+ * 单个资源失败每 2s 重试（上限 15 次），页面可穿透死窗自动收敛。
+ * 健康板（seeed/n16r8）零影响：首载即成功，重试逻辑不触发。 */
+(function () {
+  function loadScript(src, n, cb) {
+    var s = document.createElement('script');
+    s.src = src + (n ? '?retry=' + n : '');
+    s.onload = cb || null;
+    s.onerror = function () { if (n < 15) setTimeout(function () { loadScript(src, n + 1, cb); }, 2000); };
+    document.head.appendChild(s);
+  }
+  function loadCss(href, n) {
+    var l = document.createElement('link');
+    l.rel = 'stylesheet';
+    l.href = href + (n ? '?retry=' + n : '');
+    l.onerror = function () { if (n < 15) setTimeout(function () { loadCss(href, n + 1); }, 2000); };
+    document.head.appendChild(l);
+  }
+  loadCss('/style.css', 0);
+  loadScript('/i18n.js', 0, function () { loadScript('/app.js', 0); });
+})();
+</script>
 </body>
 </html>

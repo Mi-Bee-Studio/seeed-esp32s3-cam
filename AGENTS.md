@@ -551,3 +551,47 @@ Creating a release:
 - **注意**：`motion_act_int_s`（契约括注键）实为 16 字符超 NVS 上限，四仓实际
   用 `motion_act_s`（与 ai-thinker 一致）；契约文档后续修正。
 
+## 2026-09-06：ESPectre WiFi CSI 运动感知试点（PIT-034，已上板跑通）
+
+**定位**：`components/espectre/`（vendored SDK 3.0.0，GPL-3.0-only——本仓固件
+因此整体按 GPLv3 分发，与仓 LICENSE 一致）。集成面：`main/csi_motion.{h,cpp}`
+（C 接口，app_main 第 8b 步、wifi_init 之后），`CONFIG_MIBEE_CSI_MOTION`
+门控（默认 **n**；`select ESP_WIFI_CSI_ENABLED`）。**门关时 bin 与基线
+字节同尺寸（1,670,944B 实测），CI/发布无感**；门开 +76.5KB（OTA 槽余 ~151KB）。
+
+**运行形态**（当前板载配置）：INTERNAL 生成器 ping 网关 @10pps（pps 必须
+匹配链路实际 admitted 率，见 PIT-034；ch11 拥塞网 100/20pps 都过不了 70%
+槽占用），Lightweight 档，`calibration OK (thr=0.92)`，事件仅打日志
+（tag `csi_motion`，1s 心跳含 diag 五级速率），**无 API/契约面**（推广时再动
+契约三文档）。SDK 内部日志经 `set_log_sink`（W/E）转发。
+
+**实测账本**：内部堆 52.4→30.4KB（**-22KB**，即 CSI 全开的真实 DRAM 价）；
+MJPEG 130s 并存零断连零重启；81.5°C@HD；五轮 Web OTA 迭代零砖。
+**vendored 副本相对上游的全部改动**（grep `MiBee` 可见）：CMakeLists 删
+mqtt/esp_https_ota/improv REQUIRES + 私有 mbedtls include/宏 + BW 枚举兼容；
+`espectre_sdk_version.h` 打版本戳；`device_identity.cpp` sha256 context API；
+`csi_frame_identity.cpp` 来源过滤旁路（v6 驱动不填 payload，上游修复后回退）。
+**遗留**：motion 状态对真人走动的响应验证（隔夜日志在看）；家族推广需先过
+luatos 无 PSRAM 的 -22KB 预算（40-47KB 余量会掉到 ~20KB，贴 15KB 警戒线）；
+外部模式 multicast 组 239.255.0.1 未试。
+
+
+
+## 2026-09-08：ONVIF Pull-Point 事件服务（契约 v1.5，NVR 运动报警联动）
+
+`main/onvif_events.c/h`：CSI 运动状态转移 → `tns1:VideoSource/MotionAlarm`
+通知（Source=CSI、State、Score 0-100），NVR 走 `CreatePullPointSubscription` →
+`PullMessages` 轮询（+`Renew`/`Unsubscribe`）。**单订阅模型**（新订阅顶替），
+`TerminationTime` 1h、120s 无拉取自动过期；**无长轮询**（handler 立即返回，
+esp httpd worker 不阻塞——轮询节奏 NVR 侧定）。事件生成由 config 键
+`onvif_events`（默认 0）运行时门控——即商用相机的"运动侦测开关"；订阅服务
+本身常注册。CSI 扇出点在 `csi_motion.cpp` 的 `on_motion_state_changed`（与
+WS 广播同点）。`GetCapabilities`/`GetServices` 已广告 events_service XAddr。
+
+- **坑（已修）**：新 URI 注册运行时报 `ESP_ERR_HTTPD_HANDLERS_FULL`——
+  本板 `max_uri_handlers=32` 早已顶满（27 static + /ws + 2 ONVIF），已提到 40。
+  给本板加任何 httpd 端点前先核这个数。
+- 探针：`tools/onvif_events_probe.py`（raw SOAP，无三方依赖）；SPA 流媒体页
+  新增"ONVIF 运动报警（NVR 联动）"开关（config 无该键的板自动隐藏）。
+- 实测（.133）：订阅/轮询 268 次 0 错误；开关经 SPA 与 API 双向读写一致。
+  事件实收依赖自然运动（当日 944 次 MOTION），长窗观察交 soak。

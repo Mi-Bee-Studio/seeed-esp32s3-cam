@@ -320,7 +320,7 @@ static esp_err_t api_capabilities_handler(httpd_req_t *req)
     cJSON *data = cJSON_CreateObject();
 
     /* 契约 v1.1：12 个布尔能力位 + api_version/wifi_scan（见 docs/api-contract.md） */
-    cJSON_AddStringToObject(data, "api_version", "1.3");
+    cJSON_AddStringToObject(data, "api_version", "1.5");
     cJSON_AddBoolToObject(data, "wifi_scan", true);
     cJSON_AddBoolToObject(data, "ai", false);           /* On-device AI detection */
     cJSON_AddBoolToObject(data, "sd", storage_is_available());  /* SD card storage */
@@ -334,6 +334,11 @@ static esp_err_t api_capabilities_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(data, "rtsp", true);         /* RTSP server */
     cJSON_AddBoolToObject(data, "websocket", true);    /* WebSocket push */
     cJSON_AddBoolToObject(data, "mdns", true);         /* mDNS hostname advertisement */
+#if CONFIG_MIBEE_CSI_MOTION
+    /* 契约 v1.4：WiFi CSI 运动感知（编译期门控，恒定；true ⇒ /ws csi_status 心跳） */
+    cJSON_AddBoolToObject(data, "csi_motion", true);
+    cJSON_AddBoolToObject(data, "onvif_events", true);   /* 契约 v1.5：ONVIF MotionAlarm 事件服务 */
+#endif
 
     return json_ok(req, data);
 }
@@ -375,6 +380,7 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "cam_sharpness", (double)cfg->cam_sharpness);
     cJSON_AddNumberToObject(data, "day_night_mode", (double)cfg->day_night_mode);
     cJSON_AddNumberToObject(data, "onvif_enable", (double)cfg->onvif_enable);
+    cJSON_AddBoolToObject(data, "onvif_events", cfg->onvif_events != 0);   /* 契约 v1.5 */
     cJSON_AddNumberToObject(data, "xclk_freq_mhz", (double)cfg->xclk_freq_mhz);
     cJSON_AddNumberToObject(data, "wifi_roam_rssi", (double)cfg->wifi_roam_rssi);
     cJSON_AddNumberToObject(data, "wifi_roam_gap_s", (double)cfg->wifi_roam_gap_s);
@@ -487,6 +493,8 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     }
     if ((item = cJSON_GetObjectItem(json, "webdav_enabled")))
         cfg->webdav_enabled = item->valueint != 0;
+    if ((item = cJSON_GetObjectItem(json, "onvif_events")))   /* 契约 v1.5 */
+        cfg->onvif_events = item->valueint != 0;
     if ((item = cJSON_GetObjectItem(json, "webdav_url")) && cJSON_IsString(item)) {
         strncpy(cfg->webdav_url, item->valuestring, sizeof(cfg->webdav_url) - 1);
         cfg->webdav_url[sizeof(cfg->webdav_url) - 1] = '\0';
@@ -2109,7 +2117,7 @@ esp_err_t web_server_start(uint16_t port)
     }
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 32;   /* 27 static + /ws + 2 ONVIF, margin for growth */
+    config.max_uri_handlers = 40;   /* 27 static + /ws + 3 ONVIF（v1.5 events_service）, margin for growth */
     config.stack_size = 16384;   /* 16KB: download handler has ~6KB locals + nested calls */
     config.uri_match_fn = httpd_uri_match_wildcard;
     /* 2026-09-02 EMFILE 事故：httpd 独占 11 会挤占 :81/:554/上传器。

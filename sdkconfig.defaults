@@ -97,6 +97,8 @@ CONFIG_SPIFFS=y
 
 # WebSocket support
 CONFIG_HTTPD_WS_SUPPORT=y
+# IDF v6 起握手不再进 uri handler，客户端入册依赖握手后回调（ws_server.c）
+CONFIG_HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT=y
 
 # System event task stack (increased for mDNS init in wifi event handler)
 CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
@@ -126,3 +128,8 @@ CONFIG_LWIP_TCP_MSL=15000
 # MJPEG LRU 修复后并发连接增多（httpd 8 + mjpeg 3 + rtsp/ws/上传），
 # 内部 DRAM 只剩 ~13KB → SD DMA 分配失败、MJPEG 客户端任务栈分配失败。
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# ESPectre CSI 运动感知（2026-09-06 试点，PIT-034）：ch11 拥塞网实测
+# admitted 只有 ~7-10pps，时间栅格 pps 必须匹配链路供给——100/20pps 都过不了
+# 检测器 70% 槽占用下限，校准永不完成。换不拥塞的网/信道可回调（上限 500）。
+CONFIG_ESPECTRE_CSI_TARGET_PPS=10

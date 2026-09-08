@@ -73,6 +73,7 @@ typedef struct {
     int8_t cam_sharpness;    // 摄像头锐度：-2..+2
     uint8_t day_night_mode;   // 日夜模式：0=彩色, 1=黑白, 2=自动(预留)
     uint8_t onvif_enable;     /* 契约核心字段：0=关闭 ONVIF SOAP 注册+WS-Discovery（重启生效），默认 1 */
+    uint8_t onvif_events;     /* 契约 v1.5：ONVIF MotionAlarm 事件生成开关（NVR 联动），默认 0；订阅服务本身常开 */
     uint8_t xclk_freq_mhz;    /* 摄像头 XCLK 频率 MHz，可选 10/16/20，默认 16（板值） */
     int8_t  wifi_roam_rssi;   /* WiFi 漫游 RSSI 阈值，板级覆盖默认 -75，0=禁用 */
     uint8_t wifi_roam_gap_s;  /* 漫游切换信号差值 dBm，5-15，默认 10 */
