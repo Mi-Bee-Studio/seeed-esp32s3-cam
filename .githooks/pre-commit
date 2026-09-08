@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# 提交前泄密闸（PIT-027）：扫描本次 staged 的文件，命中即拒绝提交。
+# 安装：tools/setup-hooks.sh（git config core.hooksPath .githooks）。
+# 本地闸是软防线（denylist 依赖 MIBEE_SECURITY_DENYLIST 环境变量，未配置时
+# 仅 D/E/F 规则生效）；硬防线在远端——分支保护必需检查 + 全分支 CI。
+set -u
+REPO_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+
+staged=$(git diff --cached --name-only --diff-filter=ACMRT)
+[ -z "$staged" ] && exit 0
+
+if ! python3 "$REPO_DIR/scripts/security-check.py" --files $staged; then
+  echo
+  echo "✗ 提交被泄密闸拒绝。处理：确属泄密 → 脱敏后重新 stage；确属合理值 →"
+  echo "  在 scripts/security-check.py 白名单登记（denylist 经 MIBEE_SECURITY_DENYLIST"
+  echo "  环境变量注入，取值见根工作区 AGENTS.md 机密清单）。"
+  exit 1
+fi
+exit 0
