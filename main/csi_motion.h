@@ -18,6 +18,8 @@
  */
 #pragma once
 
+#include <stdbool.h>
+
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -31,6 +33,17 @@ extern "C" {
  * case. Pilot scope: motion events go to the log only (no API/contract yet).
  */
 esp_err_t csi_motion_init(void);
+
+/* 契约 v1.6：最新感知快照（GET /api/status 的 "csi" 字段，与 /ws csi_status
+ * 心跳同形同值）。CSI 未编译或运行时尚未产出首个周期更新时返回 false。
+ * portMUX 单写者快照，非阻塞，可在任意任务上下文调用。 */
+typedef struct {
+    char  state[10];   /* "MOTION" / "IDLE" / "warming" */
+    float score;       /* 0-1 精细分值 */
+    float thr;         /* 0-1 判决阈值 */
+} csi_motion_status_t;
+
+bool csi_motion_get_status(csi_motion_status_t *out);
 
 #ifdef __cplusplus
 }

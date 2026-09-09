@@ -595,3 +595,11 @@ WS 广播同点）。`GetCapabilities`/`GetServices` 已广告 events_service XA
   新增"ONVIF 运动报警（NVR 联动）"开关（config 无该键的板自动隐藏）。
 - 实测（.133）：订阅/轮询 268 次 0 错误；开关经 SPA 与 API 双向读写一致。
   事件实收依赖自然运动（当日 944 次 MOTION），长窗观察交 soak。
+
+## 2026-09-08：CSI 状态 HTTP 回退（契约 v1.6，SPA 胶囊双通道）
+
+`GET /api/status` 增补可选 `csi` 对象（与 `/ws csi_status` 心跳同形同值，
+同一快照源 `csi_motion_get_status()`——portMUX 单写者，`on_periodic_update`
+~1Hz 写）。动机：n16r8 CSI 常开但无 WS 服务，SPA 胶囊此前无数据通道；本板
+WS 为主通道、HTTP 兼作 WS 断连回退，两路并存后到者覆盖。本实现四仓 web_server
+源码对齐（ai/luatos stub 恒缺省）。
