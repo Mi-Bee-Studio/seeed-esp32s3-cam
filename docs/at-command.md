@@ -1,4 +1,4 @@
-# MiBee Cam 家族 AT 指令契约（v1.1，2026-09-05）
+# MiBee Cam 家族 AT 指令契约（v1.2，2026-09-09）
 
 > **定位**：四仓（ai-thinker / esp32s3-n16r8 / luatos / seeed）串口 AT 控制面的
 > 统一契约，地位同 `docs/api-contract.md`（HTTP 面）。各仓实现可按板能力裁剪，
@@ -6,6 +6,9 @@
 > **历史**：此前三套各自演化（ai-thinker/serial_config.c、n16r8/at_command.c、
 > luatos/at_command.c 命名互不兼容，seeed 无 AT），2026-09-04 起统一契约，
 > 2026-09-05 v1.1 起四仓共享同一核心实现（见 §0）。
+>
+> **v1.2 变更（2026-09-09）**：`AT+WIFI2` 扩展至 ai-thinker/luatos（§5）；
+> §6 WiFi 凭据写入列登记 `AT+WIFI2` 各板语义（luatos=保存即生效不重启）。
 >
 > **v1.1 变更（2026-09-05）**：共享核心纪律（§0）；`AT+WIFISCAN` 升为四板必备；
 > 删除未登记的 `AT+RESET`；`AT+WIFI=` 生效方式随板登记（§2）；`AT+GMR` 必须
@@ -88,14 +91,16 @@
 | n16r8 | `AT+WIFI2=ssid,pass` | 备用网络凭据（查询脱敏；`ssid,` 空串清除） |
 | n16r8 | `AT+LED`/`AT+LED=`,`AT+RTSPPASS=` | 闪光灯 / RTSP 密码写 |
 | n16r8 | `AT+CAMCAP` | 拍一帧报告尺寸 |
+| ai-thinker | `AT+WIFI2=ssid,pass` | 备用网络凭据（查询脱敏；`ssid,` 空串清除；保存+重启生效） |
 | luatos | `AT+STREAM?` | MJPEG 流状态 |
+| luatos | `AT+WIFI2=ssid,pass` | 备用网络凭据（查询脱敏；`ssid,` 空串清除；保存即生效——备用槽不影响当前连接，v1.2 语义） |
 | seeed | —（首版无扩展） | |
 
 ## 6. 板级生效语义对照（与 api-contract §5 一致）
 
-| 仓 | 分辨率变更 | 画质变更 | WiFi 凭据写入 |
+| 仓 | 分辨率变更 | 画质变更 | WiFi 凭据写入 | `AT+WIFI2` 备用槽写入 |
 |---|---|---|---|
-| ai-thinker | 热重配（互斥锁+drain，OV2640 实测有效） | 热重配 | 保存+重启 |
-| n16r8 | 热重配（camera_reinit 协调停 AI/广播再重建） | 热重配 | 保存+重启 |
-| seeed | **保存+重启**（OV5640 运行时 set_framesize 无效，PIT-019） | 热应用（单寄存器写） | 保存+重启 |
-| luatos | **保存+重启**（fb_count=1 DRAM 热重配竞态，PIT-012） | **保存+重启** | **热连**（保存后不停机切换 STA，v1.1 起登记为本板语义） |
+| ai-thinker | 热重配（互斥锁+drain，OV2640 实测有效） | 热重配 | 保存+重启 | 保存+重启（v1.2） |
+| n16r8 | 热重配（camera_reinit 协调停 AI/广播再重建） | 热重配 | 保存+重启 | 保存+重启 |
+| seeed | **保存+重启**（OV5640 运行时 set_framesize 无效，PIT-019） | 热应用（单寄存器写） | 保存+重启 | 不适用（单 WiFi 形态，v1.2 起无此扩展） |
+| luatos | **保存+重启**（fb_count=1 DRAM 热重配竞态，PIT-012） | **保存+重启** | **热连**（保存后不停机切换 STA，v1.1 起登记为本板语义） | **保存即生效**（备用槽不触碰当前连接；开机择优/故障切换时读取，v1.2） |
