@@ -364,6 +364,10 @@ async function pollStatus() {
     catch (e) { $('net-dot').className = 'status-dot bad'; return; }
     lastStatus = d;
 
+    /* 契约 v1.6 CSI 回退：无 WS 板（websocket:false，如 n16r8）经 /api/status
+     * 的 csi 字段驱动胶囊/统计片；有 WS 的板两路同形同值，后到者覆盖互不干扰 */
+    if (d.csi) { CSI.data = d.csi; CSI.seen = Date.now(); renderCsi(); }
+
     /* header */
     $('net-dot').className = 'status-dot ' + (d.wifi_state === 'connected' ? 'ok' : d.wifi_state === 'ap' ? 'ok' : 'bad');
     $('hd-name').textContent = d.device_name || 'MiBee Cam';
@@ -1391,7 +1395,10 @@ window.addEventListener('beforeunload', () => {
 
 /* ---------- 22. Init ---------- */
 
-document.addEventListener('DOMContentLoaded', async () => {
+/* 自愈加载器（index.html）动态注入 app.js，脚本到达时 DOMContentLoaded 多已
+ * 触发——纯 addEventListener 会永不执行（2026-09-08 晚四板实测回归：Caps 恒空/
+ * WS 不连/CSI pill 不显示）。必须双路引导。 */
+const bootSPA = async () => {
     Theme.init();
     initTabs();
     initStream();
@@ -1493,4 +1500,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         doOta('/api/ota/upload', $('ota-fw-file').files[0], $('btn-ota-fw')));
     $('btn-ota-spiffs').addEventListener('click', () =>
         doOta('/api/ota/spiffs', $('ota-spiffs-file').files[0], $('btn-ota-spiffs')));
-});
+};
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootSPA);
+else bootSPA();
