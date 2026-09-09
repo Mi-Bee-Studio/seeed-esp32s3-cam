@@ -1,4 +1,4 @@
-# MiBee Cam 家族 AT 指令契约（v1.2，2026-09-09）
+# MiBee Cam 家族 AT 指令契约（v1.3，2026-09-09）
 
 > **定位**：四仓（ai-thinker / esp32s3-n16r8 / luatos / seeed）串口 AT 控制面的
 > 统一契约，地位同 `docs/api-contract.md`（HTTP 面）。各仓实现可按板能力裁剪，
@@ -9,6 +9,9 @@
 >
 > **v1.2 变更（2026-09-09）**：`AT+WIFI2` 扩展至 ai-thinker/luatos（§5）；
 > §6 WiFi 凭据写入列登记 `AT+WIFI2` 各板语义（luatos=保存即生效不重启）。
+> **v1.3 变更（2026-09-09）**：§2 CFG 白名单增 `csi_*` 六键（热生效；
+> `csi_threshold` 为字符串 `%.3f`）；§5 登记 CSI 板扩展 `AT+CSI?`/`AT+CSICAL`
+> （seeed/n16r8）。配套：config-contract v1.2 §3.2、api-contract v1.7 §15。
 >
 > **v1.1 变更（2026-09-05）**：共享核心纪律（§0）；`AT+WIFISCAN` 升为四板必备；
 > 删除未登记的 `AT+RESET`；`AT+WIFI=` 生效方式随板登记（§2）；`AT+GMR` 必须
@@ -94,7 +97,11 @@
 | ai-thinker | `AT+WIFI2=ssid,pass` | 备用网络凭据（查询脱敏；`ssid,` 空串清除；保存+重启生效） |
 | luatos | `AT+STREAM?` | MJPEG 流状态 |
 | luatos | `AT+WIFI2=ssid,pass` | 备用网络凭据（查询脱敏；`ssid,` 空串清除；保存即生效——备用槽不影响当前连接，v1.2 语义） |
-| seeed | —（首版无扩展） | |
+| seeed / n16r8 | `AT+CSI?` | CSI 实时快照：state/score/thr/profile/locked/calibrating + flip_rate/tx·cb·adm pps（v1.3；CSI-off 板 ERROR） |
+| seeed / n16r8 | `AT+CSICAL` | 立即触发 CSI 重校准（背景执行，v1.3） |
+| seeed | `AT+CHHEALTH?` | Wi-Fi 信道健康快照（v1.3 ①b：rssi/disconnects/busy_score/csi 探针，api-contract §16） |
+| seeed | `AT+CHHEALTH=SCAN` | 手动触发拥塞 scan（录像/有观众时 ERROR: busy，v1.3） |
+| seeed | `AT+CSI?`/`AT+CSICAL`/`AT+CHHEALTH` 实现见 main/at_port.c 扩展表 | n16r8 同款（家族同步） |
 
 ## 6. 板级生效语义对照（与 api-contract §5 一致）
 

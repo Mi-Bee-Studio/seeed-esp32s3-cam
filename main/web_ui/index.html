@@ -272,6 +272,11 @@
               <div class="field-note" id="wifi-current-detail"></div>
             </div>
           </div>
+          <!-- 契约 v1.7 ①b：信道健康只读行（chan_health 缺省时隐藏） -->
+          <div class="field stack" id="chan-health-row" hidden>
+            <div class="field-label" data-i18n="chan_health.title">Channel health</div>
+            <div class="field-note" id="chan-health-line">--</div>
+          </div>
           <div class="field stack">
             <div class="field-label" data-i18n="network.ssid_label">SSID</div>
             <div class="ssid-row">
@@ -353,6 +358,40 @@
             <div class="field-label" data-i18n="streaming.onvif_events">ONVIF Motion Alarm</div>
             <div class="toggle" id="onvif-events" role="switch" aria-checked="false" tabindex="0"></div>
           </div>
+          <!-- CSI 感知调参（契约 v1.7；csi_motion 能力位板显示） -->
+          <div class="field" id="row-csi-enabled" hidden>
+            <div class="field-label" data-i18n="csi.enabled">CSI Sensing</div>
+            <div class="toggle" id="csi-enabled" role="switch" aria-checked="false" tabindex="0"></div>
+          </div>
+          <div class="field stack" id="row-csi-live" hidden>
+            <div class="field-label" data-i18n="csi.live">CSI Live</div>
+            <canvas id="csi-spark" width="264" height="48"></canvas>
+            <div class="csi-meta" id="csi-meta">--</div>
+          </div>
+          <div class="field stack" id="row-csi-threshold" hidden>
+            <div class="field-label"><span data-i18n="csi.threshold">CSI Threshold</span> · <b id="csi-thr-val">auto</b></div>
+            <input type="range" id="csi-threshold" min="0" max="100" step="5" value="0">
+            <div class="hint" data-i18n="csi.threshold_hint">0 = auto; drag up to lock</div>
+          </div>
+          <div class="field" id="row-csi-hits" hidden>
+            <div class="field-label" data-i18n="csi.hits">Debounce</div>
+            <div style="display:flex;gap:8px">
+              <input type="number" id="csi-on-hits" min="1" max="20" step="1" value="4" style="width:64px" aria-label="on hits">
+              <input type="number" id="csi-off-hits" min="1" max="20" step="1" value="3" style="width:64px" aria-label="off hits">
+            </div>
+          </div>
+          <div class="field stack" id="row-csi-profile" hidden>
+            <div class="field-label" data-i18n="csi.profile">Detector</div>
+            <select id="csi-profile" style="width:100%">
+              <option value="0" data-i18n="csi.profile_lw">Lightweight (self-calibrating)</option>
+              <option value="1" data-i18n="csi.profile_ha">High-Accuracy (ML)</option>
+            </select>
+          </div>
+          <div class="field" id="row-csi-auto-heal" hidden>
+            <div class="field-label" data-i18n="csi.auto_heal">Auto-heal</div>
+            <div class="toggle" id="csi-auto-heal" role="switch" aria-checked="false" tabindex="0"></div>
+          </div>
+          <button class="btn btn-block" id="btn-csi-calibrate" data-i18n="csi.calibrate" hidden style="margin-top:6px">Recalibrate CSI</button>
           <button class="btn btn-primary btn-block" id="btn-streaming-save" style="margin-top:10px" hidden>
             <svg class="icon"><use href="#i-check"/></svg><span data-i18n="btn.save">Save</span>
           </button>

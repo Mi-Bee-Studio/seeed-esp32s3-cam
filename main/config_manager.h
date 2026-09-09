@@ -106,6 +106,14 @@ typedef struct {
     uint16_t timelapse_max_interval_s;  // 动态模式：无运动衰减上限（默认 300）
     uint8_t timelapse_decay_factor;     // 每衰减周期间隔倍率（默认 2）
     uint16_t timelapse_decay_period_s;  // 无运动多少秒后衰减一步（默认 10）
+    /* CSI 感知调参键族（契约 v1.7 §3.2；仅 csi_motion 能力位板生效，
+     * 其余板接受存储但运行时无效果——capabilities 已暴露 csi_motion 位） */
+    uint8_t csi_enabled;       // 感知启停（默认 1；0=暂停采样与事件）
+    float   csi_threshold;     // 0.0=自动（校准+settle）；0.05-1.0=手动锁定并禁用 settle（PIT-041 根治开关）
+    uint8_t csi_on_hits;       // 去抖：连续超阈 N 次判 MOTION（1-20，默认 4）
+    uint8_t csi_off_hits;      // 去抖：连续低于 N 次判 IDLE（1-20，默认 3）
+    uint8_t csi_profile;       // 检测档：0=Lightweight 1=High-Accuracy（默认 0）
+    uint8_t csi_auto_heal;     // 自愈环（默认 1）：thr 崩塌/翻转风暴→重校准→二次退化锁定阈值
 } cam_config_t;
 
 /** @brief 初始化配置模块，从 NVS 加载配置，无存储则使用默认值 */
