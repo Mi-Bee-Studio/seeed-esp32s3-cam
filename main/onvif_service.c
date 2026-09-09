@@ -21,7 +21,7 @@
  *
  * Implements only the SOAP actions required for NVRs to discover and
  * add this camera: GetDeviceInformation, GetCapabilities, GetServices,
- * GetProfiles, GetStreamUri.
+ * GetProfiles, GetStreamUri, GetSnapshotUri.
  *
  * No XML parser is used — action detection via strstr(), response
  * generation via snprintf().
@@ -424,6 +424,46 @@ static esp_err_t handle_get_stream_uri(httpd_req_t *req, const char *body)
     return ESP_OK;
 }
 
+/**
+ * @brief Handle GetSnapshotUri SOAP action (issue #7).
+ * Returns the HTTP JPEG single-frame URI (GET /api/capture on :80).
+ * The capture endpoint serves the broadcaster's cached frame (zero-copy,
+ * no camera contention) and carries no auth — same exposure as the :81
+ * MJPEG stream, so standard ONVIF clients (no custom headers) can fetch it.
+ */
+static esp_err_t handle_get_snapshot_uri(httpd_req_t *req)
+{
+    char *ip_str = wifi_get_ip_str();
+    if (!ip_str || strcmp(ip_str, "0.0.0.0") == 0) {
+        ip_str = "0.0.0.0";
+    }
+
+    char uri_str[256];
+    snprintf(uri_str, sizeof(uri_str), "http://%s:80/api/capture", ip_str);
+
+    char resp[ONVIF_RESP_MAX];
+    int len = snprintf(resp, sizeof(resp),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\">"
+        "<s:Body>"
+        "<trt:GetSnapshotUriResponse "
+        "xmlns:trt=\"" NS_MED "\" xmlns:tt=\"http://www.onvif.org/ver10/schema\">"
+        "<trt:MediaUri>"
+        "<trt:Uri>%s</trt:Uri>"
+        "<trt:InvalidAfterConnect>false</trt:InvalidAfterConnect>"
+        "<trt:InvalidAfterReboot>false</trt:InvalidAfterReboot>"
+        "<trt:Timeout>PT60S</trt:Timeout>"
+        "</trt:MediaUri>"
+        "</trt:GetSnapshotUriResponse>"
+        "</s:Body>"
+        "</s:Envelope>",
+        uri_str);
+
+    httpd_resp_set_type(req, "application/soap+xml");
+    httpd_resp_send(req, resp, len);
+    return ESP_OK;
+}
+
 /* ------------------------------------------------------------------ */
 /*  SOAP Action Dispatch                                              */
 /* ------------------------------------------------------------------ */
@@ -575,6 +615,9 @@ static esp_err_t dispatch_media_action(httpd_req_t *req, const char *body)
     }
     if (strstr(body, "GetStreamUri")) {
         return handle_get_stream_uri(req, body);
+    }
+    if (strstr(body, "GetSnapshotUri")) {
+        return handle_get_snapshot_uri(req);
     }
 
     /* Unrecognized action — log and return SOAP fault */
