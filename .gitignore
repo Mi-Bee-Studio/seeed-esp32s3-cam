@@ -41,6 +41,24 @@ compile_commands.json
 codegraph/
 .codegraph/
 
+# AI IDE / agent tool state (never commit; .zcode once slipped in — PIT-047)
+.zcode/
+.claude/
+.cursor/
+.cursorrules
+.continue/
+.aider*
+.windsurf/
+.kiro/
+.zed/
+.copilot*
+.gemini/
+.goose/
+.roo/
+.clinerules
+CLAUDE.md
+GEMINI.md
+
 # Internal tool caches
 .sisyphus/
 .omo/
