@@ -1,4 +1,4 @@
-# MiBee Cam 家族配置契约（v1.1，2026-09-08）
+# MiBee Cam 家族配置契约（v1.3，2026-09-10）
 
 > **定位**：四仓（ai-thinker / esp32s3-n16r8 / luatos / seeed）配置子系统的统一契约：
 > 持久化格式、字段名与取值域、校验矩阵、默认值、迁移策略、SD 卡 provisioning 格式。
@@ -65,6 +65,9 @@
 | 画质微调 | 板支持 | cam_brightness / cam_contrast / cam_saturation / cam_sharpness（i8 -2..2）、day_night_mode（u8 0-2） |
 | SD 运维 | sd | sd_log_enabled、cleanup_low_pct（1-99）、cleanup_high_pct（`cleanup_high`；5-80 且 ≥low+5；语义=空闲百分比，api-contract §11.6） |
 | ONVIF 运动报警 | onvif_events（v1.5，api-contract §3/§13） | onvif_events：u8 {0,1}，默认 0（仅 seeed/n16r8）；true = CSI 运动生成 MotionAlarm（订阅服务常在） |
+| CSI 感知调参 | csi_*（v1.2，api-contract §15） | `csi_enabled`：u8 {0,1} 默认 1（暂停感知不动 WiFi）；`csi_threshold`：float，0=自动（校准+settle）或 0.05-1.0=手动锁定（同时禁用 settle 单边下调，PIT-041 根治开关）；`csi_on_hits`/`csi_off_hits`：u8 1-20 默认 4/3；`csi_profile`：u8 {0,1} 默认 0（0=Lightweight 1=High-Accuracy 热切换）；`csi_auto_heal`：u8 {0,1} 默认 1。NVS 键：csi_enabled/csi_threshold(千分刻度 u16 0-1000)/csi_on_hits/csi_off_hits/csi_profile/csi_auto_heal。CSI-off 板（ai/luatos 生产形态）接受存储但运行时无效果 |
+| 水印 | watermark（v1.3，api-contract §3；**仅 seeed**，编译门 `MIBEE_WATERMARK`） | wm_enable（u8 {0,1}，默认 0；1=照片 `/api/capture` 烧水印）、wm_video（u8 {0,1}，默认 0；视频轨水印，开启后实际录制帧率随重编码耗时下降、段尾按实测回填 avih 帧率）、wm_text（str≤32，v1 仅 ASCII 32-126）、wm_pos（u8 0-3=左下/右下/左上/右上）、wm_time_fmt（str≤24 strftime 子集，空=不出时戳）、wm_quality（u8 60-95，默认 75） |
+
 | 录像 | recording | record_mode、segment_sec（u16 5-3600）、frame_drop_enabled（`frame_drop_en`）、record_on_boot、video_record_to_sd（`video_to_sd`）、audio_record_to_sd（`audio_to_sd`，兼 audio 能力） |
 | 延时摄影 | timelapse | **家族标准 = 动态模型 8 字段**：timelapse_enabled（`tl_en`）、timelapse_interval_s（1-255）、timelapse_burst_count、timelapse_mode（u8 0=静态 1=动态）、timelapse_min_interval_s（`tl_min_int_s`）、timelapse_max_interval_s（`tl_max_int_s`）、timelapse_decay_factor、timelapse_decay_period_s（`tl_decay_p_s`） |
 | 移动侦测 | 板支持 | **家族超集模型**：motion_enabled、motion_sensitivity（u8 0-100，越大越灵敏）、motion_cooldown_s（u16 1-300，两次触发最小间隔）、motion_active_interval_s（`motion_act_int_s`；u8 1-30，持续活动期再触发间隔） |
@@ -83,6 +86,7 @@ web_password ≥6 非空 · cleanup_low_pct 1-99 且 cleanup_high_pct ≥low+5 �
 segment_sec 5-3600 · motion_sensitivity 0-100 · motion_cooldown_s 1-300 ·
 timelapse_interval_s 1-255 · xclk_freq_mhz ∈{10,16,20} · wifi_roam_rssi 0 或
 -90..-50 · timezone 长度 1-64（非空时）· webdav_base_path 拒绝 `..` ·
+wm_pos 0-3 · wm_quality 60-95 · wm_text ≤32 字节 · wm_time_fmt ≤24 字节 ·
 所有字符串字段先验长度截断拒绝（不静默截断凭据）。
 
 ## 5. 默认值：家族表 + 板级覆盖
@@ -140,6 +144,15 @@ timelapse_interval_s 1-255 · xclk_freq_mhz ∈{10,16,20} · wifi_roam_rssi 0 �
 - **v1.1（2026-09-08）**：§3.2 新增 `onvif_events`（u8 {0,1}，默认 0，仅
   seeed/n16r8）。可选能力门控键、缺键即默认值 ⇒ **无需 bump schema_ver、无需
   迁移**（存量 NVS 行为不变；语义见 api-contract v1.5 §13）。
+
+- **v1.2（2026-09-09）**：§3.2 新增 CSI 感知调参键族 `csi_*` 六键（热生效；
+  阈值锁定语义 = PIT-041 阈值崩塌误报的根治开关）。配套：api-contract v1.7
+  §15、at-command v1.2 §CSI。CSI-off 板接受存储但运行时无效果。
+- **v1.3（2026-09-10）**：§3.2 新增水印字段组（仅 seeed，issue #11）：`wm_enable`/
+  `wm_video`/`wm_text`/`wm_pos`/`wm_time_fmt`/`wm_quality`。可选能力门控键、
+  缺键即默认值（全 0/空 = 关闭态与无此特性固件行为一致——运行时回退路径）⇒
+  **无需 bump schema_ver、无需迁移**；回退固件忽略多余键（§1 单键自治），
+  NVS 无需擦拭。语义见 api-contract v1.8 §3/§15。
 
 ## 9. SD 卡 provisioning 统一格式
 

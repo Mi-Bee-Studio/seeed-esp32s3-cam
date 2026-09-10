@@ -343,19 +343,63 @@ function statChip(labelKey, value, tone, iconName, titleKey) {
            `${icon(iconName)}<i>${t(labelKey)}</i><b>${value}</b></span>`;
 }
 
-/* CSI 感知状态（仅 CSI 门控板：经 /ws csi_status 心跳驱动；无事件则 UI 全静默） */
-const CSI = { data: null, seen: 0 };
+/* CSI 感知状态（仅 CSI 门控板：经 /ws csi_status 心跳驱动；无事件则 UI 全静默）
+ * v1.7：hist 供调参卡 spark 曲线（score/thr 双线，120 点） */
+const CSI = { data: null, seen: 0, hist: [], HIST_MAX: 120 };
 
 function renderCsi() {
     const pill = $('csi-pill');
     if (!pill) return;
-    if (!CSI.data || Date.now() - CSI.seen > 15000) { pill.hidden = true; return; }
+    if (!CSI.data || Date.now() - CSI.seen > 15000) { pill.hidden = true; renderCsiCard(); return; }
     pill.hidden = false;
     pill.title = window.i18n.t('csi.hint');
     pill.classList.toggle('is-motion', CSI.data.state === 'MOTION');
     $('csi-text').textContent = CSI.data.state === 'warming'
         ? window.i18n.t('csi.warming')
         : 'CSI ' + Number(CSI.data.score || 0).toFixed(2);
+    renderCsiCard();
+}
+
+/* 调参卡实时区（契约 v1.7）：spark + meta 行。数据快照缺失字段（旧固件）静默降级 */
+function renderCsiCard() {
+    const row = $('row-csi-live');
+    if (!row || row.hidden) return;
+    const d = CSI.data;
+    if (d && Date.now() - CSI.seen <= 15000) {
+        CSI.hist.push({ s: Number(d.score) || 0, t: (d.thr !== undefined ? Number(d.thr) : null) });
+        if (CSI.hist.length > CSI.HIST_MAX) CSI.hist.shift();
+    }
+    const cv = $('csi-spark');
+    if (cv && CSI.hist.length > 1) {
+        const ctx = cv.getContext('2d');
+        const W = cv.width, H = cv.height;
+        ctx.clearRect(0, 0, W, H);
+        const x = i => (i / (CSI.HIST_MAX - 1)) * W;
+        const y = v => H - 2 - Math.min(1, Math.max(0, v)) * (H - 4);
+        ctx.strokeStyle = 'rgba(255,176,32,.95)';   /* thr：琥珀虚线（主题主色） */
+        ctx.setLineDash([3, 2]);
+        ctx.beginPath();
+        let began = false;
+        CSI.hist.forEach((p, i) => {
+            if (p.t == null) return;
+            began ? ctx.lineTo(x(i), y(p.t)) : ctx.moveTo(x(i), y(p.t));
+            began = true;
+        });
+        if (began) ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.strokeStyle = '#58b368';                /* score：绿实线 */
+        ctx.beginPath();
+        CSI.hist.forEach((p, i) => { i ? ctx.lineTo(x(i), y(p.s)) : ctx.moveTo(x(i), y(p.s)); });
+        ctx.stroke();
+    }
+    if (d) {
+        const bits = [d.state || '--'];
+        if (d.thr !== undefined) bits.push('thr ' + Number(d.thr).toFixed(2) + (d.thr_locked ? ' 🔒' : ''));
+        if (d.calibrating) bits.push(window.i18n.t('csi.warming'));
+        if (d.flip_rate !== undefined) bits.push(d.flip_rate + '/h');
+        if (d.cb_pps !== undefined) bits.push('tx' + Number(d.tx_pps).toFixed(0) + '/cb' + Number(d.cb_pps).toFixed(0) + '/adm' + Number(d.adm_pps).toFixed(0));
+        $('csi-meta').textContent = bits.join(' · ');
+    }
 }
 
 async function pollStatus() {
@@ -367,6 +411,21 @@ async function pollStatus() {
     /* 契约 v1.6 CSI 回退：无 WS 板（websocket:false，如 n16r8）经 /api/status
      * 的 csi 字段驱动胶囊/统计片；有 WS 的板两路同形同值，后到者覆盖互不干扰 */
     if (d.csi) { CSI.data = d.csi; CSI.seen = Date.now(); renderCsi(); }
+    /* 契约 v1.7 ①b：信道健康快照 → WiFi 页只读行 */
+    const chEl = $('chan-health-line');
+    if (chEl) {
+        const chRow = $('chan-health-row');
+        if (d.chan_health && chRow) {
+            const ch = d.chan_health;
+            chRow.hidden = false;
+            chEl.textContent = window.i18n.t('chan_health.fmt', {
+                rssi: ch.rssi_avg, disc: ch.disconnects_1h,
+                busy: ch.busy_score, bss: ch.bss_on_chan
+            });
+        } else if (chRow) {
+            chRow.hidden = true;
+        }
+    }
 
     /* header */
     $('net-dot').className = 'status-dot ' + (d.wifi_state === 'connected' ? 'ok' : d.wifi_state === 'ap' ? 'ok' : 'bad');
@@ -976,9 +1035,35 @@ async function loadConfig() {
     if (d.rtsp_user !== undefined) { $('row-rtsp-user').hidden = false; $('rtsp-user').value = d.rtsp_user || ''; }
     if (d.rtsp_pass !== undefined) { $('row-rtsp-pass').hidden = false; }
     if (d.onvif_enable !== undefined) { $('row-onvif-enable').hidden = false; setToggle('onvif-enable', d.onvif_enable); }
-    if (d.onvif_events !== undefined) { $('row-onvif-events').hidden = false; setToggle('onvif-events', d.onvif_events); }   /* 契约 v1.5 */
+    if (d.onvif_events !== undefined) { $('row-onvif-events').hidden = false; setToggle('onvif-events', d.onvif_events); }
+    /* 水印（契约 v1.3，issue #11；板返回 wm_* 字段才渲染整卡） */
+    if (d.wm_enable !== undefined) {
+        $('wm-card').hidden = false;
+        $('row-wm-enable').hidden = false; setToggle('wm-enable', d.wm_enable);
+        $('row-wm-video').hidden = false; setToggle('wm-video', d.wm_video);
+        $('row-wm-text').hidden = false; $('wm-text').value = d.wm_text || '';
+        $('row-wm-time-fmt').hidden = false; $('wm-time-fmt').value = d.wm_time_fmt || '';
+        $('row-wm-pos').hidden = false;
+        document.querySelectorAll('#wm-pos-seg button').forEach(b =>
+            b.classList.toggle('active', Number(b.dataset.wmpos) === d.wm_pos));
+        $('row-wm-quality').hidden = false; $('wm-quality').value = d.wm_quality ?? 75;
+        $('btn-wm-save').hidden = false;
+    }   /* 契约 v1.5 */
+    /* CSI 调参键族（契约 v1.7；键存在=板支持，通常伴随 csi_motion 能力位） */
+    if (d.csi_threshold !== undefined) {
+        ['row-csi-enabled', 'row-csi-live', 'row-csi-threshold', 'row-csi-hits',
+         'row-csi-profile', 'row-csi-auto-heal'].forEach(id => { $(id).hidden = false; });
+        $('btn-csi-calibrate').hidden = false;
+        setToggle('csi-enabled', d.csi_enabled);
+        setToggle('csi-auto-heal', d.csi_auto_heal);
+        $('csi-threshold').value = Math.round((Number(d.csi_threshold) || 0) * 100);
+        $('csi-thr-val').textContent = d.csi_threshold > 0 ? Number(d.csi_threshold).toFixed(2) : 'auto';
+        $('csi-on-hits').value = d.csi_on_hits || 4;
+        $('csi-off-hits').value = d.csi_off_hits || 3;
+        $('csi-profile').value = String(d.csi_profile || 0);
+    }
     /* 没有任何可编辑项时隐藏 Save（RTSP 凭据走 web_password 的板，该页只读展示） */
-    const anyEditable = !$('row-rtsp-user').hidden || !$('row-rtsp-pass').hidden || !$('row-onvif-enable').hidden || !$('row-onvif-events').hidden;
+    const anyEditable = !$('row-rtsp-user').hidden || !$('row-rtsp-pass').hidden || !$('row-onvif-enable').hidden || !$('row-onvif-events').hidden || !$('row-csi-threshold').hidden;
     $('btn-streaming-save').hidden = !anyEditable;
 }
 
@@ -1103,7 +1188,43 @@ async function saveStreaming() {
             }
             if (!$('row-onvif-enable').hidden) payload.onvif_enable = $('onvif-enable').classList.contains('active');
             if (!$('row-onvif-events').hidden) payload.onvif_events = $('onvif-events').classList.contains('active');
+            /* CSI 调参键族（契约 v1.7；即时保存型 toggle 也走这里 → 全字段一并提交） */
+            if (!$('row-csi-threshold').hidden) {
+                const clampHits = v => Math.min(20, Math.max(1, parseInt(v) || 4));
+                payload.csi_enabled = $('csi-enabled').classList.contains('active');
+                payload.csi_auto_heal = $('csi-auto-heal').classList.contains('active');
+                payload.csi_threshold = parseInt($('csi-threshold').value) / 100;
+                payload.csi_on_hits = clampHits($('csi-on-hits').value);
+                payload.csi_off_hits = clampHits($('csi-off-hits').value);
+                payload.csi_profile = parseInt($('csi-profile').value) || 0;
+            }
             if (!Object.keys(payload).length) return;
+            await api('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            toast(window.i18n.t('toast.saved'), { type: 'success' });
+        } catch (e) {
+            toast(window.i18n.t('toast.save_failed', { msg: e.message }), { type: 'error' });
+        }
+    });
+}
+
+/* 水印（契约 v1.3，issue #11）——字段存在性已由 loadConfig 保证 */
+async function saveWatermark() {
+    const btn = $('btn-wm-save');
+    await busy(btn, async () => {
+        try {
+            const payload = {};
+            payload.wm_enable = $('wm-enable').classList.contains('active');
+            payload.wm_video = $('wm-video').classList.contains('active');
+            payload.wm_text = $('wm-text').value;
+            payload.wm_time_fmt = $('wm-time-fmt').value;
+            const posBtn = document.querySelector('#wm-pos-seg button.active');
+            payload.wm_pos = posBtn ? Number(posBtn.dataset.wmpos) : 0;
+            const q = parseInt($('wm-quality').value, 10);
+            if (!Number.isNaN(q)) payload.wm_quality = Math.min(95, Math.max(60, q));
             await api('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1450,12 +1571,31 @@ const bootSPA = async () => {
 
     /* toggles */
     initToggle('cam-hmirror', () => saveCamera());
+    initToggle('wm-enable');
+    initToggle('wm-video');
     initToggle('cam-vflip', () => saveCamera());
     initToggle('ai-face', () => saveAI());
     initToggle('ai-motion', () => saveAI());
     initToggle('ai-qr', () => saveAI());
     initToggle('onvif-enable', () => saveStreaming());
     initToggle('onvif-events', () => saveStreaming());
+    initToggle('csi-enabled', () => saveStreaming());      /* 契约 v1.7 */
+    initToggle('csi-auto-heal', () => saveStreaming());
+    const csiThr = $('csi-threshold');
+    if (csiThr) csiThr.addEventListener('input', () => {
+        $('csi-thr-val').textContent = csiThr.value > 0 ? (csiThr.value / 100).toFixed(2) : 'auto';
+    });
+    const csiCal = $('btn-csi-calibrate');
+    if (csiCal) csiCal.addEventListener('click', () => {
+        busy(csiCal, async () => {
+            try {
+                await api('/api/csi/calibrate', { method: 'POST' });
+                toast(window.i18n.t('csi.cal_started'), { type: 'success' });
+            } catch (e) {
+                toast(window.i18n.t('toast.save_failed', { msg: e.message }), { type: 'error' });
+            }
+        });
+    });
 
     /* sliders */
     ['cam-quality', 'cam-brightness', 'cam-contrast', 'cam-saturation', 'cam-sharpness', 'led-brightness']
@@ -1494,6 +1634,12 @@ const bootSPA = async () => {
     $('btn-network-save').addEventListener('click', saveNetwork);
     $('btn-change-pw').addEventListener('click', openPasswordModal);
     $('btn-streaming-save').addEventListener('click', saveStreaming);
+    $('btn-wm-save').addEventListener('click', saveWatermark);
+    document.querySelectorAll('#wm-pos-seg button').forEach(b =>
+        b.addEventListener('click', () => {
+            document.querySelectorAll('#wm-pos-seg button').forEach(x => x.classList.remove('active'));
+            b.classList.add('active');
+        }));
     $('btn-reboot').addEventListener('click', doReboot);
     $('btn-reset').addEventListener('click', doReset);
     $('btn-ota-fw').addEventListener('click', () =>

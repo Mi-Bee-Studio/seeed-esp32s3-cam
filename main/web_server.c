@@ -35,7 +35,9 @@
 #include "nas_uploader.h"
 #include "ws_server.h"
 #include "motion_detect.h"
-#include "csi_motion.h"  /* 契约 v1.6：/api/status 的 csi 快照字段（编译关闭时恒缺省） */
+#include "csi_motion.h"
+#include "watermark.h"  /* 契约 v1.3：照片水印（issue #11，编译门 MIBEE_WATERMARK） */  /* 契约 v1.6：/api/status 的 csi 快照字段（编译关闭时恒缺省） */
+#include "wifi_channel_health.h"  /* 契约 v1.7 ①b：信道健康快照 */
 
 #include "ota_updater.h"
 #include "audio_broadcaster.h"
@@ -317,7 +319,34 @@ static esp_err_t api_status_handler(httpd_req_t *req)
             cJSON_AddStringToObject(csi_obj, "state", csi.state);
             cJSON_AddNumberToObject(csi_obj, "score", (double)csi.score);
             cJSON_AddNumberToObject(csi_obj, "thr", (double)csi.thr);
+            /* 契约 v1.7 增补：调参/自愈可观测面 */
+            cJSON_AddNumberToObject(csi_obj, "profile", (double)csi.profile);
+            cJSON_AddBoolToObject(csi_obj, "thr_locked", csi.thr_locked);
+            cJSON_AddBoolToObject(csi_obj, "calibrating", csi.calibrating);
+            cJSON_AddNumberToObject(csi_obj, "flip_rate", (double)csi.flip_rate);
+            cJSON_AddNumberToObject(csi_obj, "tx_pps", (double)csi.tx_pps);
+            cJSON_AddNumberToObject(csi_obj, "cb_pps", (double)csi.cb_pps);
+            cJSON_AddNumberToObject(csi_obj, "adm_pps", (double)csi.adm_pps);
             cJSON_AddItemToObject(data, "csi", csi_obj);
+        }
+    }
+    /* 契约 v1.7 ①b：Wi-Fi 信道健康快照（CSI 无关，全家族字段一致；
+     * 未初始化/未采样时缺省——"不适用即省略"） */
+    wifi_chan_health_t ch;
+    if (wifi_channel_health_get(&ch)) {
+        cJSON *ch_obj = cJSON_CreateObject();
+        if (ch_obj) {
+            cJSON_AddNumberToObject(ch_obj, "rssi_avg", (double)ch.rssi_avg);
+            cJSON_AddNumberToObject(ch_obj, "rssi_min", (double)ch.rssi_min);
+            cJSON_AddNumberToObject(ch_obj, "channel", (double)ch.channel);
+            cJSON_AddNumberToObject(ch_obj, "disconnects_1h", (double)ch.disconnects_1h);
+            cJSON_AddNumberToObject(ch_obj, "scan_ts", (double)ch.scan_ts);
+            cJSON_AddNumberToObject(ch_obj, "bss_on_chan", (double)ch.bss_on_chan);
+            cJSON_AddNumberToObject(ch_obj, "bss_total", (double)ch.bss_total);
+            cJSON_AddNumberToObject(ch_obj, "busy_score", (double)ch.busy_score);
+            cJSON_AddNumberToObject(ch_obj, "csi_adm_pps", (double)ch.csi_adm_pps);
+            cJSON_AddNumberToObject(ch_obj, "csi_cb_ratio", (double)ch.csi_cb_ratio);
+            cJSON_AddItemToObject(data, "chan_health", ch_obj);
         }
     }
 
@@ -334,7 +363,7 @@ static esp_err_t api_capabilities_handler(httpd_req_t *req)
     cJSON *data = cJSON_CreateObject();
 
     /* 契约 v1.1：12 个布尔能力位 + api_version/wifi_scan（见 docs/api-contract.md） */
-    cJSON_AddStringToObject(data, "api_version", "1.6");
+    cJSON_AddStringToObject(data, "api_version", "1.8");
     cJSON_AddBoolToObject(data, "wifi_scan", true);
     cJSON_AddBoolToObject(data, "ai", false);           /* On-device AI detection */
     cJSON_AddBoolToObject(data, "sd", storage_is_available());  /* SD card storage */
@@ -352,6 +381,9 @@ static esp_err_t api_capabilities_handler(httpd_req_t *req)
     /* 契约 v1.4：WiFi CSI 运动感知（编译期门控，恒定；true ⇒ /ws csi_status 心跳） */
     cJSON_AddBoolToObject(data, "csi_motion", true);
     cJSON_AddBoolToObject(data, "onvif_events", true);   /* 契约 v1.5：ONVIF MotionAlarm 事件服务 */
+#if CONFIG_MIBEE_WATERMARK
+    cJSON_AddBoolToObject(data, "watermark", true);      /* 契约 v1.8：水印能力（issue #11） */
+#endif
 #endif
 
     return json_ok(req, data);
@@ -395,6 +427,20 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "day_night_mode", (double)cfg->day_night_mode);
     cJSON_AddNumberToObject(data, "onvif_enable", (double)cfg->onvif_enable);
     cJSON_AddBoolToObject(data, "onvif_events", cfg->onvif_events != 0);   /* 契约 v1.5 */
+    /* CSI 调参键族（契约 v1.7；CSI-off 板亦有默认值，SPA 据此隐藏/显示） */
+    cJSON_AddBoolToObject(data, "csi_enabled", cfg->csi_enabled != 0);
+    cJSON_AddNumberToObject(data, "csi_threshold", (double)cfg->csi_threshold);
+    cJSON_AddNumberToObject(data, "csi_on_hits", (double)cfg->csi_on_hits);
+    cJSON_AddNumberToObject(data, "csi_off_hits", (double)cfg->csi_off_hits);
+    cJSON_AddNumberToObject(data, "csi_profile", (double)cfg->csi_profile);
+    cJSON_AddBoolToObject(data, "csi_auto_heal", cfg->csi_auto_heal != 0);
+    /* 水印（契约 v1.3，issue #11；SPA 据字段存在性渲染水印卡） */
+    cJSON_AddBoolToObject(data, "wm_enable", cfg->wm_enable);
+    cJSON_AddBoolToObject(data, "wm_video", cfg->wm_video);
+    cJSON_AddStringToObject(data, "wm_text", cfg->wm_text);
+    cJSON_AddNumberToObject(data, "wm_pos", (double)cfg->wm_pos);
+    cJSON_AddStringToObject(data, "wm_time_fmt", cfg->wm_time_fmt);
+    cJSON_AddNumberToObject(data, "wm_quality", (double)cfg->wm_quality);
     cJSON_AddNumberToObject(data, "xclk_freq_mhz", (double)cfg->xclk_freq_mhz);
     cJSON_AddNumberToObject(data, "wifi_roam_rssi", (double)cfg->wifi_roam_rssi);
     cJSON_AddNumberToObject(data, "wifi_roam_gap_s", (double)cfg->wifi_roam_gap_s);
@@ -509,6 +555,82 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         cfg->webdav_enabled = item->valueint != 0;
     if ((item = cJSON_GetObjectItem(json, "onvif_events")))   /* 契约 v1.5 */
         cfg->onvif_events = item->valueint != 0;
+    /* 水印（契约 v1.3，issue #11；运行时回退开关） */
+    if ((item = cJSON_GetObjectItem(json, "wm_enable")))
+        cfg->wm_enable = cJSON_IsTrue(item) || item->valueint != 0;
+    if ((item = cJSON_GetObjectItem(json, "wm_video")))
+        cfg->wm_video = cJSON_IsTrue(item) || item->valueint != 0;
+    if ((item = cJSON_GetObjectItem(json, "wm_text")) && cJSON_IsString(item)) {
+        strncpy(cfg->wm_text, item->valuestring, sizeof(cfg->wm_text) - 1);
+        cfg->wm_text[sizeof(cfg->wm_text) - 1] = '\0';
+    }
+    if ((item = cJSON_GetObjectItem(json, "wm_time_fmt")) && cJSON_IsString(item)) {
+        strncpy(cfg->wm_time_fmt, item->valuestring, sizeof(cfg->wm_time_fmt) - 1);
+        cfg->wm_time_fmt[sizeof(cfg->wm_time_fmt) - 1] = '\0';
+    }
+    if ((item = cJSON_GetObjectItem(json, "wm_pos"))) {
+        if (!validate_uint_range(item->valueint, 0, 3)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid wm_pos (must be 0-3)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->wm_pos = (uint8_t)item->valueint;
+    }
+    if ((item = cJSON_GetObjectItem(json, "wm_quality"))) {
+        if (!validate_uint_range(item->valueint, 60, 95)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid wm_quality (must be 60-95)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->wm_quality = (uint8_t)item->valueint;
+    }
+    /* CSI 调参键族（契约 v1.7；热生效，CSI-off 板存储无害） */
+    const float prev_csi_threshold = cfg->csi_threshold;
+    bool csi_changed = false;
+    if ((item = cJSON_GetObjectItem(json, "csi_enabled"))) {
+        cfg->csi_enabled = item->valueint != 0;
+        csi_changed = true;
+    }
+    if ((item = cJSON_GetObjectItem(json, "csi_threshold"))) {
+        double val = item->valuedouble;
+        if (val != 0.0 && (val < 0.05 || val > 1.0)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid csi_threshold (must be 0=auto or 0.05-1.0)",
+                              HTTPD_400_BAD_REQUEST);
+        }
+        cfg->csi_threshold = (float)val;
+        csi_changed = true;
+    }
+    if ((item = cJSON_GetObjectItem(json, "csi_on_hits")) ||
+        (item = cJSON_GetObjectItem(json, "csi_off_hits"))) {
+        int on = cJSON_GetObjectItem(json, "csi_on_hits")
+                   ? cJSON_GetObjectItem(json, "csi_on_hits")->valueint : cfg->csi_on_hits;
+        int off = cJSON_GetObjectItem(json, "csi_off_hits")
+                    ? cJSON_GetObjectItem(json, "csi_off_hits")->valueint : cfg->csi_off_hits;
+        if (on < 1 || on > 20 || off < 1 || off > 20) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid csi hits (must be 1-20)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->csi_on_hits = (uint8_t)on;
+        cfg->csi_off_hits = (uint8_t)off;
+        csi_changed = true;
+    }
+    if ((item = cJSON_GetObjectItem(json, "csi_profile"))) {
+        int val = item->valueint;
+        if (val < 0 || val > 1) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid csi_profile (must be 0=lightweight 1=high-accuracy)",
+                              HTTPD_400_BAD_REQUEST);
+        }
+        cfg->csi_profile = (uint8_t)val;
+        csi_changed = true;
+    }
+    if ((item = cJSON_GetObjectItem(json, "csi_auto_heal"))) {
+        cfg->csi_auto_heal = item->valueint != 0;
+    }
     if ((item = cJSON_GetObjectItem(json, "webdav_url")) && cJSON_IsString(item)) {
         strncpy(cfg->webdav_url, item->valuestring, sizeof(cfg->webdav_url) - 1);
         cfg->webdav_url[sizeof(cfg->webdav_url) - 1] = '\0';
@@ -823,6 +945,14 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     if (onvif_changed) {
         ESP_LOGW(TAG, "onvif_enable %u->%u — reboot required to apply",
                  prev_onvif_enable, cfg->onvif_enable);
+    }
+
+    /* CSI 键族热应用（契约 v1.7；csi_threshold 显式改 0=恢复自动，带重校准） */
+    if (csi_changed) {
+        if (cfg->csi_threshold == 0.0f && prev_csi_threshold > 0.0f) {
+            csi_motion_set_threshold(0.0f);   /* 恢复自动：重校准 + 重新启用 settle */
+        }
+        csi_motion_apply_config();
     }
 
     /* 分辨率变化走保存+重启应用（OV5640 运行时 set_framesize 无效，
@@ -1847,10 +1977,16 @@ static esp_err_t api_capture_handler(httpd_req_t *req)
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
+    const uint8_t *send_buf = msg.fb->data;
+    size_t send_len = msg.fb->len;
+    if (watermark_photo_enabled()) {
+        /* 水印失败内部已回退原帧（watermark.c 语义），此处无失败分支 */
+        watermark_apply(msg.fb->data, msg.fb->len, &send_buf, &send_len);
+    }
     httpd_resp_set_type(req, "image/jpeg");
     httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache, must-revalidate");
-    httpd_resp_send(req, (const char *)msg.fb->data, msg.fb->len);
+    httpd_resp_send(req, (const char *)send_buf, send_len);
     fbroadcast_release(&msg);
     return ESP_OK;
 }
@@ -2015,6 +2151,30 @@ static esp_err_t api_reboot_handler(httpd_req_t *req)
     return resp;  /* not reached */
 }
 
+/* ------------------------------------------------------------------ */
+/*  POST /api/csi/calibrate                                            */
+/* ------------------------------------------------------------------ */
+
+/** @brief 触发 CSI 立即重校准（契约 v1.7；write auth。CSI-off 板 404，
+ *  运行时未就绪 503），背景执行，进度见 csi.calibrating / 串口日志。 */
+static esp_err_t api_csi_calibrate_handler(httpd_req_t *req)
+{
+    esp_err_t auth_err = require_auth(req, false);
+    if (auth_err != ESP_OK) return auth_err;
+
+    esp_err_t ret = csi_motion_recalibrate();
+    if (ret == ESP_ERR_NOT_SUPPORTED) {
+        return json_error(req, "CSI sensing not built (csi_motion capability absent)",
+                          HTTPD_404_NOT_FOUND);
+    }
+    if (ret != ESP_OK) {
+        return json_error(req, "CSI runtime not ready (no Wi-Fi link?)", 503);
+    }
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddStringToObject(data, "message", "CSI recalibration started");
+    return json_ok(req, data);
+}
+
 /** @brief GET /api/auth — 校验 X-Password；未设密码时返回 password_set:false */
 static esp_err_t api_auth_handler(httpd_req_t *req)
 {
@@ -2074,6 +2234,7 @@ static const uri_entry_t s_uris[] = {
     { "/api/camera",   HTTP_POST,   api_camera_post_handler   },
     { "/api/auth",     HTTP_GET,    api_auth_handler          },
     { "/api/reboot",   HTTP_POST,   api_reboot_handler        },
+    { "/api/csi/calibrate", HTTP_POST, api_csi_calibrate_handler },  /* 契约 v1.7 */
     { "/api/setup/done", HTTP_POST,   api_setup_done_handler   },
     { "/api/files",    HTTP_GET,    api_files_get_handler     },
     { "/api/files",    HTTP_DELETE, api_files_delete_handler  },

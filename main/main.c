@@ -68,6 +68,7 @@
 #include "web_server.h"
 #include "at_command.h"
 #include "csi_motion.h"
+#include "wifi_channel_health.h"
 #include "mjpeg_streamer.h"
 #include "nas_uploader.h"
 #include "ota_updater.h"
@@ -569,6 +570,7 @@ void app_main(void)
     /* 第8b步：启动 WiFi CSI 运动感知（CONFIG_MIBEE_CSI_MOTION，默认关；
      * 运行时自行挂 WiFi/IP 事件并处理已连接场景，须在 wifi_init() 之后） */
     csi_motion_init();
+    wifi_channel_health_init();   /* 契约 v1.7 ①b：信道健康感知（CSI 无关，四仓共享） */
 
     /* ---- 9. Time sync (only if STA connected) ----------------------- */
 

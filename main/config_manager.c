@@ -78,6 +78,12 @@ KEY_ASSERT("cam_sharpness");
 KEY_ASSERT("day_night");
 KEY_ASSERT("onvif_enable");
 KEY_ASSERT("onvif_events");
+KEY_ASSERT("csi_enabled");
+KEY_ASSERT("csi_threshold");
+KEY_ASSERT("csi_on_hits");
+KEY_ASSERT("csi_off_hits");
+KEY_ASSERT("csi_profile");
+KEY_ASSERT("csi_auto_heal");
 KEY_ASSERT("rtsp_user");
 KEY_ASSERT("rtsp_pass");
 KEY_ASSERT("xclk_mhz");
@@ -113,6 +119,13 @@ KEY_ASSERT("tl_max_int_s");
 KEY_ASSERT("tl_decay_f");
 KEY_ASSERT("tl_decay_p_s");
 KEY_ASSERT("pw_seed_v1");
+/* 水印（契约 v1.3 §3.2，issue #11） */
+KEY_ASSERT("wm_enable");
+KEY_ASSERT("wm_video");
+KEY_ASSERT("wm_text");
+KEY_ASSERT("wm_pos");
+KEY_ASSERT("wm_time_fmt");
+KEY_ASSERT("wm_quality");
 
 /* ──────────────────────────────────────────────────────────────────
  * 逐键读写辅助（缺键=保持默认；写失败只 WARN，PIT-022）
@@ -184,6 +197,12 @@ static void apply_defaults(cam_config_t *cfg)
     cfg->day_night_mode = 0;
     cfg->onvif_enable = 1;               /* 契约核心字段；本板历史始终开启 */
     cfg->onvif_events = 0;               /* 契约 v1.5：默认关（MotionAlarm 生成开关） */
+    cfg->csi_enabled = 1;                /* 契约 v1.7：CSI 调参键族默认值 */
+    cfg->csi_threshold = 0.0f;           /* 0=自动（校准+settle） */
+    cfg->csi_on_hits = 4;
+    cfg->csi_off_hits = 3;
+    cfg->csi_profile = 0;                /* Lightweight */
+    cfg->csi_auto_heal = 1;              /* 自愈环默认开（PIT-041） */
     cfg->xclk_freq_mhz = 16;             /* 板值（§5） */
     cfg->wifi_roam_rssi = -75;           /* 板级覆盖（§5） */
     cfg->wifi_roam_gap_s = 10;
@@ -216,6 +235,13 @@ static void apply_defaults(cam_config_t *cfg)
     cfg->timelapse_max_interval_s = 300;
     cfg->timelapse_decay_factor = 2;
     cfg->timelapse_decay_period_s = 10;
+    /* 水印默认全关（契约 v1.3 §3.2）：关闭态与无此特性固件行为一致 */
+    cfg->wm_enable = false;
+    cfg->wm_video = false;
+    cfg->wm_text[0] = '\0';
+    cfg->wm_pos = 0;                       /* 左下 */
+    strlcpy(cfg->wm_time_fmt, "%Y-%m-%d %H:%M:%S", sizeof(cfg->wm_time_fmt));
+    cfg->wm_quality = 75;
 }
 
 /* ── 旧分辨率刻度 0-5 → 家族 framesize_t 刻度（契约 v1.3 §5 迁移表） ── */
@@ -382,6 +408,15 @@ static void load_keys_from_nvs(nvs_handle_t h, cam_config_t *cfg)
     rd_u8(h, "day_night", &cfg->day_night_mode);
     rd_u8(h, "onvif_enable", &cfg->onvif_enable);
     rd_u8(h, "onvif_events", &cfg->onvif_events);
+    rd_u8(h, "csi_enabled", &cfg->csi_enabled);
+    {   /* IDF v6 无 nvs f32：千分刻度 u16（0-1000 ↔ 0.000-1.000，0=auto） */
+        uint16_t thr_ms = 0;
+        if (rd_u16(h, "csi_threshold", &thr_ms)) cfg->csi_threshold = thr_ms / 1000.0f;
+    }
+    rd_u8(h, "csi_on_hits", &cfg->csi_on_hits);
+    rd_u8(h, "csi_off_hits", &cfg->csi_off_hits);
+    rd_u8(h, "csi_profile", &cfg->csi_profile);
+    rd_u8(h, "csi_auto_heal", &cfg->csi_auto_heal);
     rd_u8(h, "xclk_mhz", &cfg->xclk_freq_mhz);
     rd_i8(h, "wifi_roam_rssi", &cfg->wifi_roam_rssi);
     rd_u8(h, "wifi_roam_gap", &cfg->wifi_roam_gap_s);
@@ -412,6 +447,15 @@ static void load_keys_from_nvs(nvs_handle_t h, cam_config_t *cfg)
     rd_u16(h, "tl_max_int_s", &cfg->timelapse_max_interval_s);
     rd_u8(h, "tl_decay_f", &cfg->timelapse_decay_factor);
     rd_u16(h, "tl_decay_p_s", &cfg->timelapse_decay_period_s);
+    {
+        uint8_t u8v;
+        if (rd_u8(h, "wm_enable", &u8v)) cfg->wm_enable = u8v != 0;
+        if (rd_u8(h, "wm_video", &u8v)) cfg->wm_video = u8v != 0;
+        if (rd_u8(h, "wm_pos", &u8v)) cfg->wm_pos = u8v;
+        if (rd_u8(h, "wm_quality", &u8v)) cfg->wm_quality = u8v;
+    }
+    rd_str(h, "wm_text", cfg->wm_text, sizeof(cfg->wm_text));
+    rd_str(h, "wm_time_fmt", cfg->wm_time_fmt, sizeof(cfg->wm_time_fmt));
 }
 
 static void write_keys_to_nvs(nvs_handle_t h, const cam_config_t *cfg)
@@ -438,6 +482,12 @@ static void write_keys_to_nvs(nvs_handle_t h, const cam_config_t *cfg)
     wr_u8(h, "day_night", cfg->day_night_mode);
     wr_u8(h, "onvif_enable", cfg->onvif_enable);
     wr_u8(h, "onvif_events", cfg->onvif_events);
+    wr_u8(h, "csi_enabled", cfg->csi_enabled);
+    wr_u16(h, "csi_threshold", (uint16_t)(cfg->csi_threshold * 1000.0f + 0.5f));
+    wr_u8(h, "csi_on_hits", cfg->csi_on_hits);
+    wr_u8(h, "csi_off_hits", cfg->csi_off_hits);
+    wr_u8(h, "csi_profile", cfg->csi_profile);
+    wr_u8(h, "csi_auto_heal", cfg->csi_auto_heal);
     wr_u8(h, "xclk_mhz", cfg->xclk_freq_mhz);
     wr_i8(h, "wifi_roam_rssi", cfg->wifi_roam_rssi);
     wr_u8(h, "wifi_roam_gap", cfg->wifi_roam_gap_s);
@@ -468,6 +518,12 @@ static void write_keys_to_nvs(nvs_handle_t h, const cam_config_t *cfg)
     wr_u16(h, "tl_max_int_s", cfg->timelapse_max_interval_s);
     wr_u8(h, "tl_decay_f", cfg->timelapse_decay_factor);
     wr_u16(h, "tl_decay_p_s", cfg->timelapse_decay_period_s);
+    wr_u8(h, "wm_enable", cfg->wm_enable ? 1 : 0);
+    wr_u8(h, "wm_video", cfg->wm_video ? 1 : 0);
+    wr_u8(h, "wm_pos", cfg->wm_pos);
+    wr_u8(h, "wm_quality", cfg->wm_quality);
+    wr_str(h, "wm_text", cfg->wm_text);
+    wr_str(h, "wm_time_fmt", cfg->wm_time_fmt);
     wr_u16(h, KEY_SCHEMA_VER, CONFIG_SCHEMA_VERSION);
 }
 
@@ -653,6 +709,23 @@ static void parse_bool(char *line, const char *key, bool *dest)
     *dest = (strcmp(val, "1") == 0 || strcmp(val, "true") == 0);
 }
 
+/** @brief 解析 KEY=VALUE 格式的文本行，提取 0-255 整数（契约 v1.7 §9） */
+static void parse_u8(char *line, const char *key, uint8_t *dest)
+{
+    size_t klen = strlen(key);
+    if (strncmp(line, key, klen) != 0 || line[klen] != '=') return;
+    long v = strtol(line + klen + 1, NULL, 10);
+    if (v >= 0 && v <= 255) *dest = (uint8_t)v;
+}
+
+/** @brief 解析 KEY=VALUE 格式的文本行，提取浮点数（契约 v1.7 §9） */
+static void parse_float(char *line, const char *key, float *dest)
+{
+    size_t klen = strlen(key);
+    if (strncmp(line, key, klen) != 0 || line[klen] != '=') return;
+    *dest = strtof(line + klen + 1, NULL);
+}
+
 /** @brief 文件首行是否为 one_time 清除标记（契约 §9；兼容行内 one_time=1） */
 static bool sd_file_is_one_time(const char *path)
 {
@@ -776,6 +849,13 @@ static void parse_config_txt(void)
             parse_bool(line, "record_on_boot", &s_config.record_on_boot);
             parse_bool(line, "onvif_enable", (bool *)&s_config.onvif_enable);
             parse_bool(line, "onvif_events", (bool *)&s_config.onvif_events);
+            /* CSI 调参键族（契约 v1.7 §9；CSI-off 板解析无害） */
+            parse_bool(line, "csi_enabled", (bool *)&s_config.csi_enabled);
+            parse_float(line, "csi_threshold", &s_config.csi_threshold);
+            parse_u8(line, "csi_on_hits", &s_config.csi_on_hits);
+            parse_u8(line, "csi_off_hits", &s_config.csi_off_hits);
+            parse_u8(line, "csi_profile", &s_config.csi_profile);
+            parse_bool(line, "csi_auto_heal", (bool *)&s_config.csi_auto_heal);
         }
     }
     fclose(f);
@@ -991,6 +1071,16 @@ bool config_validate(const cam_config_t *cfg)
         return false;
     }
 
+    /* 水印（契约 v1.3 §4 校验矩阵） */
+    if (cfg->wm_pos > 3) {
+        ESP_LOGW(TAG, "validate: wm_pos=%d out of 0-3", cfg->wm_pos);
+        return false;
+    }
+    if (cfg->wm_quality < 60 || cfg->wm_quality > 95) {
+        ESP_LOGW(TAG, "validate: wm_quality=%d out of 60-95", cfg->wm_quality);
+        return false;
+    }
+
     /* ---- timelapse 家族动态模型（契约 §3.2/§4） ---- */
     if (cfg->timelapse_mode > 1) {
         ESP_LOGW(TAG, "validate: timelapse_mode=%d out of 0-1", cfg->timelapse_mode);
@@ -1032,6 +1122,24 @@ bool config_validate(const cam_config_t *cfg)
     if (cfg->timelapse_burst_count < 1 || cfg->timelapse_burst_count > 10) {
         ESP_LOGW(TAG, "validate: timelapse_burst_count=%d out of 1-10",
                  cfg->timelapse_burst_count);
+        return false;
+    }
+
+    /* ---- CSI 调参键族（契约 v1.7 §4；CSI-off 板同样校验，存储无害） ---- */
+    if (cfg->csi_threshold != 0.0f &&
+        (cfg->csi_threshold < 0.05f || cfg->csi_threshold > 1.0f)) {
+        ESP_LOGW(TAG, "validate: csi_threshold=%.3f must be 0 (auto) or 0.05-1.0",
+                 (double)cfg->csi_threshold);
+        return false;
+    }
+    if (cfg->csi_on_hits < 1 || cfg->csi_on_hits > 20 ||
+        cfg->csi_off_hits < 1 || cfg->csi_off_hits > 20) {
+        ESP_LOGW(TAG, "validate: csi hits %u/%u out of 1-20",
+                 cfg->csi_on_hits, cfg->csi_off_hits);
+        return false;
+    }
+    if (cfg->csi_profile > 1 || cfg->csi_enabled > 1 || cfg->csi_auto_heal > 1) {
+        ESP_LOGW(TAG, "validate: csi bool/profile fields out of range");
         return false;
     }
 
@@ -1171,6 +1279,13 @@ cJSON *config_get_json(void)
     cJSON_AddNumberToObject(root, "day_night_mode", (double)cfg->day_night_mode);
     cJSON_AddNumberToObject(root, "onvif_enable", (double)cfg->onvif_enable);
     cJSON_AddNumberToObject(root, "onvif_events", (double)cfg->onvif_events);
+    /* CSI 调参键族（契约 v1.7 §3.2） */
+    cJSON_AddBoolToObject(root, "csi_enabled", cfg->csi_enabled != 0);
+    cJSON_AddNumberToObject(root, "csi_threshold", (double)cfg->csi_threshold);
+    cJSON_AddNumberToObject(root, "csi_on_hits", (double)cfg->csi_on_hits);
+    cJSON_AddNumberToObject(root, "csi_off_hits", (double)cfg->csi_off_hits);
+    cJSON_AddNumberToObject(root, "csi_profile", (double)cfg->csi_profile);
+    cJSON_AddBoolToObject(root, "csi_auto_heal", cfg->csi_auto_heal != 0);
     cJSON_AddNumberToObject(root, "xclk_freq_mhz", (double)cfg->xclk_freq_mhz);
     cJSON_AddNumberToObject(root, "wifi_roam_rssi", (double)cfg->wifi_roam_rssi);
     cJSON_AddNumberToObject(root, "wifi_roam_gap_s", (double)cfg->wifi_roam_gap_s);
@@ -1200,6 +1315,13 @@ cJSON *config_get_json(void)
     cJSON_AddNumberToObject(root, "timelapse_max_interval_s", (double)cfg->timelapse_max_interval_s);
     cJSON_AddNumberToObject(root, "timelapse_decay_factor", (double)cfg->timelapse_decay_factor);
     cJSON_AddNumberToObject(root, "timelapse_decay_period_s", (double)cfg->timelapse_decay_period_s);
+    /* 水印（契约 v1.3；SPA 按字段存在性渲染面板） */
+    cJSON_AddBoolToObject(root, "wm_enable", cfg->wm_enable);
+    cJSON_AddBoolToObject(root, "wm_video", cfg->wm_video);
+    cJSON_AddStringToObject(root, "wm_text", cfg->wm_text);
+    cJSON_AddNumberToObject(root, "wm_pos", (double)cfg->wm_pos);
+    cJSON_AddStringToObject(root, "wm_time_fmt", cfg->wm_time_fmt);
+    cJSON_AddNumberToObject(root, "wm_quality", (double)cfg->wm_quality);
 
     /* NAS/WebDAV + Webhook（契约 §3.2） */
     cJSON_AddBoolToObject(root, "webdav_enabled", cfg->webdav_enabled);
