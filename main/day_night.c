@@ -57,12 +57,13 @@ static struct {
     uint8_t      *tjpgd_ws;
 } s_dn;
 
-/* 从广播器缓存帧取 1/8 缩放平均 luma；无帧/解码失败返回 -1 */
+/* 从广播器缓存帧取 1/8 缩放平均 luma；
+ * 失败返回 -2 无帧 / -3 info 失败 / -4 超上限 / -5 分配失败 / -6 解码失败 */
 static int sample_luma(void)
 {
     frame_msg_t msg = {0};
     if (!fbroadcast_get_latest(&msg) || !msg.fb) {
-        return -1;
+        return -2;
     }
 
     esp_jpeg_image_output_t info = {};
@@ -73,12 +74,15 @@ static int sample_luma(void)
     dec.out_scale = JPEG_IMAGE_SCALE_1_8;
     if (esp_jpeg_get_image_info(&dec, &info) != ESP_OK) {
         fbroadcast_release(&msg);
-        return -1;
+        return -3;
     }
-    size_t need = (size_t)info.width * info.height * 3;
+    /* esp_jpeg_get_image_info 的 info 路径 width/height 未除 scale、
+     * 唯独 output_len 已按 scale 换算——以 output_len 为准（解码器源码
+     * jpeg_decoder.c:155-159 实证）。 */
+    size_t need = info.output_len;
     if (need > DN_RGB_MAX_BYTES) {
         fbroadcast_release(&msg);
-        return -1;
+        return -4;
     }
     if (s_dn.rgb_cap < need) {
         free(s_dn.rgb);
@@ -86,14 +90,14 @@ static int sample_luma(void)
         s_dn.rgb_cap = s_dn.rgb ? need : 0;
         if (!s_dn.rgb) {
             fbroadcast_release(&msg);
-            return -1;
+            return -5;
         }
     }
     if (!s_dn.tjpgd_ws) {
         s_dn.tjpgd_ws = (uint8_t *)heap_caps_malloc(3100 + 512, MALLOC_CAP_SPIRAM);
         if (!s_dn.tjpgd_ws) {
             fbroadcast_release(&msg);
-            return -1;
+            return -5;
         }
     }
     dec.outbuf = s_dn.rgb;
@@ -103,12 +107,12 @@ static int sample_luma(void)
 
     esp_err_t err = esp_jpeg_decode(&dec, &info);
     fbroadcast_release(&msg);      /* 像素已在我们缓冲里，立刻归还帧 */
-    if (err != ESP_OK) return -1;
+    if (err != ESP_OK) return -6;
 
     /* 平均 luma：Y ≈ (77R + 150G + 29B) >> 8（整数近似 BT.601） */
     const uint8_t *p = s_dn.rgb;
     uint32_t acc = 0;
-    size_t n = (size_t)info.width * info.height;
+    size_t n = info.output_len / 3;
     for (size_t i = 0; i < n; i++, p += 3) {
         acc += (uint32_t)p[0] * 77 + (uint32_t)p[1] * 150 + (uint32_t)p[2] * 29;
     }
@@ -145,19 +149,23 @@ static void dn_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(DN_SAMPLE_PERIOD_S * 1000));
         const cam_config_t *cfg = config_get();
         if (cfg->day_night_mode != 2) {
-            /* 手动模式：退出自动时恢复彩色一次（仅当自动曾动过特效） */
+            /* 手动模式：退出自动时按用户配置的模式恢复一次（仅当自动曾动过
+             * 特效；恢复目标 = 当前手动值——用户要黑白就还他黑白，2026-09-10
+             * 实测曾硬编码彩色覆盖过用户的 mode=1） */
             if (s_dn.applied_by_auto) {
-                camera_set_day_night(0);
+                camera_set_day_night(cfg->day_night_mode);
                 s_dn.applied_by_auto = false;
-                s_dn.effective = DN_EFFECT_COLOR;
+                s_dn.effective = (cfg->day_night_mode == 1) ? DN_EFFECT_BW
+                                                            : DN_EFFECT_COLOR;
                 s_dn.confirm_cnt = 0;
-                ESP_LOGI(TAG, "manual mode — auto effect restored to color");
+                ESP_LOGI(TAG, "manual mode — auto effect restored to mode %u",
+                         cfg->day_night_mode);
             }
             continue;
         }
         int luma = sample_luma();
         if (luma < 0) {
-            ESP_LOGD(TAG, "no frame / decode failed, skip");
+            ESP_LOGW(TAG, "sample failed: stage=%d", luma);
             continue;
         }
         s_dn.luma = luma;
