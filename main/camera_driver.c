@@ -500,8 +500,10 @@ const char *camera_res_to_str(camera_res_t res)
 }
 
 /** @brief 设置日夜模式（彩色/黑白）
- * @param mode 0=彩色, 1=黑白, 2=自动(预留,当前等同0)
- * @return ESP_OK 成功, ESP_ERR_INVALID_STATE 未初始化, ESP_FAIL 失败
+ * @param mode 0=彩色, 1=黑白, 2=自动（day_night.c 采样驱动，此处等同 0）
+ * @return ESP_OK 成功；ESP_ERR_INVALID_STATE 未初始化；
+ *         ESP_ERR_NOT_SUPPORTED 传感器不支持 grayscale 特效（运行时探测，
+ *         换传感器自动适配——day_night 自动模式据此降级保持彩色）
  */
 esp_err_t camera_set_day_night(uint8_t mode)
 {
@@ -512,14 +514,18 @@ esp_err_t camera_set_day_night(uint8_t mode)
     if (!sensor) {
         return ESP_FAIL;
     }
-    /* mode 0=color, 1=B/W(grayscale), 2=auto(预留,暂同color)
+    /* mode 0=color, 1=B/W(grayscale), 2=auto(由 day_night.c 驱动)
      * effect=2 is grayscale for OV2640/OV3660/OV5640 in esp32-camera */
     int effect = 0;
     if (mode == 1) {
-        effect = 2; /* grayscale — 待硬件验证: set_special_effect 值需确认 */
+        effect = 2; /* grayscale */
     }
-    if (sensor->set_special_effect) {
-        sensor->set_special_effect(sensor, effect);
+    if (!sensor->set_special_effect) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    int ret = sensor->set_special_effect(sensor, effect);
+    if (ret != 0) {
+        return ESP_ERR_NOT_SUPPORTED;
     }
     ESP_LOGI(TAG, "Day/night mode set: %d (effect=%d)", mode, effect);
     return ESP_OK;
