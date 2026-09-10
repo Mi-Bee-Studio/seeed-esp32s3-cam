@@ -500,8 +500,10 @@ const char *camera_res_to_str(camera_res_t res)
 }
 
 /** @brief 设置日夜模式（彩色/黑白）
- * @param mode 0=彩色, 1=黑白, 2=自动(预留,当前等同0)
- * @return ESP_OK 成功, ESP_ERR_INVALID_STATE 未初始化, ESP_FAIL 失败
+ * @param mode 0=彩色, 1=黑白, 2=自动（day_night.c 采样驱动，此处等同 0）
+ * @return ESP_OK 成功；ESP_ERR_INVALID_STATE 未初始化；
+ *         ESP_ERR_NOT_SUPPORTED 传感器不支持 grayscale 特效（运行时探测，
+ *         换传感器自动适配——day_night 自动模式据此降级保持彩色）
  */
 esp_err_t camera_set_day_night(uint8_t mode)
 {
@@ -512,15 +514,41 @@ esp_err_t camera_set_day_night(uint8_t mode)
     if (!sensor) {
         return ESP_FAIL;
     }
-    /* mode 0=color, 1=B/W(grayscale), 2=auto(预留,暂同color)
-     * effect=2 is grayscale for OV2640/OV3660/OV5640 in esp32-camera */
-    int effect = 0;
+    /* mode 0=color, 1=B/W(grayscale), 2=auto(由 day_night.c 驱动)。
+     * 黑白落地路线按传感器分派（2026-09-10 实测定案）：
+     * - OV5640：0x5580 特效组的 grayscale 寄存器对本模组无效（负片同组
+     *   生效=通路活着，灰度不生效=该子模式不实现）→ 改走 ISP 色彩矩阵，
+     *   把四个色度增益寄存器（0x5385-0x5388，CMX 色度行）清零；CMX 在
+     *   JPEG 前级，必然生效。恢复彩色 = set_saturation(0) 回中性矩阵
+     *   （本板无其他饱和度写入者）。
+     * - 其它传感器：沿用 set_special_effect(2)（OV2640 族该路径历来有效），
+     *   失败即 ESP_ERR_NOT_SUPPORTED 由上层降级。 */
     if (mode == 1) {
-        effect = 2; /* grayscale — 待硬件验证: set_special_effect 值需确认 */
+        if (sensor->id.PID == OV5640_PID) {
+            if (!sensor->set_reg) {
+                return ESP_ERR_NOT_SUPPORTED;
+            }
+            for (int reg = 0x5385; reg <= 0x5388; reg++) {
+                if (sensor->set_reg(sensor, reg, 0xFF, 0x00) != 0) {
+                    return ESP_ERR_NOT_SUPPORTED;
+                }
+            }
+        } else {
+            if (!sensor->set_special_effect) {
+                return ESP_ERR_NOT_SUPPORTED;
+            }
+            if (sensor->set_special_effect(sensor, 2) != 0) {
+                return ESP_ERR_NOT_SUPPORTED;
+            }
+        }
+    } else {
+        if (sensor->set_saturation) {
+            sensor->set_saturation(sensor, 0);   /* 恢复中性 CMX */
+        }
+        if (sensor->set_special_effect) {
+            sensor->set_special_effect(sensor, 0);  /* 清可能的特效残留 */
+        }
     }
-    if (sensor->set_special_effect) {
-        sensor->set_special_effect(sensor, effect);
-    }
-    ESP_LOGI(TAG, "Day/night mode set: %d (effect=%d)", mode, effect);
+    ESP_LOGI(TAG, "Day/night mode set: %d", mode);
     return ESP_OK;
 }
