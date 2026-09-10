@@ -1035,7 +1035,20 @@ async function loadConfig() {
     if (d.rtsp_user !== undefined) { $('row-rtsp-user').hidden = false; $('rtsp-user').value = d.rtsp_user || ''; }
     if (d.rtsp_pass !== undefined) { $('row-rtsp-pass').hidden = false; }
     if (d.onvif_enable !== undefined) { $('row-onvif-enable').hidden = false; setToggle('onvif-enable', d.onvif_enable); }
-    if (d.onvif_events !== undefined) { $('row-onvif-events').hidden = false; setToggle('onvif-events', d.onvif_events); }   /* 契约 v1.5 */
+    if (d.onvif_events !== undefined) { $('row-onvif-events').hidden = false; setToggle('onvif-events', d.onvif_events); }
+    /* 水印（契约 v1.3，issue #11；板返回 wm_* 字段才渲染整卡） */
+    if (d.wm_enable !== undefined) {
+        $('wm-card').hidden = false;
+        $('row-wm-enable').hidden = false; setToggle('wm-enable', d.wm_enable);
+        $('row-wm-video').hidden = false; setToggle('wm-video', d.wm_video);
+        $('row-wm-text').hidden = false; $('wm-text').value = d.wm_text || '';
+        $('row-wm-time-fmt').hidden = false; $('wm-time-fmt').value = d.wm_time_fmt || '';
+        $('row-wm-pos').hidden = false;
+        document.querySelectorAll('#wm-pos-seg button').forEach(b =>
+            b.classList.toggle('active', Number(b.dataset.wmpos) === d.wm_pos));
+        $('row-wm-quality').hidden = false; $('wm-quality').value = d.wm_quality ?? 75;
+        $('btn-wm-save').hidden = false;
+    }   /* 契约 v1.5 */
     /* CSI 调参键族（契约 v1.7；键存在=板支持，通常伴随 csi_motion 能力位） */
     if (d.csi_threshold !== undefined) {
         ['row-csi-enabled', 'row-csi-live', 'row-csi-threshold', 'row-csi-hits',
@@ -1186,6 +1199,32 @@ async function saveStreaming() {
                 payload.csi_profile = parseInt($('csi-profile').value) || 0;
             }
             if (!Object.keys(payload).length) return;
+            await api('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            toast(window.i18n.t('toast.saved'), { type: 'success' });
+        } catch (e) {
+            toast(window.i18n.t('toast.save_failed', { msg: e.message }), { type: 'error' });
+        }
+    });
+}
+
+/* 水印（契约 v1.3，issue #11）——字段存在性已由 loadConfig 保证 */
+async function saveWatermark() {
+    const btn = $('btn-wm-save');
+    await busy(btn, async () => {
+        try {
+            const payload = {};
+            payload.wm_enable = $('wm-enable').classList.contains('active');
+            payload.wm_video = $('wm-video').classList.contains('active');
+            payload.wm_text = $('wm-text').value;
+            payload.wm_time_fmt = $('wm-time-fmt').value;
+            const posBtn = document.querySelector('#wm-pos-seg button.active');
+            payload.wm_pos = posBtn ? Number(posBtn.dataset.wmpos) : 0;
+            const q = parseInt($('wm-quality').value, 10);
+            if (!Number.isNaN(q)) payload.wm_quality = Math.min(95, Math.max(60, q));
             await api('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1532,6 +1571,8 @@ const bootSPA = async () => {
 
     /* toggles */
     initToggle('cam-hmirror', () => saveCamera());
+    initToggle('wm-enable');
+    initToggle('wm-video');
     initToggle('cam-vflip', () => saveCamera());
     initToggle('ai-face', () => saveAI());
     initToggle('ai-motion', () => saveAI());
@@ -1593,6 +1634,12 @@ const bootSPA = async () => {
     $('btn-network-save').addEventListener('click', saveNetwork);
     $('btn-change-pw').addEventListener('click', openPasswordModal);
     $('btn-streaming-save').addEventListener('click', saveStreaming);
+    $('btn-wm-save').addEventListener('click', saveWatermark);
+    document.querySelectorAll('#wm-pos-seg button').forEach(b =>
+        b.addEventListener('click', () => {
+            document.querySelectorAll('#wm-pos-seg button').forEach(x => x.classList.remove('active'));
+            b.classList.add('active');
+        }));
     $('btn-reboot').addEventListener('click', doReboot);
     $('btn-reset').addEventListener('click', doReset);
     $('btn-ota-fw').addEventListener('click', () =>

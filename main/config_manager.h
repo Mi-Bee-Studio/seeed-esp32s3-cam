@@ -114,6 +114,13 @@ typedef struct {
     uint8_t csi_off_hits;      // 去抖：连续低于 N 次判 IDLE（1-20，默认 3）
     uint8_t csi_profile;       // 检测档：0=Lightweight 1=High-Accuracy（默认 0）
     uint8_t csi_auto_heal;     // 自愈环（默认 1）：thr 崩塌/翻转风暴→重校准→二次退化锁定阈值
+    /* 录制/照片水印（契约 v1.3 §3.2，issue #11；仅 seeed 实现，默认全关=零回归） */
+    bool wm_enable;             // 水印总开关（照片 /api/capture）
+    bool wm_video;              // 视频轨水印（wm_enable=1 前提下再独立门控）
+    char wm_text[33];           // 自定义文案（v1 仅 ASCII 32-126，空=只出时戳）
+    uint8_t wm_pos;             // 0=左下 1=右下 2=左上 3=右上
+    char wm_time_fmt[25];       // strftime 子集，空=不出时戳
+    uint8_t wm_quality;         // 重编码质量 60-95
 } cam_config_t;
 
 /** @brief 初始化配置模块，从 NVS 加载配置，无存储则使用默认值 */

@@ -119,6 +119,13 @@ KEY_ASSERT("tl_max_int_s");
 KEY_ASSERT("tl_decay_f");
 KEY_ASSERT("tl_decay_p_s");
 KEY_ASSERT("pw_seed_v1");
+/* 水印（契约 v1.3 §3.2，issue #11） */
+KEY_ASSERT("wm_enable");
+KEY_ASSERT("wm_video");
+KEY_ASSERT("wm_text");
+KEY_ASSERT("wm_pos");
+KEY_ASSERT("wm_time_fmt");
+KEY_ASSERT("wm_quality");
 
 /* ──────────────────────────────────────────────────────────────────
  * 逐键读写辅助（缺键=保持默认；写失败只 WARN，PIT-022）
@@ -228,6 +235,13 @@ static void apply_defaults(cam_config_t *cfg)
     cfg->timelapse_max_interval_s = 300;
     cfg->timelapse_decay_factor = 2;
     cfg->timelapse_decay_period_s = 10;
+    /* 水印默认全关（契约 v1.3 §3.2）：关闭态与无此特性固件行为一致 */
+    cfg->wm_enable = false;
+    cfg->wm_video = false;
+    cfg->wm_text[0] = '\0';
+    cfg->wm_pos = 0;                       /* 左下 */
+    strlcpy(cfg->wm_time_fmt, "%Y-%m-%d %H:%M:%S", sizeof(cfg->wm_time_fmt));
+    cfg->wm_quality = 75;
 }
 
 /* ── 旧分辨率刻度 0-5 → 家族 framesize_t 刻度（契约 v1.3 §5 迁移表） ── */
@@ -433,6 +447,15 @@ static void load_keys_from_nvs(nvs_handle_t h, cam_config_t *cfg)
     rd_u16(h, "tl_max_int_s", &cfg->timelapse_max_interval_s);
     rd_u8(h, "tl_decay_f", &cfg->timelapse_decay_factor);
     rd_u16(h, "tl_decay_p_s", &cfg->timelapse_decay_period_s);
+    {
+        uint8_t u8v;
+        if (rd_u8(h, "wm_enable", &u8v)) cfg->wm_enable = u8v != 0;
+        if (rd_u8(h, "wm_video", &u8v)) cfg->wm_video = u8v != 0;
+        if (rd_u8(h, "wm_pos", &u8v)) cfg->wm_pos = u8v;
+        if (rd_u8(h, "wm_quality", &u8v)) cfg->wm_quality = u8v;
+    }
+    rd_str(h, "wm_text", cfg->wm_text, sizeof(cfg->wm_text));
+    rd_str(h, "wm_time_fmt", cfg->wm_time_fmt, sizeof(cfg->wm_time_fmt));
 }
 
 static void write_keys_to_nvs(nvs_handle_t h, const cam_config_t *cfg)
@@ -495,6 +518,12 @@ static void write_keys_to_nvs(nvs_handle_t h, const cam_config_t *cfg)
     wr_u16(h, "tl_max_int_s", cfg->timelapse_max_interval_s);
     wr_u8(h, "tl_decay_f", cfg->timelapse_decay_factor);
     wr_u16(h, "tl_decay_p_s", cfg->timelapse_decay_period_s);
+    wr_u8(h, "wm_enable", cfg->wm_enable ? 1 : 0);
+    wr_u8(h, "wm_video", cfg->wm_video ? 1 : 0);
+    wr_u8(h, "wm_pos", cfg->wm_pos);
+    wr_u8(h, "wm_quality", cfg->wm_quality);
+    wr_str(h, "wm_text", cfg->wm_text);
+    wr_str(h, "wm_time_fmt", cfg->wm_time_fmt);
     wr_u16(h, KEY_SCHEMA_VER, CONFIG_SCHEMA_VERSION);
 }
 
@@ -1042,6 +1071,16 @@ bool config_validate(const cam_config_t *cfg)
         return false;
     }
 
+    /* 水印（契约 v1.3 §4 校验矩阵） */
+    if (cfg->wm_pos > 3) {
+        ESP_LOGW(TAG, "validate: wm_pos=%d out of 0-3", cfg->wm_pos);
+        return false;
+    }
+    if (cfg->wm_quality < 60 || cfg->wm_quality > 95) {
+        ESP_LOGW(TAG, "validate: wm_quality=%d out of 60-95", cfg->wm_quality);
+        return false;
+    }
+
     /* ---- timelapse 家族动态模型（契约 §3.2/§4） ---- */
     if (cfg->timelapse_mode > 1) {
         ESP_LOGW(TAG, "validate: timelapse_mode=%d out of 0-1", cfg->timelapse_mode);
@@ -1276,6 +1315,13 @@ cJSON *config_get_json(void)
     cJSON_AddNumberToObject(root, "timelapse_max_interval_s", (double)cfg->timelapse_max_interval_s);
     cJSON_AddNumberToObject(root, "timelapse_decay_factor", (double)cfg->timelapse_decay_factor);
     cJSON_AddNumberToObject(root, "timelapse_decay_period_s", (double)cfg->timelapse_decay_period_s);
+    /* 水印（契约 v1.3；SPA 按字段存在性渲染面板） */
+    cJSON_AddBoolToObject(root, "wm_enable", cfg->wm_enable);
+    cJSON_AddBoolToObject(root, "wm_video", cfg->wm_video);
+    cJSON_AddStringToObject(root, "wm_text", cfg->wm_text);
+    cJSON_AddNumberToObject(root, "wm_pos", (double)cfg->wm_pos);
+    cJSON_AddStringToObject(root, "wm_time_fmt", cfg->wm_time_fmt);
+    cJSON_AddNumberToObject(root, "wm_quality", (double)cfg->wm_quality);
 
     /* NAS/WebDAV + Webhook（契约 §3.2） */
     cJSON_AddBoolToObject(root, "webdav_enabled", cfg->webdav_enabled);

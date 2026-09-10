@@ -19,6 +19,7 @@
 #include "camera_driver.h"
 #include "storage_manager.h"
 #include "frame_broadcaster.h"
+#include "watermark.h"  /* 契约 v1.3：视频轨水印（issue #11） */
 #include "config_manager.h"
 #include "time_sync.h"
 #include "status_led.h"
@@ -408,6 +409,9 @@ typedef struct {
     uint32_t    hdrl_size;        /* actual hdrl bytes written to file       */
     uint8_t    *stdio_buf;        /* 64KB setvbuf buffer (PSRAM) — cuts SD sector-write count */
     int         flush_counter;    /* periodic fflush/fsync counter, reset per segment */
+    uint32_t    wm_frames;        /* 本段经水印变换的帧数（close 时回填有效帧率用） */
+    bool        playback_realtime;/* 非 timelapse 段=真回放速率（REC_ 前缀） */
+    uint8_t     hdr_playback_fps; /* open 时写入头的帧率（回填日志对照用） */
 } segment_t;
 
 static segment_t s_seg = {0};
@@ -485,6 +489,9 @@ static esp_err_t open_segment(uint16_t w, uint16_t h, uint8_t playback_fps, cons
     s_seg.start_ms       = s_seg_elapsed_ms();
     s_seg.hdrl_size      = (uint32_t)hdrl_size;
     s_seg.flush_counter = 0;
+    s_seg.wm_frames      = 0;
+    s_seg.playback_realtime = (prefix[0] == 'R');   /* REC_ = 实时速率段 */
+    s_seg.hdr_playback_fps = playback_fps;
 
     /* Subscribe to audio broadcaster if muxing audio */
     s_seg.audio_sub = NULL;
@@ -666,6 +673,33 @@ static void close_segment(void)
         fseek(s_seg.fp, strh_data_pos + 32, SEEK_SET);
         put_u32(tf, s_seg.frame_count);
         fwrite(tf, 1, 4, s_seg.fp);
+
+        /* 水印轨有效帧率回填（issue #11）：重编码耗时使实际写帧率低于
+         * cam_fps，按 wall-clock 实测回填 avih.dwMicroSecPerFrame 与
+         * strh.dwScale/dwRate，播放速度不失真（A/V 时长对齐墙钟）。
+         * 延时摄影段（TLM_/DTL_）不回填——playback 15fps 是延时语义。 */
+        if (s_seg.wm_frames > 0 && s_seg.playback_realtime && s_seg.frame_count > 1) {
+            int64_t dur_ms = s_seg_elapsed_ms() - s_seg.start_ms;
+            if (dur_ms > 1000) {
+                uint32_t eff = (uint32_t)(((uint64_t)s_seg.frame_count * 1000)
+                                          / (uint64_t)dur_ms);
+                if (eff < 1) eff = 1;
+                if (eff > 100) eff = 100;
+                uint8_t v[4];
+                fseek(s_seg.fp, AVI_RIFF_HDR_SIZE + 12 + 8, SEEK_SET);   /* avih data start */
+                put_u32(v, 1000000 / eff);                               /* dwMicroSecPerFrame */
+                fwrite(v, 1, 4, s_seg.fp);
+                put_u32(v, 1);                                           /* strh dwScale */
+                fseek(s_seg.fp, strh_data_pos + 20, SEEK_SET);
+                fwrite(v, 1, 4, s_seg.fp);
+                put_u32(v, eff);                                         /* strh dwRate */
+                fseek(s_seg.fp, strh_data_pos + 24, SEEK_SET);
+                fwrite(v, 1, 4, s_seg.fp);
+                ESP_LOGI(TAG, "wm fps patch: eff=%u (hdr=%u) frames=%lu dur=%lldms",
+                         (unsigned)eff, s_seg.hdr_playback_fps,
+                         (unsigned long)s_seg.frame_count, (long long)dur_ms);
+            }
+        }
     }
 
     fclose(s_seg.fp);
@@ -763,7 +797,14 @@ static void sd_writer_task(void *arg)
             continue;
         }
         if (s_seg.fp) {
-            write_avi_frame(wmsg.fb->data, wmsg.fb->len);
+            const uint8_t *fdata = wmsg.fb->data;
+            size_t flen = wmsg.fb->len;
+            if (watermark_video_enabled()) {
+                /* 失败内部已回退原帧（watermark.c 语义）——水印永不吞帧 */
+                watermark_apply(wmsg.fb->data, wmsg.fb->len, &fdata, &flen);
+                s_seg.wm_frames++;
+            }
+            write_avi_frame(fdata, flen);
             /* Drain audio and mux — moved here from recording_task */
             if (s_seg.audio_sub) {
                 audio_frame_t aframe;

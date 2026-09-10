@@ -35,7 +35,8 @@
 #include "nas_uploader.h"
 #include "ws_server.h"
 #include "motion_detect.h"
-#include "csi_motion.h"  /* 契约 v1.6：/api/status 的 csi 快照字段（编译关闭时恒缺省） */
+#include "csi_motion.h"
+#include "watermark.h"  /* 契约 v1.3：照片水印（issue #11，编译门 MIBEE_WATERMARK） */  /* 契约 v1.6：/api/status 的 csi 快照字段（编译关闭时恒缺省） */
 #include "wifi_channel_health.h"  /* 契约 v1.7 ①b：信道健康快照 */
 
 #include "ota_updater.h"
@@ -362,7 +363,7 @@ static esp_err_t api_capabilities_handler(httpd_req_t *req)
     cJSON *data = cJSON_CreateObject();
 
     /* 契约 v1.1：12 个布尔能力位 + api_version/wifi_scan（见 docs/api-contract.md） */
-    cJSON_AddStringToObject(data, "api_version", "1.7");
+    cJSON_AddStringToObject(data, "api_version", "1.8");
     cJSON_AddBoolToObject(data, "wifi_scan", true);
     cJSON_AddBoolToObject(data, "ai", false);           /* On-device AI detection */
     cJSON_AddBoolToObject(data, "sd", storage_is_available());  /* SD card storage */
@@ -380,6 +381,9 @@ static esp_err_t api_capabilities_handler(httpd_req_t *req)
     /* 契约 v1.4：WiFi CSI 运动感知（编译期门控，恒定；true ⇒ /ws csi_status 心跳） */
     cJSON_AddBoolToObject(data, "csi_motion", true);
     cJSON_AddBoolToObject(data, "onvif_events", true);   /* 契约 v1.5：ONVIF MotionAlarm 事件服务 */
+#if CONFIG_MIBEE_WATERMARK
+    cJSON_AddBoolToObject(data, "watermark", true);      /* 契约 v1.8：水印能力（issue #11） */
+#endif
 #endif
 
     return json_ok(req, data);
@@ -544,6 +548,35 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         cfg->webdav_enabled = item->valueint != 0;
     if ((item = cJSON_GetObjectItem(json, "onvif_events")))   /* 契约 v1.5 */
         cfg->onvif_events = item->valueint != 0;
+    /* 水印（契约 v1.3，issue #11；运行时回退开关） */
+    if ((item = cJSON_GetObjectItem(json, "wm_enable")))
+        cfg->wm_enable = cJSON_IsTrue(item) || item->valueint != 0;
+    if ((item = cJSON_GetObjectItem(json, "wm_video")))
+        cfg->wm_video = cJSON_IsTrue(item) || item->valueint != 0;
+    if ((item = cJSON_GetObjectItem(json, "wm_text")) && cJSON_IsString(item)) {
+        strncpy(cfg->wm_text, item->valuestring, sizeof(cfg->wm_text) - 1);
+        cfg->wm_text[sizeof(cfg->wm_text) - 1] = '\0';
+    }
+    if ((item = cJSON_GetObjectItem(json, "wm_time_fmt")) && cJSON_IsString(item)) {
+        strncpy(cfg->wm_time_fmt, item->valuestring, sizeof(cfg->wm_time_fmt) - 1);
+        cfg->wm_time_fmt[sizeof(cfg->wm_time_fmt) - 1] = '\0';
+    }
+    if ((item = cJSON_GetObjectItem(json, "wm_pos"))) {
+        if (!validate_uint_range(item->valueint, 0, 3)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid wm_pos (must be 0-3)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->wm_pos = (uint8_t)item->valueint;
+    }
+    if ((item = cJSON_GetObjectItem(json, "wm_quality"))) {
+        if (!validate_uint_range(item->valueint, 60, 95)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid wm_quality (must be 60-95)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->wm_quality = (uint8_t)item->valueint;
+    }
     /* CSI 调参键族（契约 v1.7；热生效，CSI-off 板存储无害） */
     const float prev_csi_threshold = cfg->csi_threshold;
     bool csi_changed = false;
@@ -1937,10 +1970,16 @@ static esp_err_t api_capture_handler(httpd_req_t *req)
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
+    const uint8_t *send_buf = msg.fb->data;
+    size_t send_len = msg.fb->len;
+    if (watermark_photo_enabled()) {
+        /* 水印失败内部已回退原帧（watermark.c 语义），此处无失败分支 */
+        watermark_apply(msg.fb->data, msg.fb->len, &send_buf, &send_len);
+    }
     httpd_resp_set_type(req, "image/jpeg");
     httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache, must-revalidate");
-    httpd_resp_send(req, (const char *)msg.fb->data, msg.fb->len);
+    httpd_resp_send(req, (const char *)send_buf, send_len);
     fbroadcast_release(&msg);
     return ESP_OK;
 }
