@@ -434,6 +434,13 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "csi_off_hits", (double)cfg->csi_off_hits);
     cJSON_AddNumberToObject(data, "csi_profile", (double)cfg->csi_profile);
     cJSON_AddBoolToObject(data, "csi_auto_heal", cfg->csi_auto_heal != 0);
+    /* 水印（契约 v1.3，issue #11；SPA 据字段存在性渲染水印卡） */
+    cJSON_AddBoolToObject(data, "wm_enable", cfg->wm_enable);
+    cJSON_AddBoolToObject(data, "wm_video", cfg->wm_video);
+    cJSON_AddStringToObject(data, "wm_text", cfg->wm_text);
+    cJSON_AddNumberToObject(data, "wm_pos", (double)cfg->wm_pos);
+    cJSON_AddStringToObject(data, "wm_time_fmt", cfg->wm_time_fmt);
+    cJSON_AddNumberToObject(data, "wm_quality", (double)cfg->wm_quality);
     cJSON_AddNumberToObject(data, "xclk_freq_mhz", (double)cfg->xclk_freq_mhz);
     cJSON_AddNumberToObject(data, "wifi_roam_rssi", (double)cfg->wifi_roam_rssi);
     cJSON_AddNumberToObject(data, "wifi_roam_gap_s", (double)cfg->wifi_roam_gap_s);
