@@ -1,6 +1,9 @@
-# jpge — Minimal public domain/Apache-2.0 baseline JPEG encoder (single file)
-# Vendored from https://github.com/richgel999/jpeg-compressor (commit master 2024).
-# Dual-licensed: public domain (license 1) or Apache-2.0 (license 2) — both
-# GPL-3.0 compatible. Unmodified upstream sources; keep this copy pristine.
+# wm_jpge — Minimal baseline JPEG encoder, forked from
+# https://github.com/richgel999/jpeg-compressor (master 2024).
+# Dual-licensed public domain / Apache-2.0 (GPL-3.0 compatible).
+# FORK NOTE: namespace renamed jpge -> wm_jpge. esp32-camera vendors its own
+# jpge internally (conversions/jpge.cpp) that is NOT header-exposed — without
+# this rename both copies satisfy jpeg_encoder symbols (ODR lottery).
+# No other functional change.
 idf_component_register(SRCS "jpge.cpp"
                        INCLUDE_DIRS ".")

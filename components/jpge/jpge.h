@@ -4,7 +4,7 @@
 #ifndef JPEG_ENCODER_H
 #define JPEG_ENCODER_H
 
-namespace jpge
+namespace wm_jpge
 {
 	typedef unsigned char  uint8;
 	typedef signed short   int16;
@@ -168,6 +168,6 @@ namespace jpge
 		void init();
 	};
 
-} // namespace jpge
+} // namespace wm_jpge
 
 #endif // JPEG_ENCODER

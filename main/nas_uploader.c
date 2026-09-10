@@ -324,12 +324,10 @@ static void upload_task(void *arg)
         /* ---- Upload dispatch ---- */
         if (cfg->webdav_enabled && strlen(cfg->webdav_url) > 0) {
             webdav_config_t dav_cfg = {0};
-            strncpy(dav_cfg.url, cfg->webdav_url, sizeof(dav_cfg.url) - 1);
-            dav_cfg.url[sizeof(dav_cfg.url) - 1] = '\0';
-            strncpy(dav_cfg.user, cfg->webdav_user, sizeof(dav_cfg.user) - 1);
-            dav_cfg.user[sizeof(dav_cfg.user) - 1] = '\0';
-            strncpy(dav_cfg.pass, cfg->webdav_pass, sizeof(dav_cfg.pass) - 1);
-            dav_cfg.pass[sizeof(dav_cfg.pass) - 1] = '\0';
+            /* strlcpy：-O2 下 strncpy 截断告警（行为等价，语义更明确） */
+            strlcpy(dav_cfg.url, cfg->webdav_url, sizeof(dav_cfg.url));
+            strlcpy(dav_cfg.user, cfg->webdav_user, sizeof(dav_cfg.user));
+            strlcpy(dav_cfg.pass, cfg->webdav_pass, sizeof(dav_cfg.pass));
 
             LOG_EVENT(LOG_EVENT_UPLOAD_STARTED, "file=%s method=webdav", filepath);
             webdav_mkdir_recursive(&dav_cfg, remote_dir);

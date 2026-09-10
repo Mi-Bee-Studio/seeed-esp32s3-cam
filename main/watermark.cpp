@@ -39,9 +39,27 @@
 #include <time.h>
 
 #include "jpge.h"
+#include <new>          /* placement-new（PSRAM 持久编码器对象） */
 #include "watermark_font.h"
 
 static const char *TAG = "watermark";
+
+/* jpge::memory_stream 只在 jpge.cpp 内部（vendored 文件保持原样）——
+ * 自写等价输出流：写入 PSRAM 缓冲，越界即失败。 */
+class wm_out_stream : public wm_jpge::output_stream {
+    uint8_t *m_buf;
+    size_t m_cap, m_ofs;
+public:
+    wm_out_stream(uint8_t *buf, size_t cap) : m_buf(buf), m_cap(cap), m_ofs(0) {}
+    virtual ~wm_out_stream() {}
+    virtual bool put_buf(const void *pBuf, int len) {
+        if (len < 0 || (size_t)len > m_cap - m_ofs) return false;
+        memcpy(m_buf + m_ofs, pBuf, (size_t)len);
+        m_ofs += (size_t)len;
+        return true;
+    }
+    size_t size() const { return m_ofs; }
+};
 
 /* RGB888 工作缓冲上限：SVGA≈2.7MB / HD≈2.8MB / SXGA≈3.9MB / UXGA≈5.6MB。
  * 4MB 上限保住推流/CSI/录像并存的 PSRAM 预算（当前 free ~6.3MB）。 */
@@ -51,6 +69,7 @@ static const char *TAG = "watermark";
 typedef struct {
     uint8_t *rgb;            /* RGB888 解码缓冲（PSRAM） */
     size_t   rgb_cap;
+    void    *enc;            /* 持久 jpge::jpeg_encoder（PSRAM；栈上 13.2KB 会爆 httpd 16KB 栈） */
     uint8_t *out;            /* 重编码 JPEG 缓冲（PSRAM） */
     size_t   out_cap;
     uint8_t *tjpgd_ws;       /* tjpgd 工作缓冲 3.5KB（PSRAM） */
@@ -148,6 +167,13 @@ static bool ensure_buffers(size_t rgb_need, size_t jpeg_in_len)
         s_wm.tjpgd_ws = (uint8_t *)heap_caps_malloc(3100 + 512, MALLOC_CAP_SPIRAM);
         if (!s_wm.tjpgd_ws) return false;
     }
+    if (!s_wm.enc) {
+        s_wm.enc = heap_caps_malloc(sizeof(wm_jpge::jpeg_encoder), MALLOC_CAP_SPIRAM);
+        if (!s_wm.enc) return false;
+        /* placement-new 必须有：构造清零 m_mcu_lines 等成员，否则 init→deinit
+         * 首次自清理就会 free 野指针（11:36:20 assert 实录） */
+        new (s_wm.enc) wm_jpge::jpeg_encoder();
+    }
     if (!s_wm.mtx) {
         s_wm.mtx = xSemaphoreCreateMutex();
         if (!s_wm.mtx) return false;
@@ -187,7 +213,7 @@ esp_err_t watermark_apply(const uint8_t *jpeg_in, size_t in_len,
     int lines = 0;
     const cam_config_t *cfg = NULL;
     int w = 0, h = 0, scale = 1, lh = 10, margin = 6, x0 = 0, y0 = 0;
-    jpge::params p;
+    wm_jpge::params p;
     int out_size = 0;
     bool ok = false;
 
@@ -250,12 +276,23 @@ esp_err_t watermark_apply(const uint8_t *jpeg_in, size_t in_len,
     }
 
     {
+        wm_jpge::jpeg_encoder *enc = (wm_jpge::jpeg_encoder *)s_wm.enc;
+        wm_out_stream dst_stream(s_wm.out, s_wm.out_cap);
         p.m_quality = config_get()->wm_quality;
-        p.m_subsampling = jpge::H2V2;
-        out_size = (int)s_wm.out_cap;
+        p.m_subsampling = wm_jpge::H2V2;
         t0 = esp_timer_get_time();
-        ok = jpge::compress_image_to_jpeg_file_in_memory(
-            s_wm.out, out_size, info.width, info.height, 3, s_wm.rgb, p);
+        ok = enc->init(&dst_stream, info.width, info.height, 3, p);
+        if (ok) {
+            for (int pass = 0; ok && pass < (int)enc->get_total_passes(); pass++) {
+                for (int i = 0; i < (int)info.height; i++) {
+                    const uint8_t *scan = s_wm.rgb + (size_t)i * info.width * 3;
+                    if (!enc->process_scanline(scan)) { ok = false; break; }
+                }
+                if (ok && !enc->process_scanline(NULL)) ok = false;
+            }
+            enc->deinit();
+        }
+        out_size = ok ? (int)dst_stream.size() : 0;
         t_encode = esp_timer_get_time() - t0;
         if (!ok) goto out;
         *jpeg_out = s_wm.out;

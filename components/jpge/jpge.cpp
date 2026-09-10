@@ -37,7 +37,7 @@
 #define JPGE_MAX(a,b) (((a)>(b))?(a):(b))
 #define JPGE_MIN(a,b) (((a)<(b))?(a):(b))
 
-namespace jpge {
+namespace wm_jpge {
 
 	static inline void* jpge_malloc(size_t nSize) { return malloc(nSize); }
 	static inline void jpge_free(void* p) { free(p); }
@@ -992,7 +992,7 @@ namespace jpge {
 		if (!dst_stream.open(pFilename))
 			return false;
 
-		jpge::jpeg_encoder dst_image;
+		wm_jpge::jpeg_encoder dst_image;
 		if (!dst_image.init(&dst_stream, width, height, num_channels, comp_params))
 			return false;
 
@@ -1051,7 +1051,7 @@ namespace jpge {
 
 		buf_size = 0;
 
-		jpge::jpeg_encoder dst_image;
+		wm_jpge::jpeg_encoder dst_image;
 		if (!dst_image.init(&dst_stream, width, height, num_channels, comp_params))
 			return false;
 
@@ -1073,4 +1073,4 @@ namespace jpge {
 		return true;
 	}
 
-} // namespace jpge
+} // namespace wm_jpge

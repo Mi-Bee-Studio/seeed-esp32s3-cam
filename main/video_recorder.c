@@ -388,11 +388,15 @@ static void build_segment_path(char *out, size_t out_len, const char *prefix)
              tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
     mkdirs(dir);
 
-    /* Filename: REC_YYYYMMDD_HHMMSS.avi */
+    /* Filename: REC_YYYYMMDD_HHMMSS.avi（dir 96 + 固定段名 < out_len 160；
+     * -O2 下 format-truncation 告警以 pragma 压制，截断即路径上限既有语义） */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
     snprintf(out, out_len, "%s/%s_%04d%02d%02d_%02d%02d%02d.avi",
       dir, prefix,
       tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
       tm.tm_hour, tm.tm_min, tm.tm_sec);
+#pragma GCC diagnostic pop
 }
 
 /* ------------------------------------------------------------------ */
@@ -803,6 +807,9 @@ static void sd_writer_task(void *arg)
                 /* 失败内部已回退原帧（watermark.c 语义）——水印永不吞帧 */
                 watermark_apply(wmsg.fb->data, wmsg.fb->len, &fdata, &flen);
                 s_seg.wm_frames++;
+                /* 重编码满载 CPU1 会饿死 IDLE1（TWDT 实测 11:44:55）：
+                 * 每帧让出一个 tick。无水印路径不加（零行为差异回退红线）。 */
+                vTaskDelay(1);
             }
             write_avi_frame(fdata, flen);
             /* Drain audio and mux — moved here from recording_task */
