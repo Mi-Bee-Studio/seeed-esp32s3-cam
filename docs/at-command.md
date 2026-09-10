@@ -99,9 +99,8 @@
 | luatos | `AT+WIFI2=ssid,pass` | 备用网络凭据（查询脱敏；`ssid,` 空串清除；保存即生效——备用槽不影响当前连接，v1.2 语义） |
 | seeed / n16r8 | `AT+CSI?` | CSI 实时快照：state/score/thr/profile/locked/calibrating + flip_rate/tx·cb·adm pps（v1.3；CSI-off 板 ERROR） |
 | seeed / n16r8 | `AT+CSICAL` | 立即触发 CSI 重校准（背景执行，v1.3） |
-| seeed | `AT+CHHEALTH?` | Wi-Fi 信道健康快照（v1.3 ①b：rssi/disconnects/busy_score/csi 探针，api-contract §16） |
-| seeed | `AT+CHHEALTH=SCAN` | 手动触发拥塞 scan（录像/有观众时 ERROR: busy，v1.3） |
-| seeed | `AT+CSI?`/`AT+CSICAL`/`AT+CHHEALTH` 实现见 main/at_port.c 扩展表 | n16r8 同款（家族同步） |
+| seeed / n16r8 / ai-thinker / luatos | `AT+CHHEALTH?` | Wi-Fi 信道健康快照（v1.3 ①b 全家族：rssi/disconnects/busy_score/csi 探针，api-contract §16） |
+| seeed / n16r8 / ai-thinker / luatos | `AT+CHHEALTH=SCAN` | 手动触发拥塞 scan（录像/有观众时 ERROR: busy，v1.3） |
 
 ## 6. 板级生效语义对照（与 api-contract §5 一致）
 
