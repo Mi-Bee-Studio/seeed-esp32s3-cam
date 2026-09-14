@@ -56,6 +56,8 @@
       /* ---------- Flash LED ---------- */
       'flash.brightness': 'LED Brightness',
       'flash.off': 'Off',
+      'flash.viewers': 'Flash while viewers',
+      'flash.viewers_hint': 'Auto-on while someone watches the stream or takes photos; off 20s after the last viewer leaves. Manual LED control is overridden while viewers are present.',
 
       /* ---------- Network ---------- */
       'network.ssid': 'WiFi SSID',
@@ -338,6 +340,8 @@
       /* ---------- 闪光灯 ---------- */
       'flash.brightness': 'LED \u4eae\u5ea6',
       'flash.off': '\u5173\u95ed',
+      'flash.viewers': '\u6709\u4eba\u89c2\u770b\u65f6\u4eae\u706f',
+      'flash.viewers_hint': '\u6709\u4eba\u770b\u6d41\u6216\u62cd\u7167\u65f6\u81ea\u52a8\u4eae\u8d77\u95ea\u5149\u706f\uff0c\u6700\u540e\u4e00\u4f4d\u79bb\u5f00 20 \u79d2\u540e\u81ea\u52a8\u5173\u95ed\u3002\u6709\u89c2\u770b\u8005\u65f6\u624b\u52a8\u63a7\u706f\u4f1a\u88ab\u8986\u76d6\u3002',
 
       /* ---------- 网络 ---------- */
       'network.ssid': 'WiFi \u540d\u79f0',
