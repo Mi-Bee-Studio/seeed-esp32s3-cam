@@ -349,8 +349,7 @@ static void list_files_recursive(const char *dirpath, file_info_t *files, int ma
 
         /* Store relative path from RECORDINGS_PATH */
         const char *relpath = fullpath + strlen(RECORDINGS_PATH) + 1;
-        strncpy(files[*count].name, relpath, sizeof(files[*count].name) - 1);
-        files[*count].name[sizeof(files[*count].name) - 1] = '\0';
+        strlcpy(files[*count].name, relpath, sizeof(files[*count].name));
         files[*count].size = (uint32_t)st.st_size;
 
         struct tm *tm_info = localtime(&st.st_mtime);

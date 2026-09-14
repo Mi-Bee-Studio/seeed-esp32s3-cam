@@ -32,6 +32,8 @@
 #include "wifi_manager.h"
 #include "storage_manager.h"
 #include "video_recorder.h"
+#include "csi_motion.h"   /* 契约 v1.7：CSI 调参键族热应用 + AT+CSI 快照 */
+#include "wifi_channel_health.h"   /* 契约 v1.7 ①b：信道健康快照 */
 
 static const char *TAG = "at_port";
 
@@ -356,6 +358,11 @@ static const port_field_t s_fields[] = {
     { "sd_log_enabled",           AT_CFG_U8,  false, offsetof(cam_config_t, sd_log_enabled) },
     { "cleanup_low_pct",          AT_CFG_U8,  false, offsetof(cam_config_t, cleanup_low_pct) },
     { "cleanup_high_pct",         AT_CFG_U8,  false, offsetof(cam_config_t, cleanup_high_pct) },
+    { "csi_enabled",              AT_CFG_U8,  false, offsetof(cam_config_t, csi_enabled) },
+    { "csi_on_hits",              AT_CFG_U8,  false, offsetof(cam_config_t, csi_on_hits) },
+    { "csi_off_hits",             AT_CFG_U8,  false, offsetof(cam_config_t, csi_off_hits) },
+    { "csi_profile",              AT_CFG_U8,  false, offsetof(cam_config_t, csi_profile) },
+    { "csi_auto_heal",            AT_CFG_U8,  false, offsetof(cam_config_t, csi_auto_heal) },
 };
 
 enum {
@@ -365,6 +372,7 @@ enum {
     F_RTSP_PASS, F_MOTION_EN, F_MOTION_SENS, F_MOTION_COOL, F_MOTION_ACT,
     F_SEGMENT, F_RECORD_ON_BOOT, F_VIDEO_TO_SD, F_AUDIO_TO_SD, F_TL_EN,
     F_TL_MODE, F_SD_LOG, F_CLEANUP_LOW, F_CLEANUP_HIGH,
+    F_CSI_EN, F_CSI_ON_HITS, F_CSI_OFF_HITS, F_CSI_PROFILE, F_CSI_HEAL,
 };
 
 static void field_get_generic(const port_field_t *f, char *buf, size_t len)
@@ -622,6 +630,68 @@ static esp_err_t cfg_set_cleanup_high(const char *v)
     return set_u8_field(&config_get()->cleanup_high_pct, v, 1, 80);
 }
 
+/* ── CSI 调参键族（契约 v1.7）：设置后热应用（无需重启） ─────── */
+
+CFG_GET_FN(cfg_get_csi_en,       F_CSI_EN)
+CFG_GET_FN(cfg_get_csi_on_hits,  F_CSI_ON_HITS)
+CFG_GET_FN(cfg_get_csi_off_hits, F_CSI_OFF_HITS)
+CFG_GET_FN(cfg_get_csi_profile,  F_CSI_PROFILE)
+CFG_GET_FN(cfg_get_csi_heal,     F_CSI_HEAL)
+
+/* 统一写路径：u8 字段落盘 → 热应用（threshold 显式恢复-自动语义在
+ * csi set_threshold 内处理；这里 apply_config 幂等跳过 0 值） */
+static esp_err_t csi_set_and_apply(uint8_t *dst, const char *v, long lo, long hi)
+{
+    esp_err_t ret = set_u8_field(dst, v, lo, hi);
+    if (ret == ESP_OK) csi_motion_apply_config();
+    return ret;
+}
+static esp_err_t cfg_set_csi_en(const char *v)
+{
+    return csi_set_and_apply(&config_get()->csi_enabled, v, 0, 1);
+}
+static esp_err_t cfg_set_csi_on_hits(const char *v)
+{
+    return csi_set_and_apply(&config_get()->csi_on_hits, v, 1, 20);
+}
+static esp_err_t cfg_set_csi_off_hits(const char *v)
+{
+    return csi_set_and_apply(&config_get()->csi_off_hits, v, 1, 20);
+}
+static esp_err_t cfg_set_csi_profile(const char *v)
+{
+    return csi_set_and_apply(&config_get()->csi_profile, v, 0, 1);
+}
+static esp_err_t cfg_set_csi_heal(const char *v)
+{
+    return set_u8_field(&config_get()->csi_auto_heal, v, 0, 1);
+}
+
+/* csi_threshold 为 float（AT_CFG 无浮点类型）：字符串表示，%.3f 精度 */
+static void cfg_get_csi_threshold(char *buf, size_t len)
+{
+    cam_config_t snap;
+    config_get_copy(&snap);
+    snprintf(buf, len, "%.3f", (double)snap.csi_threshold);
+}
+static esp_err_t cfg_set_csi_threshold(const char *v)
+{
+    char *end = NULL;
+    float val = strtof(v, &end);
+    if (end == v || *end != '\0') return ESP_ERR_INVALID_ARG;
+    if (val != 0.0f && (val < 0.05f || val > 1.0f)) return ESP_ERR_INVALID_ARG;
+    const float prev = config_get()->csi_threshold;
+    config_lock();
+    config_get()->csi_threshold = val;
+    esp_err_t ret = config_save();
+    config_unlock();
+    if (ret != ESP_OK) return ret;
+    /* 显式写 0=恢复自动（重校准 + 重新启用 settle）；其余交给 apply */
+    if (val == 0.0f && prev > 0.0f) csi_motion_set_threshold(0.0f);
+    csi_motion_apply_config();
+    return ESP_OK;
+}
+
 /* 白名单表（get 仅非 secret 字段；set 含 secret 写入） */
 static const at_cfg_field_t s_cfg_fields[] = {
     { "device_name",              AT_CFG_STR, false, cfg_get_device_name,    cfg_set_device_name },
@@ -654,6 +724,13 @@ static const at_cfg_field_t s_cfg_fields[] = {
     { "sd_log_enabled",           AT_CFG_U8,  false, cfg_get_sd_log,         cfg_set_sd_log },
     { "cleanup_low_pct",          AT_CFG_U8,  false, cfg_get_cleanup_low,    cfg_set_cleanup_low },
     { "cleanup_high_pct",         AT_CFG_U8,  false, cfg_get_cleanup_high,   cfg_set_cleanup_high },
+    /* CSI 调参键族（契约 v1.7；CSI-off 板写存储无运行时效果） */
+    { "csi_enabled",              AT_CFG_U8,  false, cfg_get_csi_en,         cfg_set_csi_en },
+    { "csi_threshold",            AT_CFG_STR, false, cfg_get_csi_threshold,  cfg_set_csi_threshold },
+    { "csi_on_hits",              AT_CFG_U8,  false, cfg_get_csi_on_hits,    cfg_set_csi_on_hits },
+    { "csi_off_hits",             AT_CFG_U8,  false, cfg_get_csi_off_hits,   cfg_set_csi_off_hits },
+    { "csi_profile",              AT_CFG_U8,  false, cfg_get_csi_profile,    cfg_set_csi_profile },
+    { "csi_auto_heal",            AT_CFG_U8,  false, cfg_get_csi_heal,      cfg_set_csi_heal },
 };
 
 const at_cfg_field_t *at_port_cfg_fields(int *count)
@@ -677,10 +754,92 @@ const char *at_port_alias(const char *name)
     return NULL;
 }
 
-/* ── 板级扩展指令（契约 §5 登记制；seeed 无扩展） ──────────────── */
+/* ── 板级扩展指令（契约 §5 登记制） ──────────────────────────── */
+
+/* AT+CSI?：CSI 实时快照（state/score/thr/锁定/翻转率/diag 三速率）。
+ * 应答经 at_port_write 构造（核心 at_data 为 static，port 层不可见）。 */
+static esp_err_t ext_csi_handler(const char *cmd)
+{
+    if (strncasecmp(cmd, "CSI?", 4) != 0) return ESP_ERR_NOT_SUPPORTED;
+    csi_motion_status_t st;
+    char line[128];
+    if (!csi_motion_get_status(&st)) {
+        at_port_write("+ERROR: CSI sensing not active (warming or not built)\r\n");
+        return ESP_OK;
+    }
+    snprintf(line, sizeof(line),
+             "+CSI: state=%s score=%.3f thr=%.3f profile=%u locked=%d calibrating=%d\r\n",
+             st.state, (double)st.score, (double)st.thr,
+             (unsigned)st.profile, st.thr_locked, st.calibrating);
+    at_port_write(line);
+    snprintf(line, sizeof(line),
+             "+CSI: flip_rate=%u/h tx=%.1f cb=%.1f adm=%.1f pps\r\n",
+             (unsigned)st.flip_rate, (double)st.tx_pps, (double)st.cb_pps,
+             (double)st.adm_pps);
+    at_port_write(line);
+    at_port_write("OK\r\n");
+    return ESP_OK;
+}
+
+/* AT+CSICAL：立即重校准（背景执行，进度见 CSI? 或串口） */
+static esp_err_t ext_csical_handler(const char *cmd)
+{
+    if (strncasecmp(cmd, "CSICAL", 6) != 0) return ESP_ERR_NOT_SUPPORTED;
+    esp_err_t ret = csi_motion_recalibrate();
+    if (ret != ESP_OK) {
+        at_port_write(ret == ESP_ERR_NOT_SUPPORTED
+                          ? "+ERROR: CSI sensing not built\r\n"
+                          : "+ERROR: CSI runtime not ready\r\n");
+    } else {
+        at_port_write("+CSICAL: recalibration started\r\nOK\r\n");
+    }
+    return ESP_OK;
+}
+
+/* AT+CHHEALTH?（信道健康快照）/ AT+CHHEALTH=SCAN（手动拥塞 scan）——契约 v1.3 ①b */
+static esp_err_t ext_chhealth_handler(const char *cmd)
+{
+    char line[144];
+    if (strncasecmp(cmd, "CHHEALTH?", 10) == 0) {
+        wifi_chan_health_t ch;
+        if (!wifi_channel_health_get(&ch)) {
+            at_port_write("+ERROR: chan health not sampled yet\r\n");
+            return ESP_OK;
+        }
+        snprintf(line, sizeof(line),
+                 "+CHHEALTH: rssi %d/%d dBm ch=%u disc_1h=%u busy=%u%% bss=%u/%u\r\n",
+                 (int)ch.rssi_avg, (int)ch.rssi_min, (unsigned)ch.channel,
+                 (unsigned)ch.disconnects_1h, (unsigned)ch.busy_score,
+                 (unsigned)ch.bss_on_chan, (unsigned)ch.bss_total);
+        at_port_write(line);
+        snprintf(line, sizeof(line), "+CHHEALTH: csi_adm=%.1f pps cb_ratio=%.1f scan_ts=%u\r\n",
+                 (double)ch.csi_adm_pps, (double)ch.csi_cb_ratio, (unsigned)ch.scan_ts);
+        at_port_write(line);
+        at_port_write("OK\r\n");
+        return ESP_OK;
+    }
+    if (strncasecmp(cmd, "CHHEALTH=SCAN", 13) == 0) {
+        esp_err_t ret = wifi_channel_health_scan_now();
+        if (ret != ESP_OK) {
+            at_port_write("+ERROR: busy (recording or stream clients)\r\n");
+        } else {
+            at_port_write("+CHHEALTH: scan queued (see CHHEALTH? in ~15s)\r\nOK\r\n");
+        }
+        return ESP_OK;
+    }
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+static const at_ext_cmd_t s_ext_cmds[] = {
+    { "CSI",   "CSI? (live sensing snapshot)",        ext_csi_handler },
+    { "CSICAL", "CSICAL (trigger recalibration)",     ext_csical_handler },
+    { "CHHEALTH", "CHHEALTH? | CHHEALTH=SCAN (channel health)", ext_chhealth_handler },
+};
 
 const at_ext_cmd_t *at_port_ext_cmds(int *count)
 {
-    if (count) *count = 0;
-    return NULL;
+    if (count) {
+        *count = (int)(sizeof(s_ext_cmds) / sizeof(s_ext_cmds[0]));
+    }
+    return s_ext_cmds;
 }
