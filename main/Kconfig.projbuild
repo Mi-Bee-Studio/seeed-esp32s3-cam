@@ -30,3 +30,18 @@ menu "mibee-cam CSI Motion Sensing (ESPectre)"
             pre-ESPectre baseline (verified 2026-09-06).
 
 endmenu
+
+menu "mibee-cam Recording Watermark"
+
+    config MIBEE_WATERMARK
+        bool "Enable photo/video watermark pipeline"
+        default y
+        help
+            Compile the JPEG decode->render->re-encode watermark pipeline
+            (issue #11; esp_jpeg decoder + vendored jpge encoder + font8x8).
+            Runtime default is OFF via config keys (wm_enable=0) - with the
+            keys off, the firmware behaves identically to the pre-watermark
+            baseline. Set =n and rebuild to strip the code entirely
+            (rollback path).
+
+endmenu

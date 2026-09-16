@@ -16,6 +16,8 @@ dependencies:
   #   public: true
   espressif/esp32-camera: ~2.1.7
   espressif/mdns: '*'
+  # 水印 JPEG 解码（issue #11；与 ai-thinker 的传递依赖同源同版本）
+  espressif/esp_jpeg: ~1.3.1
   # espp/rtsp is vendored in components/espp__rtsp (patched: digest auth,
   # TCP interleaved, max_sessions, mbedtls REQUIRES) — do not re-add here.
   # Its former private dependencies are declared directly instead:

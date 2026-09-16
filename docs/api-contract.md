@@ -1,4 +1,4 @@
-# MiBee Cam 家族 API 契约 v1.7
+# MiBee Cam 家族 API 契约 v1.8
 
 > 适用四仓：`ai-thinker-esp32-cam` · `esp32s3-n16r8-cam` · `luatos-esp32s3-a10-camera` · `seeed-esp32s3-cam`
 >
@@ -19,6 +19,9 @@
 > **v1.6 变更（2026-09-08）**：`GET /api/status` 增补可选 `csi` 快照对象
 > （与 §6 `csi_status` 心跳同形同值、同一快照源）——无 WS 服务的 CSI 板
 > （n16r8）由此驱动前端 CSI 胶囊/统计片，与 seeed 的 WS 体验对齐（见 §4/§14）。
+> **v1.8 变更（2026-09-10）**：capabilities 增补 `watermark` 编译期能力位（仅
+> seeed，`MIBEE_WATERMARK`）；水印配置键与回退语义见 `docs/config-contract.md`
+> v1.3 §3.2（`wm_*` 六键，默认全关=零行为差异，运行时可关——issue #11）。
 > **v1.7 变更（2026-09-09）**：CSI 运行时调参面——config 键族 `csi_*` 六键热生效
 > （阈值锁定=断 settle 单边下调，PIT-041 误报根因的根治开关）、动作端点
 > `POST /api/csi/calibrate`、`csi` 快照与 `csi_status` 心跳增补诊断字段
@@ -91,6 +94,11 @@
 config 键 `onvif_events`（默认 0）运行时门控——即商用相机的"运动侦测开关"
 （订阅服务常在，报警随开关）。
 延时摄影：统一走 config 的 `timelapse_*` 字段 + `/api/record`（ai-thinker 的
+`watermark`（布尔，v1.8）：编译期 Kconfig `MIBEE_WATERMARK` 门控（仅 seeed）。
+`true` ⇒ 照片（`GET /api/capture`）与视频轨可烧录水印（自定义文案 + 实时
+时戳）；**运行时开关**由 config 键 `wm_enable`/`wm_video`（默认 0）门控——
+关闭态字节路径与无此特性固件一致（回退保证，见 config-contract v1.3 §3.2）。
+水印失败（内存/分辨率超限/编解码错）一律回退原帧，永不吞帧。
 `/api/timelapse/*` 端点为遗留 tolerated variant，计划收敛）。
 
 ## 4. `/api/status` 字段命名（核心字段，全家族一致）
@@ -349,3 +357,374 @@ q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-think
   录像中或有 MJPEG 观众时跳过（scan 有 ~2s 射频离线成本，PIT-038）。
 - 第一阶段只感知+报告；质量驱动切网/AP 自选信道等自动动作属路线②
   （需 soak 标定后放开）。
+# MiBee Cam 家族 API 契约 v1.8
+
+> 适用四仓：`ai-thinker-esp32-cam` · `esp32s3-n16r8-cam` · `luatos-esp32s3-a10-camera` · `seeed-esp32s3-cam`
+>
+> 原则：**无差异部分完全一致；有差异部分只允许通过"能力门控 + 动态元数据"产生差异。**
+> 禁止字段名、数值刻度、语义分叉。`GET /api/capabilities` 的 `api_version` 即本版本号；
+> 破坏性变更必须 bump 版本并在本文档记录迁移说明。
+>
+> **v1.1 变更（2026-09-02）**：家族统一默认密码、密码修改入口、遗留差异收敛（见 §8/§9）。
+> **v1.2 变更（2026-09-03）**：SD 文件批量管理 + 安全格式化 + cleanup 语义统一（见 §11）。
+> **v1.3 变更（2026-09-05）**：分辨率刻度统一为 framesize_t、配置契约独立成文
+> （`docs/config-contract.md`）、能力值语义条款、OTA URL 触发补齐、`GET /api/storage`
+> 收编、`/api/ai/status` 桩移除（见 §12）。
+> **v1.4 变更（2026-09-07）**：WS §6 新增 `csi_status` 心跳事件、`motion_*` 增补可选
+> `source` 字段；capabilities 增补 `csi_motion` 编译期能力位（见 §3/§6）。
+> **v1.5 变更（2026-09-08）**：ONVIF Pull-Point 事件服务 `/onvif/events_service`
+> （MotionAlarm ← CSI 运动，NVR 联动录像）；capabilities 增补 `onvif_events`
+> 编译期能力位，事件生成由 config 键 `onvif_events` 运行时门控（见 §3/§13）。
+> **v1.6 变更（2026-09-08）**：`GET /api/status` 增补可选 `csi` 快照对象
+> （与 §6 `csi_status` 心跳同形同值、同一快照源）——无 WS 服务的 CSI 板
+> （n16r8）由此驱动前端 CSI 胶囊/统计片，与 seeed 的 WS 体验对齐（见 §4/§14）。
+> **v1.8 变更（2026-09-10）**：capabilities 增补 `watermark` 编译期能力位（仅
+> seeed，`MIBEE_WATERMARK`）；水印配置键与回退语义见 `docs/config-contract.md`
+> v1.3 §3.2（`wm_*` 六键，默认全关=零行为差异，运行时可关——issue #11）。
+> **v1.7 变更（2026-09-09）**：CSI 运行时调参面——config 键族 `csi_*` 六键热生效
+> （阈值锁定=断 settle 单边下调，PIT-041 误报根因的根治开关）、动作端点
+> `POST /api/csi/calibrate`、`csi` 快照与 `csi_status` 心跳增补诊断字段
+> （profile/thr_locked/calibrating/flip_rate/tx·cb·adm pps）（见 §5/§6/§15）。
+
+## 1. 信封与鉴权（所有板一致）
+
+- 成功：`{"ok":true,"data":...}` HTTP 200；失败：`{"ok":false,"error":"<msg>"}` + 400/401/404/500/503。
+- 写操作鉴权：`X-Password` 请求头。
+- **默认密码**：公开固件统一默认 `mibeecam2026`（2026-09-05 起 Kconfig 默认值并公开于文档；本地构建可在 gitignored sdkconfig 用 `CONFIG_MIBEE_CAM_DEFAULT_WEB_PASSWORD` 覆盖）；
+  服务端拒绝空或长度 <6 的密码（400）。空密码的 `SET_PASSWORD_FIRST` 状态仅在
+  极早期固件上出现，新固件保留该兼容分支但正常流程不会触达。
+- **修改密码**：`POST /api/config` 携带 `{"web_password":"<新密码>"}`，需带当前密码的
+  `X-Password` 头（旧密码即隐式验证）。UI 入口：WiFi 页 → 修改密码（旧密码经
+  `GET /api/auth` 预验证）。
+- 密码类字段在 GET 响应中以 `"****"` 掩码；POST 回传 `"****"` 视为"未修改"。
+- CORS：`OPTIONS /*` → 204；所有响应带 `Access-Control-Allow-Origin: *`。
+- MJPEG 流在独立 TCP 服务器 `:81/stream`（`multipart/x-mixed-replace`，超限 503）。
+  客户端上限按硬件不同：ai-thinker 1 / n16r8 2 / luatos 2 / seeed 3，
+  通过 `status.stream_clients_max` 下发。
+
+## 2. 核心端点（四板 100% 一致，必须实现）
+
+| Method | Path | Auth | 说明 |
+|---|---|---|---|
+| GET | `/api/status` | open | 设备状态（字段见 §4） |
+| GET | `/api/config` | open | 当前配置（密码掩码） |
+| POST | `/api/config` | write | 部分更新；WiFi 变更写 NVS、重启生效 |
+| GET | `/api/capabilities` | open | 能力矩阵（见 §3） |
+| GET | `/api/capture` | open | 单帧 JPEG（`image/jpeg`） |
+| GET | `/api/scan` | open | WiFi 扫描 `{networks:[{ssid,rssi,auth}]}`（RSSI 降序） |
+| POST | `/api/time` | write | 手动设时间 `{year,month,day,hour,min,sec}` |
+| POST | `/api/reset` | write | 恢复出厂并重启 |
+| POST | `/api/reboot` | write | 重启 |
+| GET | `/api/auth` | open | 校验密码 `{auth,password_set}`（未设密码时 auth=true） |
+| GET | `/metrics` | open | Prometheus 文本 |
+
+## 3. 能力门控（`GET /api/capabilities`）
+
+规则：`capabilities.X == true` ⇒ 对应端点必须存在且语义一致；`== false` ⇒ 端点不注册
+（404/405 可接受），**前端保证永不调用**。
+
+**能力值语义（v1.3 条款）**：布尔能力在单次运行的设备上必须**恒定**——只允许
+编译期常量或 Kconfig 条件（luatos 模式）；唯一例外是**硬件在场性**探测
+（如 seeed `sd` 随卡插拔）允许运行时探测。功能开关类能力（`ai`/`ota`/`recording`…）
+禁止运行时翻转。`api_version` 必须与本文档版本一致（禁止漂移）。
+
+| 端点 | 统一语义 | ai | n16r8 | luatos | seeed |
+|---|---|---|---|---|---|
+| `POST /api/led` `{"brightness":0-100}` | 亮度语义；简单 GPIO 板 0=灭/＞0=亮 | ✅(兼容 `?action=`) | ✅ | — | — |
+| `GET /api/led` | 读回亮度/状态 | ✅ | ✅ | — | — |
+| `POST /api/ai` + `GET /api/ai/status` | `{face,motion,qr}` 开关；检测结果 | — | ✅ | — | — |
+| `POST /api/record?action=start\|stop` + `GET /api/record` | 录像控制/状态 | ✅ | — | — | ✅(v1.1 补 GET) |
+| `/api/files` GET/DELETE(+`type=`) · `POST /api/files/batch` · `/api/download` · `POST /api/format` | SD 文件管理（v1.2 见 §11） | ✅ | — | — | ✅ |
+| `/api/ota/info` · `/api/ota/upload` · `/api/ota/spiffs` | OTA | ✅ | ✅(v1.2 移植完成, ota=true) | — | ✅ |
+| `POST /api/ota {"url":...}` | OTA URL 触发下载（v1.3 起全部 OTA 板统一，ai-thinker 补齐） | ✅(v1.3 补) | ✅ | — | ✅ |
+| `GET /api/storage` | 存储详情（v1.3 收编；sd 能力板语义统一，seeed 补齐） | ✅ | — | — | ✅(v1.3 补) |
+| `GET /api/audio` | G.711 μ-law 裸流 8kHz | — | — | — | ✅ |
+| `GET /ws` | WebSocket 事件推送（见 §6） | — | — | ✅ | ✅ |
+| `/onvif/device_service` · `/onvif/media_service` | ONVIF SOAP | ✅ | ✅ | ✅ | ✅ |
+| `/onvif/events_service` | ONVIF Pull-Point 事件（v1.5 §13：MotionAlarm ← CSI） | — | ✅ | — | ✅ |
+| RTSP `:554/stream` | **必须 digest 鉴权** | — | ✅(rtsp_user/pass) | — | ✅(web_password) |
+
+非布尔扩展键：`api_version`（本契约版本字符串）、`wifi_scan`。
+`csi_motion`（布尔，v1.4）：编译期 Kconfig `MIBEE_CSI_MOTION` 门控，恒定不翻转。
+`true` ⇒ `/ws` 持续推送 `csi_status` 心跳、运动事件带 `source:"csi"`（见 §6）；
+`false` ⇒ 上述事件不产生，无对应端点。
+`onvif_events`（布尔，v1.5）：编译期恒定（seeed/n16r8 编入 `main/onvif_events.c`）。
+`true` ⇒ `/onvif/events_service` 提供 Pull-Point 订阅（§13）；**事件生成**由
+config 键 `onvif_events`（默认 0）运行时门控——即商用相机的"运动侦测开关"
+（订阅服务常在，报警随开关）。
+延时摄影：统一走 config 的 `timelapse_*` 字段 + `/api/record`（ai-thinker 的
+`watermark`（布尔，v1.8）：编译期 Kconfig `MIBEE_WATERMARK` 门控（仅 seeed）。
+`true` ⇒ 照片（`GET /api/capture`）与视频轨可烧录水印（自定义文案 + 实时
+时戳）；**运行时开关**由 config 键 `wm_enable`/`wm_video`（默认 0）门控——
+关闭态字节路径与无此特性固件一致（回退保证，见 config-contract v1.3 §3.2）。
+水印失败（内存/分辨率超限/编解码错）一律回退原帧，永不吞帧。
+`/api/timelapse/*` 端点为遗留 tolerated variant，计划收敛）。
+
+## 4. `/api/status` 字段命名（核心字段，全家族一致）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `device_name` | str | 设备名 |
+| `firmware_version` | str | 固件版本 |
+| `uptime` | num(s) | 运行时长 |
+| `wifi_state` | str | 小写枚举 `ap\|connecting\|connected\|disconnected` |
+| `ip` | str | IP |
+| `wifi_rssi` / `wifi_channel` | num | STA 时返回 |
+| `current_ssid` | str | **当前实际连接**的 SSID（区别于 config 的配置值；未连接为 `""`；四仓已实现） |
+| `wifi_net` | str | 当前使用的配置槽位 `primary\|secondary`（双 WiFi 板返回，单 WiFi 板省略） |
+| `camera` | str | 实测传感器型号（OV2640/OV3660/OV5640；**信设备不信文档**） |
+| `resolution` | str | 当前分辨率名 |
+| `free_heap` / `min_heap` | num | 堆 |
+| `free_psram` | num | 无 PSRAM 板**省略该字段**（置 null 均不允许） |
+| `stream_clients` / `stream_clients_max` | num | MJPEG 客户端 |
+| `chip_temp` | num(°C) | 有温度传感器板返回 |
+| `csi` | obj | CSI 门控板返回（v1.6 起）：`{"state":"warming\|IDLE\|MOTION\|off","score":0-1,"thr":0-1}`；v1.7 增补 `profile`(0/1)、`thr_locked`、`calibrating`、`flip_rate`(1h 翻转数)、`tx_pps`/`cb_pps`/`adm_pps`（诊断速率，cb≫tx=自家流量污染信号）。与 §6 `csi_status` 心跳同源；运行时未就绪时缺省；`off`=csi_enabled=0 |
+
+"不适用即省略"是通用规则：任何板不支持的字段直接不出现在 JSON 中，前端按字段缺省隐藏控件。
+板级扩展字段允许追加（如 seeed 的 `recording`/`sd_*`、luatos 的 `heap_baseline`）。
+
+> **2026-09-04 parity 审计**（四板实测矩阵 × SPA 字段消费交叉核对）：n16r8 补齐
+> `wifi_rssi`/`wifi_channel`/`chip_temp`（S3 温度传感器，方案同 seeed/luatos），
+> ai-thinker 补齐 `free_psram`（本板 4MB PSRAM）。剩余差异均为硬件/功能正当：
+> `chip_temp` 缺于经典 ESP32（无传感器）、`free_psram` 缺于 luatos（无 PSRAM）、
+> SD/录像/延时/传感器微调字段随能力与持久化支持按上规则省略。
+
+## 5. `/api/camera` 与分辨率/画质刻度
+
+- `GET /api/camera` 返回：`resolution`(str)、`cam_framesize`(num)、`cam_quality`(num)、
+  `supported_resolutions:[{label,value}]`、**`quality_min`/`quality_max`（2026-09-04 起，
+  板端声明的画质滑杆边界）**、**`res_cap_source`（2026-09-04 起，"sensor"|"board"|"memory"，
+  报告分辨率上限被哪一层钳制，诊断用）**，以及该板支持的传感器微调字段
+  （`cam_brightness/contrast/saturation/sharpness`、`cam_hmirror`、`cam_vflip`、`day_night_mode`
+  —— 不支持的省略）。
+- **`value` 数值刻度全家族统一为 esp32-camera 组件的 `framesize_t` 枚举值**（v1.3 起；
+  四仓组件 sensor.h md5 一致：QVGA=6, VGA=10, SVGA=11, XGA=12, HD=13, SXGA=14, UXGA=15）。
+  各板旧自有刻度在固件升级时由 NVS 迁移函数翻译：
+
+  | 板 | 旧刻度 → framesize_t |
+  |---|---|
+  | ai-thinker | 0=VGA→10, 1=SVGA→11, 2=XGA→12, 3=UXGA→15 |
+  | seeed | 0=VGA→10, 1=SVGA→11, 2=XGA→12, 3=HD→13, 4=SXGA→14, 5=UXGA→15 |
+  | luatos | 0=VGA→10, 1=SVGA→11, 2=XGA→12, 3=UXGA→15（板上限 VGA，>10 一律钳到 10） |
+  | n16r8 | 恒等（本就使用 framesize_t 原值） |
+- **上限是三层交集（2026-09-04 家族统一）**：`min(传感器上限, 板级实测上限, 运行时 fb 预算)`。
+  传感器层查 esp32-camera 组件能力表（`camera_sensor_info_t.max_size`，按实戴型号自动检测）——
+  换接传感器后 `supported_resolutions` 随之收缩/放宽；板级层是各板实测常数（§5.1 表，唯一手工数字）；
+  fb 预算层运行时校验 `宽×高/5×fb_count + floor ≤ 可用 fb 内存域`（PSRAM 板查 PSRAM、DRAM 板查内部
+  DMA 域），**只能收紧**。被哪层钳制看 `res_cap_source`。判定上限只看采集侧证据（fb_get 出帧 +
+  JPEG SOF 实测尺寸），投递 fps 是链路/NVR 指标不可作依据。
+  前端**禁止硬编码分辨率表**，只从 `supported_resolutions` 填充下拉框，POST 只回传列表内的 value；
+  画质滑杆的 min/max 必须取自 `quality_min`/`quality_max`（字段缺失时回退 1-63 兼容旧固件）。
+  AI↔VGA 联动通过 label 前缀 `VGA` 识别。
+- `POST /api/camera` 接受同名字段，**越界值一律 400**（错误信息含板级上限）。
+  应用语义按板不同：
+  - **ai-thinker**：分辨率/画质热重配（camera 互斥锁 + drain，无重启）。
+  - **seeed**：画质热应用（OV5640 set_quality 单寄存器写）；**分辨率变化保存+1s 后重启应用**
+    （OV5640 运行时 set_framesize 实测无效，PIT-019）。响应含 `rebooting:true`。
+  - **luatos**：任何摄像头变更保存+1s 后重启应用（fb_count=1 DRAM 热重配竞态，PIT-012）。
+    响应含 `rebooting:true`。
+
+### 5.1 板级实测上限（2026-09-04，各板实机 90s 推流+状态采样；即三层方案中的 board 层）
+
+| 板 | 传感器 | 分辨率上限 | 画质范围 | 上限档实测 | 超限后果（剔除理由） |
+|---|---|---|---|---|---|
+| ai-thinker | OV2640 | UXGA (0-3) | 10-63 | UXGA 采集 ~1.7fps / 推流 ~0.6fps，无崩溃 | —（传感器上限即板上限，UXGA 照常提供，慢但稳定） |
+| seeed | OV5640（实戴） | **UXGA** (0-5) | 10-63 | UXGA 0.9fps、峰值 93.5°C | FHD 峰值 97.5°C / QXGA 100.5°C，超 S3 规格 85°C（PIT-016） |
+| luatos | OV2640 | **VGA** (仅 0) | 10-63 | VGA 4.8-5.9fps，帧 13-23KB | SVGA 起 fb=96KB 在 DRAM（无 PSRAM）触发堆枯竭螺旋（PIT-012） |
+| n16r8 | OV3660（模组） | **SXGA**（10-14） | 10-63 | SXGA 冷启动+热重配均实拍 1280×1024（JPEG SOF 验证），90s 投递 3.42fps/66KB 帧 | UXGA init 失败（reinit 回滚自愈已修）。旧“SVGA/DVP 极限”归因两次皆错：实为 PSRAM 40MHz（defaults 漏抄 SPEED 行）→内部 DRAM 耗尽 DMA 暂存 malloc 失败 + XCLK 20MHz 帧损坏；80MHz+WiFi 迁移+XCLK 16MHz 后翻案（PIT-021 二次附录） |
+
+画质下限 10 的依据：esp32-camera 的 JPEG 帧缓冲按 `宽×高/5` 分配（假设最高 1:5 压缩），
+q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-thinker UXGA 224KB / seeed UXGA 193KB）
+均留有余量。
+
+## 6. WebSocket 事件（`/ws`，websocket 能力板）
+
+统一格式：`{"type":"<event>","timestamp":<unix_s>,"data":{...}}`
+
+| type | data | 触发 |
+|---|---|---|
+| `motion_started` / `motion_cleared` | `{"score":0-100,"source":"csi"}`（`source` 仅 CSI 来源时携带） | 移动侦测状态翻转（像素或 CSI 感知） |
+| `csi_status` | `{"state":"warming\|IDLE\|MOTION\|off","score":0-1,"thr":0-1,"profile":0/1,"locked":bool,"calibrating":bool,"flip_rate":n}` | CSI 门控板（`csi_motion:true`）~1s 心跳，v1.4；v1.6 起同源快照亦经 `/api/status` 的 `csi` 字段暴露；v1.7 增补调参/自愈字段（向后兼容，旧字段不动） |
+| `recording_started` / `recording_stopped` | `{}` | 录像启停 |
+| `wifi_state_changed` | `{"state":"connected\|..."}` | WiFi 状态变化 |
+| `stream_client_connected/disconnected`、`health_warning`、`upload_success/failed`、`wifi_switched_ssid` | 板级扩展 | 按板订阅 |
+
+## 7. 前端规范
+
+- **S3 三板**（n16r8/luatos/seeed）：共享同一套 SPA（`index.html`/`app.js`/`i18n.js`/`style.css`
+  四文件 md5 一致，单一源码，**禁止按板分叉**）。全部板差异运行时来自
+  capabilities + status 字段缺省 + `supported_resolutions`。
+- **ai-thinker**：2026-09-03 起同样服务统一 SPA 四文件（与三 S3 仓 md5 一致）；
+  旧 MPA 页面保留在原路径兜底（preview/config/files/setup.html 直达可用）。
+- 鉴权 UX：密码存 sessionStorage，写操作自动附 `X-Password`；401 时提示到系统页设置。
+
+## 8. 已知容忍差异（记录在案，计划收敛）
+
+| 项 | 现状 | 方向 |
+|---|---|---|
+| ~~ai-thinker `/api/timelapse/*`~~ | **v1.1 已解决**：端点移除，启停走 config `timelapse_enabled`，运行态入 status | — |
+| ~~ai-thinker `/api/led?action=`~~ | **v1.1 已解决**：JSON body 为主语义，`?action=` 保留兼容 | — |
+| seeed `/api/record` 无 GET | 状态在 status.recording | 补 GET |
+| ~~n16r8 OTA 端点~~ | **v1.1 已解决**：ota_updater 移植完成，ota=true | — |
+| ~~配置内部存储~~ | **v1.3 已解决**：全家族统一逐键 NVS + 家族 schema，独立契约见 `docs/config-contract.md` v1.0 | — |
+| ai-thinker OTA 401 响应 | 直发等价 JSON 字节（未走 send_json_error） | 已合入 |
+| seeed 历史密码未知 | v1.1 一次性种子迁移（NVS 标记 `pw_seed_v1`）统一为默认密码 | 已合入 |
+
+## 9. v1.0 破坏性变更清单（相对各仓旧版）
+
+- `status.sensor` → `camera`（ai）；`status.camera_resolution` → `resolution`（n16r8）；
+  `status.cam_framesize`(str) → `resolution`（luatos）；`status.wifi_mode` → `wifi_state`
+  （值改小写枚举，ai 的中文值废除）；`heap_free/heap_min` → `free_heap/min_heap`（luatos）；
+  `mjpeg_clients` → `stream_clients`（n16r8）。
+- config 键：`wifi_ssid2/pass2` → `wifi_ssid_2/wifi_pass_2`、`onvif_enabled` → `onvif_enable`（luatos）。
+- WS 事件：`motion_detected/motion_end` → `motion_started/motion_cleared`（luatos）。
+- n16r8 `POST /api/camera` framesize 合法域 0-24 → 0-15（与广播列表一致）。
+- n16r8 RTSP 自 v1.0 起强制 digest 鉴权（rtsp_user/rtsp_pass，默认 admin/mibeecam2026，2026-09-05 轮换）。
+
+## 10. v1.1 变更清单（2026-09-02）
+
+- 家族统一默认管理密码经 Kconfig 注入（公开默认 `mibeecam2026`，本地可覆盖）；空密码加载时自动迁移；seeed 对存量设备做一次性强制种子。
+- 服务端统一拒绝空/`<6` 位密码（400）。
+- UI 新增"修改密码"模态（旧密码验证 + 新密码 + 确认），三 S3 仓同步。
+- seeed：新增 `GET /api/record`；n16r8：移植 OTA 三端点（`/api/ota`、`/api/ota/info`、
+  `/api/ota/upload`、`/api/ota/spiffs`），capabilities `ota:true`；
+  修复 n16r8 首次设密未持久化的白名单缺漏 bug。
+- ai-thinker：移除 `/api/timelapse/*`（启停走 config，运行态入 status）；
+  `/api/led` 增加 JSON body 主语义。
+- luatos：SPIFFS 改为构建期自动打包（`spiffs_create_partition_image`），手动 spiffsgen 流程作废。
+
+---
+*本文档为四仓共同规范，修改任一板的 API 前先改这里。生成于 2026-09-02 统一化改造。*
+
+## 11. v1.2 变更清单（2026-09-03，SD 管理与存储可靠性）
+
+1. **`POST /api/files/batch`**（sd 能力板：ai-thinker / seeed，`X-Password` 鉴权）：
+   - 请求二选一：`{"names":["<相对名>",...]}` 或 `{"scope":"all|photos|recordings"}`；
+   - 响应 `{"deleted":n,"failed":m}`；
+   - 跳过（计 failed）当前正在写入的录像段；拒绝含 `..` 的路径。
+2. **`GET /api/files`** 分页统一：`?type=all|photos|recordings&offset=&limit=`（limit≤200），
+   响应含 `total`；ai-thinker 旧实现 type=all 时 offset 只作用于照片段（翻页重复/漏项）已修。
+3. **`DELETE /api/files?name=&type=photo|recording`**：新增 `type`（缺省 photo 兼容）；
+   ai-thinker 旧实现删录像必失败（只实现了照片删除）已修。
+4. **`POST /api/format`**（sd 能力板，鉴权）：
+   - seeed：运行时格式化（停录→格式化→恢复，既有实现不变）；
+   - ai-thinker：**申请-重启-开机格式化**——置 NVS 请求 → 应答后 2s 重启 →
+     开机在相机初始化之前格式化（GPIO14 相机/SD 共享总线，相机运行中格式化必挂死，
+     旧实现因此直接 503 且**未鉴权**，均已修）。
+   - 响应均为 `{"message":...}`。
+5. **`/api/status` 存储字段对齐**：ai-thinker 补齐 seeed 先例字段
+   `sd_present`/`sd_total_bytes`/`sd_free_bytes`/`sd_free_percent`/`recording`
+   （此前统一 SPA 在 ai-thinker 上显示"未检测到 SD 卡"而文件列表正常）。
+6. **config `cleanup_low_pct`/`cleanup_high_pct` 语义统一为"空闲百分比"**
+   （触发：free% < low；停止：free% >= high）。ai-thinker 旧语义为"已用百分比"，
+   同样数值含义与 seeed 相反（线上曾配置 80/30，实际含义是"已用>80% 触发、
+   删到已用<30% 为止"，会清掉近半卡内容），V16 迁移重置为家族默认 20/30。
+7. SPA 存储页新增：类型筛选、分页（加载更多）、勾选批量删除、按类型清空、
+   格式化（双重确认）；串流页新增 MJPEG/RTSP 地址只读展示。
+
+## 12. v1.3 变更清单（2026-09-05，刻度统一与配置契约独立）
+
+1. **`cam_framesize` 刻度统一**：value 全家族统一为 esp32-camera `framesize_t`
+   （§5 迁移表）。`supported_resolutions` / 三层上限 / `res_cap_source` / 前端
+   "禁止硬编码分辨率表" 规则不变，仅值域统一。存量设备由各仓 config 迁移函数
+   翻译 NVS 旧值。
+2. **配置契约独立成文**：`docs/config-contract.md` v1.0（持久化逐键 NVS、
+   字段总表、校验矩阵、默认值与板级覆盖、SD provisioning 格式、motion/timelapse
+   家族模型）。本文件 §8 "内部模型不强改" 条款废除。
+3. **能力值语义条款**（§3）：布尔能力恒定（编译期/Kconfig），仅硬件在场性
+   （seeed `sd`）允许运行时探测；`api_version` 禁止漂移（本次修正 n16r8/luatos
+   陈旧的 "1.1"）。
+4. **OTA URL 触发统一**：`POST /api/ota {"url":...}` 全部 OTA 板实现
+   （ai-thinker 补齐）。
+5. **`GET /api/storage` 收编**：sd 能力板统一端点（seeed 补齐；此前仅 ai-thinker
+   私有）。
+6. **`/api/ai/status` 桩移除**：SPA 轮询改为 `Caps.ai` 门控（v1.3），ai-thinker
+   桩端点删除，恢复 "false ⇒ 不注册" 红线。
+7. **ai-thinker 补 `POST /api/time`**（§2 核心端点违约修复）。
+8. AT 契约同步升 v1.1（`docs/at-command.md`）：共享核心纪律、WIFISCAN 四板
+   必备、`AT+RESET` 删除、GMR 真版本。
+
+## 13. v1.5 变更清单（2026-09-08，ONVIF MotionAlarm 事件）
+
+1. **`/onvif/events_service`（Pull-Point，WS-BaseNotification 最小子集）**：
+   `CreatePullPointSubscription` → 循环 `PullMessages`（+ `Renew`/`Unsubscribe`）。
+   单订阅模型（新订阅顶替旧订阅）；`TerminationTime` 固定授予 1h，120s 无拉取
+   自动过期（NVR 重连重建）；**无长轮询**——`PullMessages` 立即返回（esp httpd
+   worker 绝不阻塞），轮询节奏由 NVR 侧决定。
+2. **事件载荷**：主题 `tns1:VideoSource/MotionAlarm`；`Source` SimpleItem
+   `Name="Source" Value="CSI"`；`Data` 带 `State`（true=进入运动 / false=清除）
+   与 `Score`（0-100 家族刻度，同 §6 `motion_*`）；`UtcTime` 为 SNTP UTC
+   （未同步时仍发送）。
+3. **事件源与门控**：CSI 运动状态转移（`csi_motion:true` 板的
+   `on_motion_state_changed`）扇出；事件**生成**由 config 键 `onvif_events`
+   （默认 0）门控，订阅服务本身常注册（同商用相机）。能力位 `onvif_events`
+   恒定；仅 seeed/n16r8 编入（ai/luatos 为 CSI-off 生产形态）。
+4. **验证工具**：`tools/onvif_events_probe.py`（家族工具，raw SOAP 无三方依赖）。
+
+## 14. v1.6 变更清单（2026-09-08，CSI 状态 HTTP 回退）
+
+1. **`GET /api/status` 增补可选 `csi` 对象**：`{"state":"warming|IDLE|MOTION","score":0-1,"thr":0-1}`，
+   与 §6 `/ws csi_status` 心跳同形同值（同一快照源，非第二套刻度）。
+   CSI 编译关闭（`csi_motion:false`）或运行时未产出首个周期更新时**缺省**
+   （"不适用即省略"通用规则）。
+2. **动机**：n16r8 为 CSI 常开但无 WS 服务的板（`websocket:false`），前端
+   CSI 胶囊/统计片此前无数据通道（UI 全静默）。SPA 在既有的 `/api/status`
+   1Hz 轮询中消费 `csi` 字段，n16r8 与 seeed 的 WS 体验对齐；有 WS 的板
+   两路并存同形，后到者覆盖，互不干扰。
+3. **快照实现**：`csi_motion_get_status()`（`main/csi_motion.h`，四仓 md5
+   一致）——portMUX 保护的单写者快照（`on_periodic_update` ~1Hz 写，
+   httpd worker 读），临界区仅 3 字段拷贝，读侧永不阻塞感知回调。
+
+## 15. v1.7 变更清单（2026-09-09，CSI 运行时调参面 + 自愈）
+
+1. **config 键族 `csi_*` 六键**（`POST /api/config`，热生效无需重启；
+   详见 `docs/config-contract.md` §CSI）：`csi_enabled`、`csi_threshold`
+   （0=自动；0.05-1.0=手动锁定并禁用 Lightweight settle 单边下调——
+   PIT-041 阈值崩塌误报的根治开关）、`csi_on_hits`/`csi_off_hits`（1-20）、
+   `csi_profile`（0=Lightweight 1=High-Accuracy 热切换）、`csi_auto_heal`。
+   CSI-off 板（ai/luatos 生产形态）接受存储但运行时无效果。
+2. **动作端点 `POST /api/csi/calibrate`**（write auth）：立即触发重校准
+   （背景执行，进度经 `csi.calibrating` / 串口观察）。CSI-off 板 404、
+   运行时未就绪 503。
+3. **自愈环**（`csi_auto_heal=1` 默认开，板内固定参数）：thr<0.10 或
+   1h 翻转>60 持续 5min → 重校准（≥30min 冷却）；冷却窗内二次退化 →
+   阈值锁定 0.15；链路信道变化 → 重校准（≥10min 冷却）。手动阈值锁定
+   期间让位用户（不自愈）。
+4. **快照/心跳增补字段**（见 §4/§6 行）：`csi_threshold` 显式改回 0 =
+   恢复自动（触发重校准并重新启用 settle）。
+5. **AT 面**（`docs/at-command.md` v1.3）：CSI 门控板（seeed/n16r8）
+   `AT+CFGGET/CFGSET` 白名单增 `csi_*`（threshold 字符串 %.3f）；板级扩展
+   `AT+CSI?`（实时快照）/ `AT+CSICAL`（重校准）。CSI-off 板不暴露。
+
+## 16. v1.7 ①b：Wi-Fi 信道健康快照（`wifi.chan_health`，2026-09-09）
+
+`GET /api/status` 增补可选 `chan_health` 对象（CSI 无关、全家族字段一致；
+模块 `main/wifi_channel_health.{h,c}`，seeed 先行、家族同步中）：
+
+| 字段 | 类型 | 语义 |
+|---|---|---|
+| `rssi_avg` / `rssi_min` | int | 近 5min RSSI 均值/最差（dBm；未连接 INT8_MIN=-128） |
+| `channel` | int | 当前关联信道（0=未知）。**信道由 AP 决定，STA 不自行换信道** |
+| `disconnects_1h` | int | 近 1h 断连次数（含 beacon timeout） |
+| `scan_ts` | int | 上次拥塞 scan 的 epoch 秒（0=尚无数据） |
+| `bss_on_chan` / `bss_total` | int | 当前信道可见 BSS 数 / 全信道总数 |
+| `busy_score` | int | 0-100 同信道竞争强度代理（BSS 加权 RSSI 占用估计） |
+| `csi_adm_pps` | float | CSI 检测器 admitted 率（仅 `csi_motion:true` 板；目标 10） |
+| `csi_cb_ratio` | float | CSI 回调/生成器速率比（≫2 = 自家流量污染，PIT-046） |
+
+- scan 为 60min 低频 + 手动触发（`AT+CHHEALTH=SCAN`），**避让规则**：
+  录像中或有 MJPEG 观众时跳过（scan 有 ~2s 射频离线成本，PIT-038）。
+- 第一阶段只感知+报告；质量驱动切网/AP 自选信道等自动动作属路线②
+  （需 soak 标定后放开）。
+
+## 16. v1.8 变更清单（2026-09-10，录制/照片水印能力位）
+
+1. **capabilities 增补 `watermark`（布尔，编译期）**：仅 seeed（Kconfig
+   `MIBEE_WATERMARK`，默认 y；`=n` 重编可整体摘除——回退形态）。
+2. **配置面**：`wm_*` 六键（config-contract v1.3 §3.2），默认全关 ⇒ 行为与
+   v1.7 完全一致（零回归回退路径：`wm_enable=0` 即关，无需重刷）。
+3. **水印生效面**：照片 `GET /api/capture`（单帧一次性成本）；视频轨由
+   `wm_video` 独立门控（重编码耗时使实际录制帧率下降，AVI 段尾按 wall-clock
+   实测回填 avih/strh 帧率，播放速度不失真；延时摄影段不回填）。
+4. **回退语义（硬性）**：水印管线任何失败回退原帧；SPA 按配置字段存在性
+   渲染水印卡（无水印能力的板不显示）。
