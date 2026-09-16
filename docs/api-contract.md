@@ -1,4 +1,4 @@
-# MiBee Cam 家族 API 契约 v1.6
+# MiBee Cam 家族 API 契约 v1.7
 
 > 适用四仓：`ai-thinker-esp32-cam` · `esp32s3-n16r8-cam` · `luatos-esp32s3-a10-camera` · `seeed-esp32s3-cam`
 >
@@ -19,6 +19,10 @@
 > **v1.6 变更（2026-09-08）**：`GET /api/status` 增补可选 `csi` 快照对象
 > （与 §6 `csi_status` 心跳同形同值、同一快照源）——无 WS 服务的 CSI 板
 > （n16r8）由此驱动前端 CSI 胶囊/统计片，与 seeed 的 WS 体验对齐（见 §4/§14）。
+> **v1.7 变更（2026-09-09）**：CSI 运行时调参面——config 键族 `csi_*` 六键热生效
+> （阈值锁定=断 settle 单边下调，PIT-041 误报根因的根治开关）、动作端点
+> `POST /api/csi/calibrate`、`csi` 快照与 `csi_status` 心跳增补诊断字段
+> （profile/thr_locked/calibrating/flip_rate/tx·cb·adm pps）（见 §5/§6/§15）。
 
 ## 1. 信封与鉴权（所有板一致）
 
@@ -107,7 +111,7 @@ config 键 `onvif_events`（默认 0）运行时门控——即商用相机的"�
 | `free_psram` | num | 无 PSRAM 板**省略该字段**（置 null 均不允许） |
 | `stream_clients` / `stream_clients_max` | num | MJPEG 客户端 |
 | `chip_temp` | num(°C) | 有温度传感器板返回 |
-| `csi` | obj | CSI 门控板返回（v1.6）：`{"state":"warming\|IDLE\|MOTION","score":0-1,"thr":0-1}`，与 §6 `csi_status` 心跳同形同值、同一快照源；运行时未就绪时缺省 |
+| `csi` | obj | CSI 门控板返回（v1.6 起）：`{"state":"warming\|IDLE\|MOTION\|off","score":0-1,"thr":0-1}`；v1.7 增补 `profile`(0/1)、`thr_locked`、`calibrating`、`flip_rate`(1h 翻转数)、`tx_pps`/`cb_pps`/`adm_pps`（诊断速率，cb≫tx=自家流量污染信号）。与 §6 `csi_status` 心跳同源；运行时未就绪时缺省；`off`=csi_enabled=0 |
 
 "不适用即省略"是通用规则：任何板不支持的字段直接不出现在 JSON 中，前端按字段缺省隐藏控件。
 板级扩展字段允许追加（如 seeed 的 `recording`/`sd_*`、luatos 的 `heap_baseline`）。
@@ -173,7 +177,7 @@ q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-think
 | type | data | 触发 |
 |---|---|---|
 | `motion_started` / `motion_cleared` | `{"score":0-100,"source":"csi"}`（`source` 仅 CSI 来源时携带） | 移动侦测状态翻转（像素或 CSI 感知） |
-| `csi_status` | `{"state":"warming\|IDLE\|MOTION","score":0-1,"thr":0-1}` | CSI 门控板（`csi_motion:true`）~1s 心跳，v1.4；v1.6 起同形快照亦经 `/api/status` 的 `csi` 字段暴露（WS 板兼作断连回退、无 WS 板为唯一通道） |
+| `csi_status` | `{"state":"warming\|IDLE\|MOTION\|off","score":0-1,"thr":0-1,"profile":0/1,"locked":bool,"calibrating":bool,"flip_rate":n}` | CSI 门控板（`csi_motion:true`）~1s 心跳，v1.4；v1.6 起同源快照亦经 `/api/status` 的 `csi` 字段暴露；v1.7 增补调参/自愈字段（向后兼容，旧字段不动） |
 | `recording_started` / `recording_stopped` | `{}` | 录像启停 |
 | `wifi_state_changed` | `{"state":"connected\|..."}` | WiFi 状态变化 |
 | `stream_client_connected/disconnected`、`health_warning`、`upload_success/failed`、`wifi_switched_ssid` | 板级扩展 | 按板订阅 |
@@ -303,3 +307,45 @@ q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-think
 3. **快照实现**：`csi_motion_get_status()`（`main/csi_motion.h`，四仓 md5
    一致）——portMUX 保护的单写者快照（`on_periodic_update` ~1Hz 写，
    httpd worker 读），临界区仅 3 字段拷贝，读侧永不阻塞感知回调。
+
+## 15. v1.7 变更清单（2026-09-09，CSI 运行时调参面 + 自愈）
+
+1. **config 键族 `csi_*` 六键**（`POST /api/config`，热生效无需重启；
+   详见 `docs/config-contract.md` §CSI）：`csi_enabled`、`csi_threshold`
+   （0=自动；0.05-1.0=手动锁定并禁用 Lightweight settle 单边下调——
+   PIT-041 阈值崩塌误报的根治开关）、`csi_on_hits`/`csi_off_hits`（1-20）、
+   `csi_profile`（0=Lightweight 1=High-Accuracy 热切换）、`csi_auto_heal`。
+   CSI-off 板（ai/luatos 生产形态）接受存储但运行时无效果。
+2. **动作端点 `POST /api/csi/calibrate`**（write auth）：立即触发重校准
+   （背景执行，进度经 `csi.calibrating` / 串口观察）。CSI-off 板 404、
+   运行时未就绪 503。
+3. **自愈环**（`csi_auto_heal=1` 默认开，板内固定参数）：thr<0.10 或
+   1h 翻转>60 持续 5min → 重校准（≥30min 冷却）；冷却窗内二次退化 →
+   阈值锁定 0.15；链路信道变化 → 重校准（≥10min 冷却）。手动阈值锁定
+   期间让位用户（不自愈）。
+4. **快照/心跳增补字段**（见 §4/§6 行）：`csi_threshold` 显式改回 0 =
+   恢复自动（触发重校准并重新启用 settle）。
+5. **AT 面**（`docs/at-command.md` v1.3）：CSI 门控板（seeed/n16r8）
+   `AT+CFGGET/CFGSET` 白名单增 `csi_*`（threshold 字符串 %.3f）；板级扩展
+   `AT+CSI?`（实时快照）/ `AT+CSICAL`（重校准）。CSI-off 板不暴露。
+
+## 16. v1.7 ①b：Wi-Fi 信道健康快照（`wifi.chan_health`，2026-09-09）
+
+`GET /api/status` 增补可选 `chan_health` 对象（CSI 无关、全家族字段一致；
+模块 `main/wifi_channel_health.{h,c}`，seeed 先行、家族同步中）：
+
+| 字段 | 类型 | 语义 |
+|---|---|---|
+| `rssi_avg` / `rssi_min` | int | 近 5min RSSI 均值/最差（dBm；未连接 INT8_MIN=-128） |
+| `channel` | int | 当前关联信道（0=未知）。**信道由 AP 决定，STA 不自行换信道** |
+| `disconnects_1h` | int | 近 1h 断连次数（含 beacon timeout） |
+| `scan_ts` | int | 上次拥塞 scan 的 epoch 秒（0=尚无数据） |
+| `bss_on_chan` / `bss_total` | int | 当前信道可见 BSS 数 / 全信道总数 |
+| `busy_score` | int | 0-100 同信道竞争强度代理（BSS 加权 RSSI 占用估计） |
+| `csi_adm_pps` | float | CSI 检测器 admitted 率（仅 `csi_motion:true` 板；目标 10） |
+| `csi_cb_ratio` | float | CSI 回调/生成器速率比（≫2 = 自家流量污染，PIT-046） |
+
+- scan 为 60min 低频 + 手动触发（`AT+CHHEALTH=SCAN`），**避让规则**：
+  录像中或有 MJPEG 观众时跳过（scan 有 ~2s 射频离线成本，PIT-038）。
+- 第一阶段只感知+报告；质量驱动切网/AP 自选信道等自动动作属路线②
+  （需 soak 标定后放开）。
