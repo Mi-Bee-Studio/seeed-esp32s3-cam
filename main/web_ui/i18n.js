@@ -56,6 +56,8 @@
       /* ---------- Flash LED ---------- */
       'flash.brightness': 'LED Brightness',
       'flash.off': 'Off',
+      'flash.viewers': 'Flash while viewers',
+      'flash.viewers_hint': 'Auto-on while someone watches the stream or takes photos; off 20s after the last viewer leaves. Manual LED control is overridden while viewers are present.',
 
       /* ---------- Network ---------- */
       'network.ssid': 'WiFi SSID',
@@ -254,20 +256,20 @@
       'pw.changed': 'Password changed',
       'pw.failed': 'Change failed: {msg}',
 
-      /* ---------- 指标条（人话标签） ---------- */
-      'stats.rssi': '信号',
-      'stats.rssi.hint': 'WiFi 信号强度（越接近 0 越好）',
-      'stats.link': '连接',
-      'stats.heap': '内存',
-      'stats.heap.hint': '可用运行内存',
-      'stats.psram': '扩展内存',
-      'stats.psram.hint': '可用扩展内存（图像缓冲）',
-      'stats.temp': '温度',
-      'stats.temp.hint': '芯片温度（超过 85°C 会变红）',
-      'stats.sd': 'SD 剩余',
-      'stats.sd.hint': '存储卡剩余空间',
-      'stats.uptime': '已运行',
-      'stats.uptime.hint': '开机时长',
+      /* ---------- Stats strip (plain-language labels) ---------- */
+      'stats.rssi': 'Signal',
+      'stats.rssi.hint': 'WiFi signal strength (closer to 0 is better)',
+      'stats.link': 'Link',
+      'stats.heap': 'Memory',
+      'stats.heap.hint': 'Free internal RAM',
+      'stats.psram': 'PSRAM',
+      'stats.psram.hint': 'Free PSRAM (image buffers)',
+      'stats.temp': 'Temp',
+      'stats.temp.hint': 'Chip temperature (turns red above 85°C)',
+      'stats.sd': 'SD free',
+      'stats.sd.hint': 'Free space on the SD card',
+      'stats.uptime': 'Uptime',
+      'stats.uptime.hint': 'Time since boot',
       'stats.csi': 'CSI',
       'csi.hint': 'WiFi CSI motion sensing (live score 0-1)',
       'csi.warming': 'CSI calibrating…',
@@ -338,6 +340,8 @@
       /* ---------- 闪光灯 ---------- */
       'flash.brightness': 'LED \u4eae\u5ea6',
       'flash.off': '\u5173\u95ed',
+      'flash.viewers': '\u6709\u4eba\u89c2\u770b\u65f6\u4eae\u706f',
+      'flash.viewers_hint': '\u6709\u4eba\u770b\u6d41\u6216\u62cd\u7167\u65f6\u81ea\u52a8\u4eae\u8d77\u95ea\u5149\u706f\uff0c\u6700\u540e\u4e00\u4f4d\u79bb\u5f00 20 \u79d2\u540e\u81ea\u52a8\u5173\u95ed\u3002\u6709\u89c2\u770b\u8005\u65f6\u624b\u52a8\u63a7\u706f\u4f1a\u88ab\u8986\u76d6\u3002',
 
       /* ---------- 网络 ---------- */
       'network.ssid': 'WiFi \u540d\u79f0',
