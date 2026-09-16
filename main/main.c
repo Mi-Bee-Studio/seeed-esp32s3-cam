@@ -68,6 +68,7 @@
 #include "web_server.h"
 #include "at_command.h"
 #include "csi_motion.h"
+#include "day_night.h"  /* day_night_mode=2 自动模式采样 */
 #include "wifi_channel_health.h"
 #include "mjpeg_streamer.h"
 #include "nas_uploader.h"
@@ -588,6 +589,9 @@ void app_main(void)
     /* 第10a步：初始化帧广播器，统一分发camera帧给recorder/MJPEG */
     if (s_camera_ok) {
         fbroadcast_init();
+    }
+    if (s_camera_ok) {
+        day_night_start();   /* 自动日夜切换采样（帧源就绪后；mode!=2 时只空转） */
     }
 
     /* ---- 10b. Audio broadcaster --------------------------------------- */

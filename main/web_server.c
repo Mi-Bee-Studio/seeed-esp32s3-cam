@@ -36,7 +36,8 @@
 #include "ws_server.h"
 #include "motion_detect.h"
 #include "csi_motion.h"
-#include "watermark.h"  /* 契约 v1.3：照片水印（issue #11，编译门 MIBEE_WATERMARK） */  /* 契约 v1.6：/api/status 的 csi 快照字段（编译关闭时恒缺省） */
+#include "watermark.h"
+#include "day_night.h"    /* /api/camera 的 day_night 状态对象 */  /* 契约 v1.3：照片水印（issue #11，编译门 MIBEE_WATERMARK） */  /* 契约 v1.6：/api/status 的 csi 快照字段（编译关闭时恒缺省） */
 #include "wifi_channel_health.h"  /* 契约 v1.7 ①b：信道健康快照 */
 
 #include "ota_updater.h"
@@ -2037,6 +2038,18 @@ static esp_err_t api_camera_get_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(data, "cam_vflip", cfg->cam_vflip);
     cJSON_AddBoolToObject(data, "cam_hmirror", cfg->cam_hmirror);
     cJSON_AddNumberToObject(data, "day_night_mode", cfg->day_night_mode);
+#if CONFIG_MIBEE_DAY_NIGHT_AUTO
+    {   /* 契约 v1.8：自动日夜切换状态（day_night_mode=2 时由采样任务驱动） */
+        day_night_state_t dn;
+        day_night_get_state(&dn);
+        cJSON *dno = cJSON_CreateObject();
+        cJSON_AddStringToObject(dno, "effective", dn.effective == DN_EFFECT_BW ? "bw" : "color");
+        cJSON_AddBoolToObject(dno, "bw_supported", dn.bw_supported);
+        cJSON_AddNumberToObject(dno, "luma", dn.luma);
+        cJSON_AddNumberToObject(dno, "switches", (double)dn.switches);
+        cJSON_AddItemToObject(data, "day_night", dno);
+    }
+#endif
     cJSON_AddItemToObject(data, "supported_resolutions", camera_supported_resolutions_json());
     /* 契约扩展（2026-09-04）：上限被哪一层钳制（sensor/board/memory），诊断用 */
     cJSON_AddStringToObject(data, "res_cap_source", camera_res_cap_source());

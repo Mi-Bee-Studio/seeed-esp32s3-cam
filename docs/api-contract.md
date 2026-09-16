@@ -728,3 +728,7 @@ q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-think
    实测回填 avih/strh 帧率，播放速度不失真；延时摄影段不回填）。
 4. **回退语义（硬性）**：水印管线任何失败回退原帧；SPA 按配置字段存在性
    渲染水印卡（无水印能力的板不显示）。
+5. **`GET /api/camera` 增补可选 `day_night` 状态对象**（仅 seeed，
+   `MIBEE_DAY_NIGHT_AUTO` 门）：`{"effective":"color|bw","bw_supported":bool,
+   "luma":0-255|-1,"switches":n}`——day_night_mode=2 自动切换的观测面
+   （判定参数见 config-contract v1.3 §3.2 画质微调行）。

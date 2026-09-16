@@ -45,3 +45,18 @@ menu "mibee-cam Recording Watermark"
             (rollback path).
 
 endmenu
+
+menu "mibee-cam Day/Night Auto Switching"
+
+    config MIBEE_DAY_NIGHT_AUTO
+        bool "Enable day_night_mode=2 automatic switching"
+        default y
+        help
+            Luma-probe based automatic day/night switching (day_night_mode=2):
+            1/8-scaled JPEG decode of the broadcaster's cached frame every 10s,
+            hysteresis (dark<40 / bright>65, 2-sample confirm), applies the
+            sensor grayscale effect. Sensor support is probed at runtime and
+            degrades to color-only if unsupported (no per-sensor whitelist).
+            Modes 0/1 are manual and untouched; =n rebuild removes the sampler.
+
+endmenu

@@ -62,7 +62,7 @@
 
 | 组 | 能力 | 字段（JSON 名；NVS 键不同时括注） |
 |---|---|---|
-| 画质微调 | 板支持 | cam_brightness / cam_contrast / cam_saturation / cam_sharpness（i8 -2..2）、day_night_mode（u8 0-2） |
+| 画质微调 | 板支持 | cam_brightness / cam_contrast / cam_saturation / cam_sharpness（i8 -2..2）、day_night_mode（u8 0-2；**2=自动已实现（seeed，v1.3）**：10s 周期 1/8 缩放解码缓存帧测平均 luma，迟滞 <40 暗/>65 亮 + 连续 2 次确认切 grayscale 黑白；传感器支持度运行时探测，不支持降级恒彩色并在 /api/camera 上报） |
 | SD 运维 | sd | sd_log_enabled、cleanup_low_pct（1-99）、cleanup_high_pct（`cleanup_high`；5-80 且 ≥low+5；语义=空闲百分比，api-contract §11.6） |
 | ONVIF 运动报警 | onvif_events（v1.5，api-contract §3/§13） | onvif_events：u8 {0,1}，默认 0（仅 seeed/n16r8）；true = CSI 运动生成 MotionAlarm（订阅服务常在） |
 | CSI 感知调参 | csi_*（v1.2，api-contract §15） | `csi_enabled`：u8 {0,1} 默认 1（暂停感知不动 WiFi）；`csi_threshold`：float，0=自动（校准+settle）或 0.05-1.0=手动锁定（同时禁用 settle 单边下调，PIT-041 根治开关）；`csi_on_hits`/`csi_off_hits`：u8 1-20 默认 4/3；`csi_profile`：u8 {0,1} 默认 0（0=Lightweight 1=High-Accuracy 热切换）；`csi_auto_heal`：u8 {0,1} 默认 1。NVS 键：csi_enabled/csi_threshold(千分刻度 u16 0-1000)/csi_on_hits/csi_off_hits/csi_profile/csi_auto_heal。CSI-off 板（ai/luatos 生产形态）接受存储但运行时无效果 |
@@ -153,6 +153,8 @@ wm_pos 0-3 · wm_quality 60-95 · wm_text ≤32 字节 · wm_time_fmt ≤24 字�
   缺键即默认值（全 0/空 = 关闭态与无此特性固件行为一致——运行时回退路径）⇒
   **无需 bump schema_ver、无需迁移**；回退固件忽略多余键（§1 单键自治），
   NVS 无需擦拭。语义见 api-contract v1.8 §3/§15。
+  同版附带：**day_night_mode=2 由"预留"转实现**（仅 seeed）——既有键语义
+  补全（0/1 行为不变），存量 NVS 无影响。
 
 ## 9. SD 卡 provisioning 统一格式
 
