@@ -164,6 +164,12 @@ main/  —  27 C modules + main.c + cJSON (flat layout)
 
 👉 [System architecture deep dive](docs/en/architecture.md)
 
+### Reviewing the code? Start here
+
+- `docs/en/architecture.md` — module map, dependencies, boot sequence, data flow
+- `main/web_server.c` — the complete HTTP surface in one `s_uris[]` route table at the top of the file (reading map in the file header)
+- `docs/api-contract.md` · `docs/config-contract.md` · `docs/at-command.md` — versioned behavior contracts shared across the MiBee Cam family
+
 ---
 
 ## Documentation

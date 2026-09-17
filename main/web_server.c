@@ -15,6 +15,25 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/*
+ * READING MAP (keep in sync when sections move)
+ *
+ *   Route table (s_uris[]) .... every HTTP endpoint in one place, near the
+ *                               top of this file — start here to answer
+ *                               "what URI is handled where"
+ *   Helpers ................... auth (X-Password), CORS, JSON envelope
+ *   Handlers .................. one static esp_err_t *_handler() per
+ *                               endpoint (plus static-file/metrics/audio/
+ *                               capture/OTA), same names as the table
+ *   web_server_start() ........ httpd config + registration loop;
+ *                               /ws and ONVIF SOAP handlers register
+ *                               separately around the loop (order is
+ *                               significant — see comments there)
+ *
+ * Behavior contracts: docs/api-contract.md (family-wide, versioned).
+ * Module map / boot order: docs/en/architecture.md.
+ */
+
 #include "web_server.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -62,6 +81,87 @@ extern float get_chip_temp(void);
 
 static httpd_handle_t s_server = NULL;
 static uint16_t s_port = 0;
+
+/* ------------------------------------------------------------------ */
+/*  Route table — the complete HTTP surface of this server, listed in  */
+/*  registration order. Handler bodies live further down in this file. */
+/*  Wildcard matching is registration-order sensitive: the GET catch-  */
+/*  all must stay LAST, and /ws registers before the loop in           */
+/*  web_server_start() (registering it after = swallowed by the static */
+/*  handler, see PIT notes in web_server_start).                       */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    const char  *uri;
+    httpd_method_t method;
+    esp_err_t (*handler)(httpd_req_t *);
+} uri_entry_t;
+
+static esp_err_t api_status_handler(httpd_req_t *req);
+static esp_err_t api_capabilities_handler(httpd_req_t *req);
+static esp_err_t api_config_get_handler(httpd_req_t *req);
+static esp_err_t api_config_post_handler(httpd_req_t *req);
+static esp_err_t api_camera_get_handler(httpd_req_t *req);
+static esp_err_t api_camera_post_handler(httpd_req_t *req);
+static esp_err_t api_auth_handler(httpd_req_t *req);
+static esp_err_t api_reboot_handler(httpd_req_t *req);
+static esp_err_t api_csi_calibrate_handler(httpd_req_t *req);
+static esp_err_t api_setup_done_handler(httpd_req_t *req);
+static esp_err_t api_files_get_handler(httpd_req_t *req);
+static esp_err_t api_files_delete_handler(httpd_req_t *req);
+static esp_err_t api_files_batch_handler(httpd_req_t *req);
+static esp_err_t api_download_handler(httpd_req_t *req);
+static esp_err_t api_scan_handler(httpd_req_t *req);
+static esp_err_t api_time_handler(httpd_req_t *req);
+static esp_err_t api_record_handler(httpd_req_t *req);
+static esp_err_t api_record_get_handler(httpd_req_t *req);
+static esp_err_t api_reset_handler(httpd_req_t *req);
+static esp_err_t api_storage_handler(httpd_req_t *req);
+static esp_err_t api_format_handler(httpd_req_t *req);
+/* OTA handlers (api_ota_handler/api_ota_info_handler/api_ota_upload_handler/
+ * api_ota_spiffs_handler) are declared in ota_updater.h — defined there too */
+static esp_err_t metrics_handler(httpd_req_t *req);
+static esp_err_t api_audio_stream_handler(httpd_req_t *req);
+static esp_err_t api_capture_handler(httpd_req_t *req);
+static esp_err_t options_handler(httpd_req_t *req);
+static esp_err_t static_file_handler(httpd_req_t *req);
+
+static const uri_entry_t s_uris[] = {
+    { "/api/status",   HTTP_GET,    api_status_handler        },
+    { "/api/capabilities", HTTP_GET,    api_capabilities_handler },
+    { "/api/config",   HTTP_GET,    api_config_get_handler    },
+    { "/api/config",   HTTP_POST,   api_config_post_handler   },
+    { "/api/camera",   HTTP_GET,    api_camera_get_handler    },
+    { "/api/camera",   HTTP_POST,   api_camera_post_handler   },
+    { "/api/auth",     HTTP_GET,    api_auth_handler          },
+    { "/api/reboot",   HTTP_POST,   api_reboot_handler        },
+    { "/api/csi/calibrate", HTTP_POST, api_csi_calibrate_handler },  /* 契约 v1.7 */
+    { "/api/setup/done", HTTP_POST,   api_setup_done_handler   },
+    { "/api/files",    HTTP_GET,    api_files_get_handler     },
+    { "/api/files",    HTTP_DELETE, api_files_delete_handler  },
+    { "/api/files/batch", HTTP_POST,  api_files_batch_handler  },
+    { "/api/download", HTTP_GET,    api_download_handler      },
+    { "/api/scan",     HTTP_GET,    api_scan_handler          },
+    { "/api/time",     HTTP_POST,   api_time_handler          },
+    { "/api/record",   HTTP_POST,   api_record_handler        },
+    { "/api/record",   HTTP_GET,    api_record_get_handler    },
+    { "/api/reset",    HTTP_POST,   api_reset_handler         },
+    { "/api/storage",  HTTP_GET,    api_storage_handler       },
+    { "/api/format",   HTTP_POST,   api_format_handler        },
+    { "/api/ota",     HTTP_POST,   api_ota_handler           },
+    { "/api/ota/info",   HTTP_GET,   api_ota_info_handler    },
+    { "/api/ota/upload", HTTP_POST,  api_ota_upload_handler  },
+    { "/api/ota/spiffs", HTTP_POST,  api_ota_spiffs_handler  },
+    { "/metrics",      HTTP_GET,    metrics_handler           },
+    { "/api/audio",   HTTP_GET,    api_audio_stream_handler  },
+    { "/api/capture", HTTP_GET,    api_capture_handler       },
+    /* CORS preflight — wildcard */
+    { "/*",            HTTP_OPTIONS, options_handler           },
+    /* Static files — catch-all (lowest priority) */
+    { "/*",            HTTP_GET,    static_file_handler       },
+};
+
+#define NUM_URIS (sizeof(s_uris) / sizeof(s_uris[0]))
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -2230,50 +2330,6 @@ static esp_err_t api_storage_handler(httpd_req_t *req)
 
     return json_ok(req, data);
 }
-
-
-typedef struct {
-    const char  *uri;
-    httpd_method_t method;
-    esp_err_t (*handler)(httpd_req_t *);
-} uri_entry_t;
-
-static const uri_entry_t s_uris[] = {
-    { "/api/status",   HTTP_GET,    api_status_handler        },
-    { "/api/capabilities", HTTP_GET,    api_capabilities_handler },
-    { "/api/config",   HTTP_GET,    api_config_get_handler    },
-    { "/api/config",   HTTP_POST,   api_config_post_handler   },
-    { "/api/camera",   HTTP_GET,    api_camera_get_handler    },
-    { "/api/camera",   HTTP_POST,   api_camera_post_handler   },
-    { "/api/auth",     HTTP_GET,    api_auth_handler          },
-    { "/api/reboot",   HTTP_POST,   api_reboot_handler        },
-    { "/api/csi/calibrate", HTTP_POST, api_csi_calibrate_handler },  /* 契约 v1.7 */
-    { "/api/setup/done", HTTP_POST,   api_setup_done_handler   },
-    { "/api/files",    HTTP_GET,    api_files_get_handler     },
-    { "/api/files",    HTTP_DELETE, api_files_delete_handler  },
-    { "/api/files/batch", HTTP_POST,  api_files_batch_handler  },
-    { "/api/download", HTTP_GET,    api_download_handler      },
-    { "/api/scan",     HTTP_GET,    api_scan_handler          },
-    { "/api/time",     HTTP_POST,   api_time_handler          },
-    { "/api/record",   HTTP_POST,   api_record_handler        },
-    { "/api/record",   HTTP_GET,    api_record_get_handler    },
-    { "/api/reset",    HTTP_POST,   api_reset_handler         },
-    { "/api/storage",  HTTP_GET,    api_storage_handler       },
-    { "/api/format",   HTTP_POST,   api_format_handler        },
-    { "/api/ota",     HTTP_POST,   api_ota_handler           },
-    { "/api/ota/info",   HTTP_GET,   api_ota_info_handler    },
-    { "/api/ota/upload", HTTP_POST,  api_ota_upload_handler  },
-    { "/api/ota/spiffs", HTTP_POST,  api_ota_spiffs_handler  },
-    { "/metrics",      HTTP_GET,    metrics_handler           },
-    { "/api/audio",   HTTP_GET,    api_audio_stream_handler  },
-    { "/api/capture", HTTP_GET,    api_capture_handler       },
-    /* CORS preflight — wildcard */
-    { "/*",            HTTP_OPTIONS, options_handler           },
-    /* Static files — catch-all (lowest priority) */
-    { "/*",            HTTP_GET,    static_file_handler       },
-};
-
-#define NUM_URIS (sizeof(s_uris) / sizeof(s_uris[0]))
 
 /* ------------------------------------------------------------------ */
 /*  Public API                                                         */
