@@ -55,7 +55,7 @@ testing; read it from the boot log or `GET /api/status` (`camera` field).
 | Task | Location | Notes |
 |------|----------|-------|
 | Boot sequence | `main/main.c` `app_main()` | 20-step init, see comment block lines 19-41 |
-| REST API (16 endpoints) | `main/web_server.c` | Handler table at line 1196 |
+| REST API (16 endpoints) | `main/web_server.c` | Route table `s_uris[]` at top of file + reading map in file header (2026-09-17 前置) |
 | Recording (3 modes) | `main/video_recorder.c` | AVI MJPEG segmented, continuous/timelapse/dynamic |
 | Motion detection | `main/motion_detect.c` | Frame-difference, score 0-100 |
 | ONVIF auto-discovery | `main/onvif_discovery.c` + `main/onvif_service.c` | WS-Discovery + SOAP, Synology/Milestone compatible |
