@@ -80,7 +80,9 @@
 
 ## 4. 校验矩阵（HTTP POST / AT 写入 / SD 导入三方同表，越界一律拒绝）
 
-cam_fps 1-30 · cam_quality 10-63 · cam_framesize ∈ 板 supported_resolutions ·
+cam_fps 1-30 · cam_quality 10-63（v2.0 补：下限随目标档位收紧，板级定标，
+见 api-contract v1.9 §5——n16r8：≤SVGA=10、XGA/HD=12、SXGA=14）·
+cam_framesize ∈ 板 supported_resolutions ·
 cleanup_low_pct 1-99 且 cleanup_high_pct ≥low+5 且 ≤80 ·
 segment_sec 5-3600 · motion_sensitivity 0-100 · motion_cooldown_s 1-300 ·
 timelapse_interval_s 1-255 · xclk_freq_mhz ∈{10,16,20} · wifi_roam_rssi 0 或

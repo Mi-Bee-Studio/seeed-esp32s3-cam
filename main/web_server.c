@@ -1579,6 +1579,18 @@ static esp_err_t static_file_handler(httpd_req_t *req)
 
     FILE *f = fopen(filepath, "r");
     if (!f) {
+        /* 404 带来源对端（issue ai#8 家族部分：设备侧只记 404 不记 URI/IP，
+         * NVR 排障无法对表）——仅记录，不改变响应语义 */
+        char peer[16] = "?";
+        int fd = httpd_req_to_sockfd(req);
+        if (fd >= 0) {
+            struct sockaddr_in sa;
+            socklen_t sl = sizeof(sa);
+            if (lwip_getpeername(fd, (struct sockaddr *)&sa, &sl) == 0) {
+                strlcpy(peer, inet_ntoa(sa.sin_addr), sizeof(peer));
+            }
+        }
+        ESP_LOGW(TAG, "404 %s from %s", uri, peer);
         httpd_resp_send_404(req);
         return ESP_FAIL;
     }
@@ -2019,8 +2031,8 @@ static cJSON *camera_supported_resolutions_json(void)
     return res_arr;
 }
 
-/** @brief GET /api/camera — 返回相机设置与传感器支持的分辨率列表 */
-static esp_err_t api_camera_get_handler(httpd_req_t *req)
+/* 当前相机状态 JSON（GET 与 POST 共用；POST 追加 ignored 键集） */
+static cJSON *camera_state_json(void)
 {
     cam_config_t *cfg = config_get();
     cJSON *data = cJSON_CreateObject();
@@ -2051,6 +2063,14 @@ static esp_err_t api_camera_get_handler(httpd_req_t *req)
     /* 契约扩展（2026-09-04）：上限被哪一层钳制（sensor/board/memory），诊断用 */
     cJSON_AddStringToObject(data, "res_cap_source", camera_res_cap_source());
 
+    return data;
+}
+
+/** @brief GET /api/camera — 返回相机设置与传感器支持的分辨率列表 */
+static esp_err_t api_camera_get_handler(httpd_req_t *req)
+{
+    cJSON *data = camera_state_json();
+    if (!data) return json_error(req, "Out of memory", HTTPD_500_INTERNAL_SERVER_ERROR);
     return json_ok(req, data);
 }
 
@@ -2110,6 +2130,27 @@ static esp_err_t api_camera_post_handler(httpd_req_t *req)
         cfg->day_night_mode = (uint8_t)val;
     }
 
+    /* 未知键回显（契约 v1.9 §5，issue n16r8#27 家族部分）：静默 ok:true
+     * 曾让 "quality" 这类裸键的拼写错误排障半天——现在点名 WARN +
+     * 响应带 ignored 键集（本 handler 实际消费的键即已知集） */
+    static const char *known_keys[] = {
+        "cam_framesize", "cam_quality", "cam_vflip", "cam_hmirror",
+        "day_night_mode",
+    };
+    cJSON *ignored = cJSON_CreateArray();
+    for (cJSON *child = json->child; child; child = child->next) {
+        if (!child->string) continue;   /* 顶层非对象（数组等）：无键名可点名 */
+        bool known = false;
+        for (size_t i = 0; i < sizeof(known_keys) / sizeof(known_keys[0]); i++) {
+            if (strcmp(child->string, known_keys[i]) == 0) { known = true; break; }
+        }
+        if (!known) cJSON_AddItemToArray(ignored, cJSON_CreateString(child->string));
+    }
+    if (cJSON_GetArraySize(ignored) > 0) {
+        char *names = cJSON_PrintUnformatted(ignored);
+        ESP_LOGW(TAG, "POST /api/camera ignored unknown keys: %s", names ? names : "?");
+        free(names);
+    }
     cJSON_Delete(json);
     config_save();
     config_unlock();
@@ -2127,6 +2168,7 @@ static esp_err_t api_camera_post_handler(httpd_req_t *req)
         cJSON *data = cJSON_CreateObject();
         cJSON_AddStringToObject(data, "status", "saved (rebooting to apply)");
         cJSON_AddBoolToObject(data, "rebooting", true);
+        cJSON_AddItemToObject(data, "ignored", ignored);
         esp_err_t send_ret = json_ok(req, data);
         ESP_LOGW(TAG, "Camera resolution change %u->%u — rebooting to apply",
                  prev_resolution, cfg->cam_framesize);
@@ -2135,7 +2177,14 @@ static esp_err_t api_camera_post_handler(httpd_req_t *req)
         return send_ret;
     }
 
-    return api_camera_get_handler(req);
+    cJSON *data = camera_state_json();
+    if (!data) {
+        cJSON_Delete(ignored);
+        return json_error(req, "Out of memory", HTTPD_500_INTERNAL_SERVER_ERROR);
+    }
+    cJSON_AddItemToObject(data, "ignored", ignored);
+
+    return json_ok(req, data);
 }
 
 /* ------------------------------------------------------------------ */
