@@ -29,10 +29,7 @@ extern "C" {
 /* 家族配置契约 v1.0（docs/config-contract.md）。
  * 持久化 = mibee_cfg 命名空间逐键 NVS + schema_ver 版本键（见 config_manager.c）；
  * 本常量是家族 schema 版本，独立于本仓历史 schema v1/v2 编号（迁移后一律 =1）。 */
-#define CONFIG_SCHEMA_VERSION 1
-
-/* 契约 v1.1：家族统一默认管理密码（首次启动/空密码迁移/一次性种子共用；公开默认 mibeecam2026，本地可覆盖） */
-#define CONFIG_DEFAULT_WEB_PASSWORD CONFIG_MIBEE_CAM_DEFAULT_WEB_PASSWORD
+#define CONFIG_SCHEMA_VERSION 2   /* v2.0：web_password/rtsp_user/rtsp_pass 删除 */
 
 /** @brief 摄像头全局配置结构体，持久化到 NVS 闪存
  *
@@ -55,12 +52,6 @@ typedef struct {
     // 设备名称（家族默认 MiBeeCam）
     char timezone[48];
     // 时区设置，POSIX格式（如 CST-8、UTC0、EST5EDT）
-    char web_password[32];
-    // Web 管理界面登录密码
-    char rtsp_user[33];
-    // RTSP digest 鉴权用户名（契约 §3.2 rtsp 组，默认 admin）
-    char rtsp_pass[64];
-    // RTSP digest 鉴权密码（敏感字段，GET 掩码；存量迁移一次性种子 = web_password）
     uint8_t cam_framesize;  // framesize_t 刻度：10=VGA,11=SVGA,12=XGA,13=HD,14=SXGA,15=UXGA
     uint8_t cam_fps;        // 1-30（板级覆盖默认 12）
     uint8_t cam_quality;    // 10-63（板级覆盖默认 18）
@@ -145,8 +136,6 @@ esp_err_t config_get_copy(cam_config_t *out);
 bool config_validate(const cam_config_t *cfg);
 /** @brief 根据拍摄间隔和录制模式计算最优片段时长和帧率，覆盖 fps 和 segment_sec 字段 */
 void config_apply_optimal(cam_config_t *cfg);
-/** @brief 获取 Web 管理界面登录密码 */
-const char *config_get_web_password(void);
 /** @brief 生成当前配置的 JSON 对象（调用方负责 cJSON_Delete 释放） */
 cJSON *config_get_json(void);
 #ifdef __cplusplus

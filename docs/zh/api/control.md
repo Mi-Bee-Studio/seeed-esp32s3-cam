@@ -8,7 +8,7 @@
 
 手动开始或停止视频录制。
 
-**认证**：需要密码认证
+**认证**：无（契约 v1.9）
 
 **源码**：`api_record_handler`（web_server.c）
 
@@ -57,23 +57,13 @@
 | `"unknown_action"` | action 参数不是 `"start"` 也不是 `"stop"` |
 
 > 即使返回 `"error"` 或 `"unknown_action"`，HTTP 状态码仍为 200。
-> 只有认证失败时才返回 401。
-
-**错误响应**：
-
-| 状态码 | 条件 | 错误信息 |
-|--------|------|----------|
-| 401 | 未提供正确密码 | `"Unauthorized"` |
 
 **cURL 示例**：
 ```bash
 # 开始录像
-curl -X POST "http://192.168.4.1/api/record?action=start" \
-  -H "X-Password: mibeecam2026"
-
+curl -X POST "http://192.168.4.1/api/record?action=start"
 # 停止录像
-curl -X POST "http://192.168.4.1/api/record?action=stop" \
-  -H "X-Password: mibeecam2026"
+curl -X POST "http://192.168.4.1/api/record?action=stop"
 ```
 
 **JavaScript 示例**：
@@ -81,8 +71,7 @@ curl -X POST "http://192.168.4.1/api/record?action=stop" \
 async function toggleRecording(start) {
   const action = start ? 'start' : 'stop';
   const resp = await fetch(`/api/record?action=${action}`, {
-    method: 'POST',
-    headers: { 'X-Password': 'mibeecam2026' }
+    method: 'POST'
   });
   const { data } = await resp.json();
   console.log(`操作: ${data.action}, 状态: ${data.status}`);
@@ -96,7 +85,7 @@ async function toggleRecording(start) {
 
 手动设置设备系统时间。在无法通过 NTP 自动同步时（如 AP 模式），可通过此接口手动校时。
 
-**认证**：需要密码认证
+**认证**：无（契约 v1.9）
 
 **源码**：`api_time_handler`（web_server.c）
 
@@ -136,7 +125,6 @@ async function toggleRecording(start) {
 
 | 状态码 | 条件 | 错误信息 |
 |--------|------|----------|
-| 401 | 未提供正确密码 | `"Unauthorized"` |
 | 400 | 请求体为空（超过 512 字节限制） | `"Empty body"` |
 | 400 | JSON 解析失败 | `"Invalid JSON"` |
 | 400 | 缺少时间字段 | `"Missing time fields"` |
@@ -146,7 +134,6 @@ async function toggleRecording(start) {
 ```bash
 curl -X POST http://192.168.4.1/api/time \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
   -d '{"year": 2026, "month": 4, "day": 24, "hour": 14, "min": 30, "sec": 0}'
 ```
 
@@ -156,8 +143,7 @@ async function setDeviceTime(date) {
   const resp = await fetch('/api/time', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'X-Password': 'mibeecam2026'
+      'Content-Type': 'application/json'
     },
     body: JSON.stringify({
       year: date.getFullYear(),
@@ -181,7 +167,7 @@ setDeviceTime(new Date());
 
 将设备配置恢复为出厂默认值并重启。配置立即重置，设备在发送响应后重启。
 
-**认证**：需要密码认证
+**认证**：无（契约 v1.9）
 
 **源码**：`api_reset_handler`（web_server.c）
 
@@ -198,7 +184,7 @@ setDeviceTime(new Date());
 ```
 
 > **注意**：设备在发送此响应后立即执行重启。客户端收到此响应后应预期连接断开。
-> 重启后设备将使用默认配置启动（默认进入 AP 模式，密码恢复为 `mibeecam2026`）。
+> 重启后设备将使用默认配置启动（默认进入 AP 模式；契约 v1.9 起无 Web 密码）。
 
 **出厂默认值**：
 
@@ -207,7 +193,6 @@ setDeviceTime(new Date());
 | wifi_ssid | `""` (AP 模式) |
 | wifi_pass | `""` |
 | device_name | `"MiBee Cam"` |
-| web_password | `"mibeecam2026"` |
 | resolution | `1` (SVGA) |
 | fps | `10` |
 | segment_sec | `300` |
@@ -215,16 +200,9 @@ setDeviceTime(new Date());
 | upload_method | `0` (禁用) |
 | webdav_enabled | `false` |
 
-**错误响应**：
-
-| 状态码 | 条件 | 错误信息 |
-|--------|------|----------|
-| 401 | 未提供正确密码 | `"Unauthorized"` |
-
 **cURL 示例**：
 ```bash
-curl -X POST http://192.168.4.1/api/reset \
-  -H "X-Password: mibeecam2026"
+curl -X POST http://192.168.4.1/api/reset
 ```
 
 **JavaScript 示例**：
@@ -232,8 +210,7 @@ curl -X POST http://192.168.4.1/api/reset \
 async function factoryReset() {
   if (!confirm('确定要恢复出厂设置吗？设备将重启。')) return;
   const resp = await fetch('/api/reset', {
-    method: 'POST',
-    headers: { 'X-Password': 'mibeecam2026' }
+    method: 'POST'
   });
   const result = await resp.json();
   if (result.ok) {

@@ -25,7 +25,6 @@
   <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.6" fill="currentColor" stroke="none"/></symbol>
   <symbol id="i-snap" viewBox="0 0 24 24"><rect x="3" y="6.5" width="18" height="13" rx="2.5"/><circle cx="12" cy="13" r="3.4"/><path d="M8.5 6.5 10 4h4l1.5 2.5"/></symbol>
   <symbol id="i-expand" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></symbol>
-  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2.4"/><path d="M8 10.5V7.6a4 4 0 0 1 8 0v2.9M12 15v2"/></symbol>
   <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/></symbol>
   <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 5.5v5h-5M4 18.5v-5h5"/><path d="M19.4 10.5a8 8 0 0 0-14-3M4.6 13.5a8 8 0 0 0 14 3"/></symbol>
@@ -35,8 +34,6 @@
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.5 12.5 10 18 19.5 7"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.2"/></symbol>
-  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></symbol>
-  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M4 4l16 16M9.9 5.9A9.9 9.9 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17.6 17.6 0 0 1-3.2 3.9M6 7.3A17 17 0 0 0 2.5 12S6 18.5 12 18.5a9.6 9.6 0 0 0 3.4-.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></symbol>
   <symbol id="i-sd" viewBox="0 0 24 24"><path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M8.5 7v2M11 7v2M13.5 7v2"/></symbol>
   <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2.8v3.2M15 2.8v3.2M9 18v3.2M15 18v3.2M2.8 9H6M2.8 15H6M18 9h3.2M18 15h3.2"/></symbol>
   <symbol id="i-temp" viewBox="0 0 24 24"><path d="M10 13.5V5a2 2 0 1 1 4 0v8.5a4.5 4.5 0 1 1-4 0z"/><circle cx="12" cy="17.5" r="1.6" fill="currentColor" stroke="none"/></symbol>
@@ -57,9 +54,6 @@
       </div>
     </div>
     <div class="hd-actions">
-      <button class="icon-btn" id="btn-lock" data-i18n-title="auth.title">
-        <svg class="icon"><use href="#i-lock"/></svg>
-      </button>
       <button class="icon-btn" id="btn-theme" data-i18n-title="theme.toggle">
         <svg class="icon" id="icon-theme"><use href="#i-moon"/></svg>
       </button>
@@ -315,16 +309,6 @@
             <svg class="icon"><use href="#i-check"/></svg><span data-i18n="network.apply">Save</span>
           </button>
         </div>
-        <div class="card">
-          <div class="card-head">
-            <span class="card-icon"><svg class="icon"><use href="#i-lock"/></svg></span>
-            <div><div class="card-title" data-i18n="pw.change">Change Password</div>
-            <div class="card-sub" data-i18n="pw.change_msg">Requires the current password</div></div>
-          </div>
-          <button class="btn btn-secondary btn-block" id="btn-change-pw">
-            <svg class="icon"><use href="#i-lock"/></svg><span data-i18n="pw.change">Change Password</span>
-          </button>
-        </div>
       </div>
 
       <!-- Streaming -->
@@ -346,14 +330,6 @@
           <div class="field stack" id="row-stream-onvif" hidden>
             <div class="field-label" data-i18n="streaming.onvif_hint">ONVIF discovery</div>
             <div class="field-note" data-i18n="streaming.onvif_note">Search by WS-Discovery in Synology / Milestone</div>
-          </div>
-          <div class="field stack" id="row-rtsp-user" hidden>
-            <div class="field-label" data-i18n="streaming.rtsp_user">RTSP Username</div>
-            <input type="text" id="rtsp-user" placeholder="admin">
-          </div>
-          <div class="field stack" id="row-rtsp-pass" hidden>
-            <div class="field-label" data-i18n="streaming.rtsp_pass">RTSP Password</div>
-            <input type="password" id="rtsp-pass" placeholder="••••••••">
           </div>
           <div class="field" id="row-onvif-enable" hidden>
             <div class="field-label" data-i18n="streaming.onvif">ONVIF Discovery</div>

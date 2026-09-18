@@ -333,7 +333,6 @@ static const port_field_t s_fields[] = {
     { "wifi_pass",                AT_CFG_STR, true,  offsetof(cam_config_t, wifi_pass) },
     { "wifi_ssid_2",              AT_CFG_STR, false, offsetof(cam_config_t, wifi_ssid_2) },
     { "wifi_pass_2",              AT_CFG_STR, true,  offsetof(cam_config_t, wifi_pass_2) },
-    { "web_password",             AT_CFG_STR, true,  offsetof(cam_config_t, web_password) },
     { "timezone",                 AT_CFG_STR, false, offsetof(cam_config_t, timezone) },
     { "cam_framesize",            AT_CFG_U8,  false, offsetof(cam_config_t, cam_framesize) },
     { "cam_fps",                  AT_CFG_U8,  false, offsetof(cam_config_t, cam_fps) },
@@ -343,8 +342,6 @@ static const port_field_t s_fields[] = {
     { "xclk_freq_mhz",            AT_CFG_U8,  false, offsetof(cam_config_t, xclk_freq_mhz) },
     { "onvif_enable",             AT_CFG_U8,  false, offsetof(cam_config_t, onvif_enable) },
     { "day_night_mode",           AT_CFG_U8,  false, offsetof(cam_config_t, day_night_mode) },
-    { "rtsp_user",                AT_CFG_STR, false, offsetof(cam_config_t, rtsp_user) },
-    { "rtsp_pass",                AT_CFG_STR, true,  offsetof(cam_config_t, rtsp_pass) },
     { "motion_enabled",           AT_CFG_U8,  false, offsetof(cam_config_t, motion_enabled) },
     { "motion_sensitivity",       AT_CFG_U8,  false, offsetof(cam_config_t, motion_sensitivity) },
     { "motion_cooldown_s",        AT_CFG_U16, false, offsetof(cam_config_t, motion_cooldown_s) },
@@ -367,9 +364,9 @@ static const port_field_t s_fields[] = {
 
 enum {
     F_DEVICE_NAME = 0, F_WIFI_SSID, F_WIFI_PASS, F_WIFI_SSID_2, F_WIFI_PASS_2,
-    F_WEB_PASSWORD, F_TIMEZONE, F_CAM_FRAMESIZE, F_CAM_FPS, F_CAM_QUALITY,
-    F_CAM_VFLIP, F_CAM_HMIRROR, F_XCLK, F_ONVIF, F_DAY_NIGHT, F_RTSP_USER,
-    F_RTSP_PASS, F_MOTION_EN, F_MOTION_SENS, F_MOTION_COOL, F_MOTION_ACT,
+    F_TIMEZONE, F_CAM_FRAMESIZE, F_CAM_FPS, F_CAM_QUALITY,
+    F_CAM_VFLIP, F_CAM_HMIRROR, F_XCLK, F_ONVIF, F_DAY_NIGHT,
+    F_MOTION_EN, F_MOTION_SENS, F_MOTION_COOL, F_MOTION_ACT,
     F_SEGMENT, F_RECORD_ON_BOOT, F_VIDEO_TO_SD, F_AUDIO_TO_SD, F_TL_EN,
     F_TL_MODE, F_SD_LOG, F_CLEANUP_LOW, F_CLEANUP_HIGH,
     F_CSI_EN, F_CSI_ON_HITS, F_CSI_OFF_HITS, F_CSI_PROFILE, F_CSI_HEAL,
@@ -403,7 +400,6 @@ CFG_GET_FN(cfg_get_cam_hmirror,   F_CAM_HMIRROR)
 CFG_GET_FN(cfg_get_xclk,          F_XCLK)
 CFG_GET_FN(cfg_get_onvif,         F_ONVIF)
 CFG_GET_FN(cfg_get_day_night,     F_DAY_NIGHT)
-CFG_GET_FN(cfg_get_rtsp_user,     F_RTSP_USER)
 CFG_GET_FN(cfg_get_motion_en,     F_MOTION_EN)
 CFG_GET_FN(cfg_get_motion_sens,   F_MOTION_SENS)
 CFG_GET_FN(cfg_get_motion_cool,   F_MOTION_COOL)
@@ -495,23 +491,9 @@ static esp_err_t cfg_set_wifi_pass_2(const char *v)
 {
     return set_str_field(config_get()->wifi_pass_2, sizeof(config_get()->wifi_pass_2), v, true);
 }
-static esp_err_t cfg_set_web_password(const char *v)
-{
-    /* 契约 v1.1：≥6 位（与 POST /api/config 同源） */
-    if (strlen(v) < 6) return ESP_ERR_INVALID_ARG;
-    return set_str_field(config_get()->web_password, sizeof(config_get()->web_password), v, false);
-}
 static esp_err_t cfg_set_timezone(const char *v)
 {
     return set_str_field(config_get()->timezone, sizeof(config_get()->timezone), v, false);
-}
-static esp_err_t cfg_set_rtsp_user(const char *v)
-{
-    return set_str_field(config_get()->rtsp_user, sizeof(config_get()->rtsp_user), v, false);
-}
-static esp_err_t cfg_set_rtsp_pass(const char *v)
-{
-    return set_str_field(config_get()->rtsp_pass, sizeof(config_get()->rtsp_pass), v, true);
 }
 
 static esp_err_t cfg_set_cam_framesize(const char *v)
@@ -699,7 +681,6 @@ static const at_cfg_field_t s_cfg_fields[] = {
     { "wifi_pass",                AT_CFG_STR, true,  NULL,                   cfg_set_wifi_pass },
     { "wifi_ssid_2",              AT_CFG_STR, false, cfg_get_wifi_ssid_2,    cfg_set_wifi_ssid_2 },
     { "wifi_pass_2",              AT_CFG_STR, true,  NULL,                   cfg_set_wifi_pass_2 },
-    { "web_password",             AT_CFG_STR, true,  NULL,                   cfg_set_web_password },
     { "timezone",                 AT_CFG_STR, false, cfg_get_timezone,       cfg_set_timezone },
     { "cam_framesize",            AT_CFG_U8,  false, cfg_get_cam_framesize,  cfg_set_cam_framesize },
     { "cam_fps",                  AT_CFG_U8,  false, cfg_get_cam_fps,        cfg_set_cam_fps },
@@ -709,8 +690,6 @@ static const at_cfg_field_t s_cfg_fields[] = {
     { "xclk_freq_mhz",            AT_CFG_U8,  false, cfg_get_xclk,           cfg_set_xclk },
     { "onvif_enable",             AT_CFG_U8,  false, cfg_get_onvif,          cfg_set_onvif },
     { "day_night_mode",           AT_CFG_U8,  false, cfg_get_day_night,      cfg_set_day_night },
-    { "rtsp_user",                AT_CFG_STR, false, cfg_get_rtsp_user,      cfg_set_rtsp_user },
-    { "rtsp_pass",                AT_CFG_STR, true,  NULL,                   cfg_set_rtsp_pass },
     { "motion_enabled",           AT_CFG_U8,  false, cfg_get_motion_en,      cfg_set_motion_en },
     { "motion_sensitivity",       AT_CFG_U8,  false, cfg_get_motion_sens,    cfg_set_motion_sens },
     { "motion_cooldown_s",        AT_CFG_U16, false, cfg_get_motion_cool,    cfg_set_motion_cool },

@@ -35,7 +35,6 @@ Get all current configuration items of the device. Password fields are masked.
     "jpeg_quality": 18,
     "vflip": false,
     "hmirror": false,
-    "web_password": "****",
     "timezone": "CST-8",
     "timelapse_interval_sec": 0,
     "cleanup_low_pct": 20,
@@ -75,7 +74,6 @@ Get all current configuration items of the device. Password fields are masked.
 | `jpeg_quality` | number | JPEG image quality (default `18`, lower value means better quality) |
 | `vflip` | bool | Vertical flip |
 | `hmirror` | bool | Horizontal mirror |
-| `web_password` | string | Web management password, shows `"****"` if set, `""` if not set |
 
 | `timelapse_interval_sec` | number | Timelapse interval in seconds (default `0` = continuous recording). When > 0, captures one frame every N seconds |
 | `cleanup_low_pct` | number | Storage cleanup trigger threshold percentage (default `20`) |
@@ -91,7 +89,7 @@ Get all current configuration items of the device. Password fields are masked.
 | `video_record_to_sd` | bool | Record video to SD card (default: true) |
 | `audio_record_to_sd` | bool | Record audio to SD card, muxed into AVI (default: false) |
 | `sd_log_enabled` | bool | Write structured event logs to SD card (default: false) |
-> Only `wifi_pass`, `http_upload_pass`, `web_password` and `wifi_pass_2` are returned in masked form (`"****"`).
+> Only `wifi_pass`, `http_upload_pass` and `wifi_pass_2` are returned in masked form (`"****"`).
 
 **cURL Example**:
 ```bash
@@ -111,7 +109,7 @@ console.log(`Device: ${data.device_name}, Resolution: ${data.resolution}`);
 
 Update device configuration. Request body is JSON format, only need to include fields to modify. Configuration is immediately saved to NVS non-volatile storage after modification.
 
-**Authentication**: Password required
+**Authentication**: None (contract v1.9)
 
 **Source**: `api_config_post_handler` (web_server.c)
 
@@ -137,7 +135,6 @@ Update device configuration. Request body is JSON format, only need to include f
   "jpeg_quality": 8,
   "vflip": true,
   "hmirror": false,
-  "web_password": "newpass",
   "timelapse_interval_sec": 0,
   "cleanup_low_pct": 20,
   "cleanup_high_pct": 30,
@@ -176,7 +173,6 @@ Update device configuration. Request body is JSON format, only need to include f
 | `jpeg_quality` | number | JPEG quality |
 | `vflip` | bool | Vertical flip |
 | `hmirror` | bool | Horizontal mirror |
-| `web_password` | string | Web management password |
 | `timelapse_interval_sec` | number | Timelapse interval in seconds (`0` = continuous) |
 | `cleanup_low_pct` | number | Cleanup trigger threshold (%) |
 | `cleanup_high_pct` | number | Cleanup target percentage (%) |
@@ -195,7 +191,7 @@ Update device configuration. Request body is JSON format, only need to include f
 **Password Field Special Behavior**:
 
 
-The four password fields (`wifi_pass`, `webdav_pass`, `http_upload_pass`, `web_password`) have special handling logic:
+The three password fields (`wifi_pass`, `webdav_pass`, `http_upload_pass`) have special handling logic:
 - If value is `"****"` (four asterisks), the field is **ignored** and current password is kept unchanged
 - If value is any other string, it is updated to the new password value
 - This design allows clients to echo back data retrieved from `GET /api/config` without leaking passwords
@@ -213,7 +209,6 @@ The four password fields (`wifi_pass`, `webdav_pass`, `http_upload_pass`, `web_p
 
 | Status Code | Condition | Error Message |
 |-------------|-----------|---------------|
-| 401 | Wrong or missing password | `"Unauthorized"` |
 | 400 | Empty body or exceeds 2048 bytes | `"Empty or too large body"` |
 | 400 | JSON parsing failed | `"Invalid JSON"` |
 
@@ -222,20 +217,17 @@ The four password fields (`wifi_pass`, `webdav_pass`, `http_upload_pass`, `web_p
 # Modify WiFi configuration
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
   -d '{"wifi_ssid": "HomeWiFi", "wifi_pass": "mypassword"}'
 
 # Only modify resolution and frame rate
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
   -d '{"resolution": 2, "fps": 15}'
 
-# Keep original password unchanged (pass ****)
+# Keep original WiFi password unchanged (pass ****)
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
-  -d '{"wifi_ssid": "NewNet", "wifi_pass": "****", "web_password": "****"}'
+  -d '{"wifi_ssid": "NewNet", "wifi_pass": "****"}'
 ```
 
 **JavaScript Example**:
@@ -245,8 +237,7 @@ async function switchToHttp() {
   const resp = await fetch('/api/config', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'X-Password': 'mibeecam2026'
+      'Content-Type': 'application/json'
     },
     body: JSON.stringify({
       upload_method: 2,
@@ -262,14 +253,13 @@ async function switchToHttp() {
 
 ## Password Field Behavior Details
 
-The device management involves four password fields, with different behavior in GET and POST:
+The device management involves three password fields (WiFi and NAS credentials; the web management password was removed in contract v1.9), with different behavior in GET and POST:
 
 ### Password Fields Returned by GET /api/config
 
 | Field | Return Behavior |
 |-------|-----------------|
 | `wifi_pass` | Returns `"****"` if set, `""` if not set |
-| `web_password` | Returns `"****"` if set, `""` if not set |
 | `http_upload_pass` | Returns `"****"` if set, `""` if not set |
 | `webdav_pass` | **Not returned** (completely excluded from response) |
 
@@ -281,21 +271,20 @@ Receive password field value → Is value "****"?
               Keep original      Update to new password
 ```
 
-All four password fields (`wifi_pass`, `webdav_pass`, `http_upload_pass`, `web_password`) follow this logic.
+All three password fields (`wifi_pass`, `webdav_pass`, `http_upload_pass`) follow this logic.
 
 ### Typical Usage Scenarios
 
 **Scenario 1: Echo back after GET without modifying password**
 ```javascript
-// GET returns wifi_pass: "****", web_password: "****"
+// GET returns wifi_pass: "****"
 // Echoing back "****" keeps password unchanged
 await fetch('/api/config', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json', 'X-Password': 'mibeecam2026' },
+  headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
     device_name: 'NewName',
-    wifi_pass: '****',
-    web_password: '****'
+    wifi_pass: '****'
   })
 });
 ```
@@ -305,19 +294,9 @@ await fetch('/api/config', {
 // When password fields are not included, passwords are not modified
 await fetch('/api/config', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json', 'X-Password': 'mibeecam2026' },
+  headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ fps: 15, resolution: 2 })
 });
-```
-
-**Scenario 3: Change password**
-```javascript
-await fetch('/api/config', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json', 'X-Password': 'mibeecam2026' },
-  body: JSON.stringify({ web_password: 'newpassword' })
-});
-// Subsequent requests must use new password
 ```
 
 ---
@@ -353,7 +332,6 @@ await fetch('/api/config', {
 | `jpeg_quality` | number | `18` | JPEG quality |
 | `vflip` | bool | `false` | Vertical flip |
 | `hmirror` | bool | `false` | Horizontal mirror |
-| `web_password` | string | `"admin"` | Web management password |
 | `timelapse_interval_sec` | number | `0` | 0 = continuous recording, >0 = timelapse interval (seconds) |
 | `cleanup_low_pct` | number | `20` | Cleanup trigger threshold (%) |
 | `cleanup_high_pct` | number | `30` | Cleanup target (%) |

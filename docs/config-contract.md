@@ -1,4 +1,4 @@
-# MiBee Cam 家族配置契约（v1.3，2026-09-10）
+# MiBee Cam 家族配置契约（v2.0，2026-09-18）
 
 > **定位**：四仓（ai-thinker / esp32s3-n16r8 / luatos / seeed）配置子系统的统一契约：
 > 持久化格式、字段名与取值域、校验矩阵、默认值、迁移策略、SD 卡 provisioning 格式。
@@ -39,7 +39,8 @@
 
 列：JSON 字段（HTTP 权威名）· NVS 键（≤15 字符）· 类型 · 取值域 · 家族默认。
 "板覆盖"见表 §5。**敏感字段**（NVS/AT 读侧永不回显，HTTP GET 掩码 `****`）：
-`wifi_pass` `wifi_pass_2` `web_password` `rtsp_pass` `webhook_secret` `webdav_pass`。
+`wifi_pass` `wifi_pass_2` `webhook_secret` `webdav_pass`。
+（v2.0：`web_password`/`rtsp_pass` 随设备级密码移除而废除，见 §8。）
 
 ### 3.1 核心字段（四板必备，同名同域同校验）
 
@@ -50,7 +51,6 @@
 | wifi_ssid_2 / wifi_pass_2 | wifi_ssid_2 / wifi_pass_2 | str≤32 / str≤64 | 空 |
 | allow_ap_fallback | ap_fallback | u8 {0,1} | 1 |
 | timezone | timezone | str≤47（POSIX TZ） | 空（=UTC） |
-| web_password | web_password | str≥6 | Kconfig `MIBEE_CAM_DEFAULT_WEB_PASSWORD`（公开默认 `mibeecam2026`，PIT-027） |
 | cam_framesize | cam_framesize | u8 = framesize_t，板内合法域 | 10 (VGA) |
 | cam_fps | cam_fps | u8 1-30 | 15 |
 | cam_quality | cam_quality | u8 10-63（PIT-021） | 12 |
@@ -72,7 +72,6 @@
 | 延时摄影 | timelapse | **家族标准 = 动态模型 8 字段**：timelapse_enabled（`tl_en`）、timelapse_interval_s（1-255）、timelapse_burst_count、timelapse_mode（u8 0=静态 1=动态）、timelapse_min_interval_s（`tl_min_int_s`）、timelapse_max_interval_s（`tl_max_int_s`）、timelapse_decay_factor、timelapse_decay_period_s（`tl_decay_p_s`） |
 | 移动侦测 | 板支持 | **家族超集模型**：motion_enabled、motion_sensitivity（u8 0-100，越大越灵敏）、motion_cooldown_s（u16 1-300，两次触发最小间隔）、motion_active_interval_s（`motion_act_int_s`；u8 1-30，持续活动期再触发间隔） |
 | AI 管线 | ai | ai_face_en、ai_motion_en、ai_qr_en（u8 {0,1}） |
-| RTSP | rtsp | rtsp_user（str≤32，默认 `admin`）、rtsp_pass（str≤64） |
 | WebSocket | websocket | ws_enable（u8 {0,1}，默认 1） |
 | Webhook | 板支持 | alert_webhook_enabled（`webhook_en`）、alert_webhook_url（`webhook_url`，str≤256）、webhook_secret（str≤64） |
 | NAS/WebDAV | 板支持 | webdav_enabled、webdav_url（str≤128）、webdav_user（str≤32）、webdav_pass（str≤64）、webdav_base_path（`webdav_base`，str≤128，拒绝 `..`） |
@@ -82,7 +81,7 @@
 ## 4. 校验矩阵（HTTP POST / AT 写入 / SD 导入三方同表，越界一律拒绝）
 
 cam_fps 1-30 · cam_quality 10-63 · cam_framesize ∈ 板 supported_resolutions ·
-web_password ≥6 非空 · cleanup_low_pct 1-99 且 cleanup_high_pct ≥low+5 且 ≤80 ·
+cleanup_low_pct 1-99 且 cleanup_high_pct ≥low+5 且 ≤80 ·
 segment_sec 5-3600 · motion_sensitivity 0-100 · motion_cooldown_s 1-300 ·
 timelapse_interval_s 1-255 · xclk_freq_mhz ∈{10,16,20} · wifi_roam_rssi 0 或
 -90..-50 · timezone 长度 1-64（非空时）· webdav_base_path 拒绝 `..` ·
@@ -100,7 +99,6 @@ wm_pos 0-3 · wm_quality 60-95 · wm_text ≤32 字节 · wm_time_fmt ≤24 字�
 | xclk_freq_mhz | 20 | 16 | 20 | 16 |
 | allow_ap_fallback | — | — | — | **0**（保留现行为） |
 | wifi_roam_rssi | — | — | — | **-75** |
-| rtsp 鉴权源 | — | rtsp_user/rtsp_pass | — | rtsp_user/rtsp_pass（v1.0 起入契约；存量迁移见 §6） |
 
 ## 6. 旧格式迁移（一次性，四仓各一，代码须可重入且幂等）
 
@@ -109,7 +107,7 @@ wm_pos 0-3 · wm_quality 60-95 · wm_text ≤32 字节 · wm_time_fmt ≤24 字�
 | ai-thinker | `camcfg/config` blob v16 + magic | 复用现有 V1→V16 梯子解出语义 → 逐键写入 `mibee_cfg`（刻度 0-3 → framesize_t）→ 旧键改名 `config_bak` 留存只读；梯子代码迁移后删除 |
 | luatos | `mibee_cfg/config` blob v3（前代 device_cfg 已迁） | 同上（刻度 0-3 翻译；板上限 VGA 钳位）；`onvif_enabled`→`onvif_enable`、`jpeg_quality`→`cam_quality`、`wifi_ssid2`→`wifi_ssid_2` |
 | n16r8 | `mibee_cfg` 逐键（无版本） | 键名对齐 + 补 timezone/cam_fps 等新键（缺省即默认）+ 写 `schema_ver=1`；刻度恒等 |
-| seeed | `cam_config` 逐键 schema v2 | 键值复制到 `mibee_cfg` + 键名/刻度翻译（0-5 → framesize_t；timelapse 2 字段→8 字段按 §6.1）+ rtsp_pass 一次性种子（= 现 web_password，本板 RTSP 原用 web_password 鉴权）；旧命名空间留存只读 |
+| seeed | `cam_config` 逐键 schema v2 | 键值复制到 `mibee_cfg` + 键名/刻度翻译（0-5 → framesize_t；timelapse 2 字段→8 字段按 §6.1）；旧命名空间留存只读（v2.0：历史上的 rtsp_pass←web_password 一次性种子随密码体系移除而删除） |
 
 **迁移保持性验证**（每次部署必做）：升级前 dump `GET /api/config`（+ AT CFGGET
 白名单）→ 升级后 diff；WiFi 凭据以设备自动重连为准；分辨率值按 §2 表核对；
@@ -155,6 +153,11 @@ wm_pos 0-3 · wm_quality 60-95 · wm_text ≤32 字节 · wm_time_fmt ≤24 字�
   NVS 无需擦拭。语义见 api-contract v1.8 §3/§15。
   同版附带：**day_night_mode=2 由"预留"转实现**（仅 seeed）——既有键语义
   补全（0/1 行为不变），存量 NVS 无影响。
+- **v2.0（2026-09-18）**：**删除键 `web_password`/`rtsp_user`/`rtsp_pass`**
+  （设备级密码整体移除，api-contract v1.9 §18；含 Kconfig
+  `MIBEE_CAM_DEFAULT_WEB_PASSWORD`、`pw_seed_v1` 一次性种子、seeed 迁移中的
+  rtsp_pass 种子同步删除）。schema_ver=1→2；"迁移"= 旧键不再读取
+  （NVS 残留无害），无数据搬运。写路径遇到这些键按未知键处理（忽略+WARN）。
 
 ## 9. SD 卡 provisioning 统一格式
 

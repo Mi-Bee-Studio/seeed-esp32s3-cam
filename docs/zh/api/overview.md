@@ -17,16 +17,8 @@
 
 ## 认证机制
 
-部分接口需要密码认证，支持两种方式传递密码：
-
-| 方式 | 格式 | 示例 |
-|------|------|------|
-| 请求头 | `X-Password: <密码>` | `X-Password: mibeecam2026` |
-| 查询参数 | `?password=<密码>` | `?password=mibeecam2026` |
-
-- **默认密码**：`mibeecam2026`（可通过 `POST /api/config` 修改 `web_password` 字段）
-- 认证逻辑优先检查 `X-Password` 请求头，其次检查 `password` 查询参数
-- 认证失败返回 `401 Unauthorized`，响应体：`{"ok": false, "error": "Unauthorized"}`
+无。设备级密码已家族性移除（契约 v1.9，2026-09-18）：包括 OTA 与 RTSP 在内的
+所有接口在可信局域网内开放，安全边界 = 路由器 WPA2；AP 模式 WiFi 密码不变。
 
 ## 统一响应格式
 
@@ -57,7 +49,7 @@
 ```
 Access-Control-Allow-Origin: *
 Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS
-Access-Control-Allow-Headers: Content-Type, X-Password
+Access-Control-Allow-Headers: Content-Type
 ```
 
 `OPTIONS` 请求（预检请求）返回上述 CORS 头和空响应体，状态码 200。
@@ -74,27 +66,27 @@ Access-Control-Allow-Headers: Content-Type, X-Password
 #HQ|
 #NQ|| 2 | GET | `/api/config` | 否 | 获取当前配置 |
 #JW|
-#RV|| 3 | POST | `/api/config` | **是** | 更新配置 |
+#RV|| 3 | POST | `/api/config` | 否 | 更新配置 |
 #PX|
 #YB|| 4 | GET | `/api/files` | 否 | 获取录制文件列表 |
 #KB|
-#HZ|| 5 | DELETE | `/api/files?name=xxx` | **是** | 删除指定文件 |
+#HZ|| 5 | DELETE | `/api/files?name=xxx` | 否 | 删除指定文件 |
 #YR|
-#WM|| 6 | POST | `/api/files/batch` | **是** | 批量删除文件 |
+#WM|| 6 | POST | `/api/files/batch` | 否 | 批量删除文件 |
 #WR|
 #QN|| 7 | GET | `/api/download?name=xxx` | 否 | 下载指定文件 |
 #KR|
 #VY|| 8 | GET | `/api/scan` | 否 | 扫描 WiFi 网络 |
 #VS|
-#JS|| 9 | POST | `/api/time` | **是** | 手动设置系统时间 |
+#JS|| 9 | POST | `/api/time` | 否 | 手动设置系统时间 |
 #QT|
-#BM|| 10 | POST | `/api/record?action=start\|stop` | **是** | 控制录像 |
+#BM|| 10 | POST | `/api/record?action=start\|stop` | 否 | 控制录像 |
 #JZ|
-#HH|| 11 | POST | `/api/reset` | **是** | 恢复出厂设置 |
+#HH|| 11 | POST | `/api/reset` | 否 | 恢复出厂设置 |
 #MS|
-#MZ|| 12 | POST | `/api/ota` | **是** | OTA固件升级 |
+#MZ|| 12 | POST | `/api/ota` | 否 | OTA固件升级 |
 #ZT|
-#RZ|| 13 | POST | `/api/format` | **是** | 格式化SD卡 |
+#RZ|| 13 | POST | `/api/format` | 否 | 格式化SD卡 |
 #BP|
 #QP|| 14 | GET | `/metrics` | 否 | Prometheus 监控指标（文本格式） |
 #SR|
@@ -109,7 +101,7 @@ Access-Control-Allow-Headers: Content-Type, X-Password
 #SQ|| 19 | POST | `/onvif/device_service` | 否 | ONVIF 设备服务（SOAP） |
 #BJ|| 20 | POST | `/onvif/media_service` | 否 | ONVIF 媒体服务（SOAP） |
 #PS|
-| RTSP | `rtsp://<IP>:554/stream` | 摘要认证 | MJPEG+G.711 双轨道流 |
+| RTSP | `rtsp://<IP>:554/stream` | 否 | MJPEG+G.711 双轨道流 |
 | MJPEG | `http://<IP>:81/stream` | 否 | MJPEG 实时视频流（仅视频） |
 | 音频 | `http://<IP>/api/audio` | 否 | HTTP 分块 G.711 μ-law 音频流（网页预览用） |
 
@@ -122,7 +114,6 @@ Access-Control-Allow-Headers: Content-Type, X-Password
 |--------|------|----------|
 | 200 | 成功 | 请求处理成功 |
 | 400 | 请求错误 | 参数缺失、JSON 格式错误、路径遍历检测 |
-| 401 | 认证失败 | 密码错误或未提供密码（需要认证的接口） |
 | 404 | 资源不存在 | 文件不存在、静态文件未找到 |
 | 500 | 服务器内部错误 | WiFi 扫描失败、时间设置失败 |
 | 503 | 服务不可用 | MJPEG 流客户端连接数已达上限 |
@@ -221,7 +212,7 @@ Web 界面静态文件存储在 SPIFFS 分区（约 256KB），路径前缀 `/sp
 }
 ```
 
-**认证**：需要（X-Password 请求头或 ?password= 查询参数）
+**认证**：无（契约 v1.9）
 
 ---
 
@@ -337,7 +328,7 @@ scrape_configs:
 
 
 
-**认证**：需要
+**认证**：无
 
 
 

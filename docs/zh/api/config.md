@@ -35,7 +35,6 @@
     "jpeg_quality": 18,
     "vflip": false,
     "hmirror": false,
-    "web_password": "****",
     "timezone": "CST-8",
     "timelapse_interval_sec": 0,
     "cleanup_low_pct": 20,
@@ -74,7 +73,6 @@
 | `jpeg_quality` | number | JPEG 图像质量（默认 `18`，数值越小质量越好） |
     `vflip` | bool | 垂直翻转 |
     `hmirror` | bool | 水平镜像 |
-    `web_password` | string | Web 管理密码，已设置时显示 `"****"`，未设置时显示 `""` |
     `timelapse_interval_sec` | number | 延时摄影间隔时间，单位秒（默认 `0` = 连续录制）。当 > 0 时，每隔 N 秒拍摄一帧 |
     `cleanup_low_pct` | number | 存储清理触发阈值百分比（默认 `20`） |
     `cleanup_high_pct` | number | 存储清理目标百分比（默认 `30`） |
@@ -91,7 +89,7 @@
 | `sd_log_enabled` | bool | 将结构化事件日志写入 SD 卡（默认：false） |
 
 > **重要**：`webdav_pass` **不会**在此接口中返回（完全不包含在响应中）。这是设计上的安全考量。
-> 只有 `wifi_pass`、`http_upload_pass`、`web_password` 和 `wifi_pass_2` 会以遮掩形式（`"****"`）返回。
+> 只有 `wifi_pass`、`http_upload_pass` 和 `wifi_pass_2` 会以遮掩形式（`"****"`）返回。
 
 **cURL 示例**：
 ```bash
@@ -111,7 +109,7 @@ console.log(`设备名: ${data.device_name}, 分辨率: ${data.resolution}`);
 
 更新设备配置。请求体为 JSON 格式，只需包含要修改的字段。配置修改后立即保存到 NVS 非易失性存储。
 
-**认证**：需要密码认证
+**认证**：无（契约 v1.9）
 
 **源码**：`api_config_post_handler`（web_server.c）
 
@@ -137,7 +135,6 @@ console.log(`设备名: ${data.device_name}, 分辨率: ${data.resolution}`);
   "jpeg_quality": 8,
   "vflip": true,
   "hmirror": false,
-  "web_password": "newpass",
   "timelapse_interval_sec": 0,
   "cleanup_low_pct": 20,
   "cleanup_high_pct": 30,
@@ -175,7 +172,6 @@ console.log(`设备名: ${data.device_name}, 分辨率: ${data.resolution}`);
 | `jpeg_quality` | number | JPEG 质量 |
 | `vflip` | bool | 垂直翻转 |
 | `hmirror` | bool | 水平镜像 |
-    `web_password` | string | Web 管理密码 |
     `timelapse_interval_sec` | number | 延时摄影间隔时间（秒）（`0` = 连续录制） |
     `cleanup_low_pct` | number | 清理触发阈值（%） |
     `cleanup_high_pct` | number | 清理目标百分比（%） |
@@ -193,7 +189,7 @@ console.log(`设备名: ${data.device_name}, 分辨率: ${data.resolution}`);
 
 **密码字段特殊行为**：
 
-四个密码字段（`wifi_pass`、`webdav_pass`、`http_upload_pass`、`web_password`）具有特殊处理逻辑：
+三个密码字段（`wifi_pass`、`webdav_pass`、`http_upload_pass`）具有特殊处理逻辑：
 - 如果值为 `"****"`（四个星号），则**忽略该字段**，保留当前密码不变
 - 如果值为其他字符串，则更新为新的密码值
 - 此设计允许客户端在 `GET /api/config` 获取配置后回传数据而不泄露密码
@@ -211,7 +207,6 @@ console.log(`设备名: ${data.device_name}, 分辨率: ${data.resolution}`);
 
 | 状态码 | 条件 | 错误信息 |
 |--------|------|----------|
-| 401 | 未提供正确密码 | `"Unauthorized"` |
 | 400 | 请求体为空或超过 2048 字节 | `"Empty or too large body"` |
 | 400 | JSON 解析失败 | `"Invalid JSON"` |
 
@@ -220,20 +215,17 @@ console.log(`设备名: ${data.device_name}, 分辨率: ${data.resolution}`);
 # 修改 WiFi 配置
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
   -d '{"wifi_ssid": "HomeWiFi", "wifi_pass": "mypassword"}'
 
 # 只修改分辨率和帧率
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
   -d '{"resolution": 2, "fps": 15}'
 
-# 保留原密码不变（传入 ****）
+# 保留原 WiFi 密码不变（传入 ****）
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
-  -d '{"wifi_ssid": "NewNet", "wifi_pass": "****", "web_password": "****"}'
+  -d '{"wifi_ssid": "NewNet", "wifi_pass": "****"}'
 ```
 
 **JavaScript 示例**：
@@ -243,8 +235,7 @@ async function switchToHttp() {
   const resp = await fetch('/api/config', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'X-Password': 'mibeecam2026'
+      'Content-Type': 'application/json'
     },
     body: JSON.stringify({
       upload_method: 2,
@@ -260,14 +251,13 @@ async function switchToHttp() {
 
 ## 密码字段行为详解
 
-设备管理涉及四个密码字段，它们在 GET 和 POST 中的行为不同：
+设备管理涉及三个密码字段（WiFi 与 NAS 凭据；Web 管理密码已随契约 v1.9 移除），它们在 GET 和 POST 中的行为不同：
 
 ### GET /api/config 返回的密码字段
 
 | 字段 | 返回行为 |
 |------|----------|
 | `wifi_pass` | 已设置时返回 `"****"`，未设置时返回 `""` |
-| `web_password` | 已设置时返回 `"****"`，未设置时返回 `""` |
 | `http_upload_pass` | 已设置时返回 `"****"`，未设置时返回 `""` |
 | `webdav_pass` | **不返回**（完全不包含在响应中） |
 
@@ -279,21 +269,20 @@ async function switchToHttp() {
               保持原值不变    更新为新密码
 ```
 
-所有四个密码字段（`wifi_pass`、`webdav_pass`、`http_upload_pass`、`web_password`）均遵循此逻辑。
+所有三个密码字段（`wifi_pass`、`webdav_pass`、`http_upload_pass`）均遵循此逻辑。
 
 ### 典型使用场景
 
 **场景 1：获取配置后原样回传（不修改密码）**
 ```javascript
-// GET 返回 wifi_pass: "****", web_password: "****"
+// GET 返回 wifi_pass: "****"
 // 原样回传 "****" 即可保持密码不变
 await fetch('/api/config', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json', 'X-Password': 'mibeecam2026' },
+  headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
     device_name: 'NewName',
-    wifi_pass: '****',
-    web_password: '****'
+    wifi_pass: '****'
   })
 });
 ```
@@ -303,19 +292,9 @@ await fetch('/api/config', {
 // 不包含密码字段时，密码不会被修改
 await fetch('/api/config', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json', 'X-Password': 'mibeecam2026' },
+  headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ fps: 15, resolution: 2 })
 });
-```
-
-**场景 3：修改密码**
-```javascript
-await fetch('/api/config', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json', 'X-Password': 'mibeecam2026' },
-  body: JSON.stringify({ web_password: 'newpassword' })
-});
-// 之后的请求需使用新密码
 ```
 
 ---
@@ -351,7 +330,6 @@ await fetch('/api/config', {
 | `jpeg_quality` | number | `18` | JPEG 质量 |
 | `vflip` | bool | `false` | 垂直翻转 |
 | `hmirror` | bool | `false` | 水平镜像 |
-    `web_password` | string | `"admin"` | Web 管理密码 |
     `timelapse_interval_sec` | number | `0` | 0 = 连续录制，>0 = 延时摄影间隔（秒） |
     `cleanup_low_pct` | number | `20` | 清理触发阈值（%） |
     `cleanup_high_pct` | number | `30` | 清理目标（%） |

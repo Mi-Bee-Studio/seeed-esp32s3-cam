@@ -17,16 +17,9 @@ This firmware API documentation is based on `web_server.c`, `mjpeg_streamer.c`, 
 
 ## Authentication
 
-Some endpoints require password authentication. Two methods are supported:
-
-| Method | Format | Example |
-|--------|--------|---------|
-| Request Header | `X-Password: <password>` | `X-Password: mibeecam2026` |
-| Query Parameter | `?password=<password>` | `?password=mibeecam2026` |
-
-- **Default Password**: `mibeecam2026` (can be modified via `POST /api/config` by changing `web_password` field)
-- Authentication logic first checks `X-Password` request header, then checks `password` query parameter
-- Authentication failure returns `401 Unauthorized` with response body: `{"ok": false, "error": "Unauthorized"}`
+None. Device-level passwords were removed family-wide (contract v1.9, 2026-09-18):
+all endpoints — including OTA and RTSP — are open on the trusted LAN. The security
+boundary is the router's WPA2 passphrase; the AP-mode WiFi passphrase is unchanged.
 
 ## Unified Response Format
 
@@ -57,7 +50,7 @@ All HTTP responses (including error responses and static files) include the foll
 ```
 Access-Control-Allow-Origin: *
 Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS
-Access-Control-Allow-Headers: Content-Type, X-Password
+Access-Control-Allow-Headers: Content-Type
 ```
 
 `OPTIONS` requests (preflight requests) return the above CORS headers and empty response body with status code 200.
@@ -68,17 +61,17 @@ Access-Control-Allow-Headers: Content-Type, X-Password
 #MN||---|--------|------|------|-------------|
 #XB|| 1 | GET | `/api/status` | No | Get device status |
 #RZ|| 2 | GET | `/api/config` | No | Get current configuration |
-#PV|| 3 | POST | `/api/config` | **Yes** | Update configuration |
+#PV|| 3 | POST | `/api/config` | No | Update configuration |
 #PW|| 4 | GET | `/api/files` | No | Get recording file list |
-#BZ|| 5 | DELETE | `/api/files?name=xxx` | **Yes** | Delete specified file |
-#SW|| 6 | POST | `/api/files/batch` | **Yes** | Batch delete files |
+#BZ|| 5 | DELETE | `/api/files?name=xxx` | No | Delete specified file |
+#SW|| 6 | POST | `/api/files/batch` | No | Batch delete files |
 #XN|| 7 | GET | `/api/download?name=xxx` | No | Download specified file |
 #YS|| 8 | GET | `/api/scan` | No | Scan WiFi networks |
-#VZ|| 9 | POST | `/api/time` | **Yes** | Manually set system time |
-#JR|| 10 | POST | `/api/record?action=start\|stop` | **Yes** | Control recording |
-#ZH|| 11 | POST | `/api/reset` | **Yes** | Factory reset |
-#HT|| 12 | POST | `/api/ota` | **Yes** | Trigger OTA firmware update from URL |
-#XP|| 13 | POST | `/api/format` | **Yes** | Format SD card |
+#VZ|| 9 | POST | `/api/time` | No | Manually set system time |
+#JR|| 10 | POST | `/api/record?action=start\|stop` | No | Control recording |
+#ZH|| 11 | POST | `/api/reset` | No | Factory reset |
+#HT|| 12 | POST | `/api/ota` | No | Trigger OTA firmware update from URL |
+#XP|| 13 | POST | `/api/format` | No | Format SD card |
 #XB|| 14 | GET | `/metrics` | No | Prometheus metrics (text format) |
 #RR|| 15 | GET | `/setup` | No | First-time WiFi setup wizard page |
 #PP|| 16 | GET | `/ota` | No | OTA firmware update web page |
@@ -87,7 +80,7 @@ Access-Control-Allow-Headers: Content-Type, X-Password
 #SQ|| 19 | POST | `/onvif/device_service` | No | ONVIF Device Service (SOAP) |
 #BJ|| 20 | POST | `/onvif/media_service` | No | ONVIF Media Service (SOAP) |
 #HX|
-| RTSP | `rtsp://<IP>:554/stream` | Digest | MJPEG+G.711 dual-track stream |
+| RTSP | `rtsp://<IP>:554/stream` | No | MJPEG+G.711 dual-track stream |
 | MJPEG | `http://<IP>:81/stream` | No | MJPEG live stream (video only) |
 | Audio | `http://<IP>/api/audio` | No | HTTP chunked G.711 μ-law audio stream (for Web preview) |
 
@@ -169,7 +162,7 @@ Delete multiple recording files in a single request.
 
 ### `/api/files/batch` - Batch File Operations
 
-**Authentication**: Required (X-Password header or ?password= query param)
+**Authentication**: None (contract v1.9)
 
 ---
 
@@ -184,7 +177,7 @@ Trigger firmware update from a URL.
 
 **Response:** `{"ok": true, "data": {"message": "OTA update started, device will reboot..."}}`
 
-**Authentication:** Required
+**Authentication:** None
 
 ### WebSocket Real-time Push
 

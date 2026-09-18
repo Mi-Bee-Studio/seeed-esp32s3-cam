@@ -24,10 +24,10 @@
  *
  * 迁移（契约 §6 seeed 行，幂等可重入）：mibee_cfg 无 schema_ver 且旧
  * cam_config 命名空间存在 → 读旧键（含 v3 字段改名、FTP→webdav、
- * timelapse_mode 兼容、密码一次性种子等全部历史迁移语义）→ 按契约映射
- * （分辨率刻度 0-5→framesize_t 10-15、motion/timelapse 模型收敛、
- * rtsp_pass 一次性种子=web_password）→ 写入 mibee_cfg。旧命名空间
- * 原样留存只读（回滚备份）。
+ * timelapse_mode 兼容等全部历史迁移语义）→ 按契约映射
+ * （分辨率刻度 0-5→framesize_t 10-15、motion/timelapse 模型收敛）→
+ * 写入 mibee_cfg。旧命名空间原样留存只读（回滚备份）。
+ * 契约 v2.0：web_password/rtsp_user/rtsp_pass 已随设备级密码移除（不再读写）。
  */
 
 #include "config_manager.h"
@@ -48,7 +48,6 @@ static const char *TAG = "config";
 #define NVS_NS         "mibee_cfg"    /* 家族统一命名空间（契约 §1） */
 #define NVS_NS_LEGACY  "cam_config"   /* 本仓旧命名空间（迁移后留存只读） */
 #define KEY_SCHEMA_VER "schema_ver"
-#define KEY_PW_SEED    "pw_seed_v1"   /* 契约 v1.1 密码一次性种子标记（跨命名空间生效） */
 
 static cam_config_t s_config;
 static SemaphoreHandle_t s_config_mutex = NULL;
@@ -65,7 +64,6 @@ KEY_ASSERT("wifi_ssid_2");
 KEY_ASSERT("wifi_pass_2");
 KEY_ASSERT("ap_fallback");
 KEY_ASSERT("timezone");
-KEY_ASSERT("web_password");
 KEY_ASSERT("cam_framesize");
 KEY_ASSERT("cam_fps");
 KEY_ASSERT("cam_quality");
@@ -84,8 +82,6 @@ KEY_ASSERT("csi_on_hits");
 KEY_ASSERT("csi_off_hits");
 KEY_ASSERT("csi_profile");
 KEY_ASSERT("csi_auto_heal");
-KEY_ASSERT("rtsp_user");
-KEY_ASSERT("rtsp_pass");
 KEY_ASSERT("xclk_mhz");
 KEY_ASSERT("wifi_roam_rssi");
 KEY_ASSERT("wifi_roam_gap");
@@ -118,7 +114,6 @@ KEY_ASSERT("tl_min_int_s");
 KEY_ASSERT("tl_max_int_s");
 KEY_ASSERT("tl_decay_f");
 KEY_ASSERT("tl_decay_p_s");
-KEY_ASSERT("pw_seed_v1");
 /* 水印（契约 v1.3 §3.2，issue #11） */
 KEY_ASSERT("wm_enable");
 KEY_ASSERT("wm_video");
@@ -181,9 +176,6 @@ static void apply_defaults(cam_config_t *cfg)
     cfg->wifi_pass_2[0] = '\0';
     cfg->allow_ap_fallback = false;      /* 板级覆盖（§5）：保留现行为，永不退 AP */
     strlcpy(cfg->timezone, "CST-8", sizeof(cfg->timezone));
-    strlcpy(cfg->web_password, CONFIG_DEFAULT_WEB_PASSWORD, sizeof(cfg->web_password));
-    strlcpy(cfg->rtsp_user, "admin", sizeof(cfg->rtsp_user));
-    strlcpy(cfg->rtsp_pass, CONFIG_DEFAULT_WEB_PASSWORD, sizeof(cfg->rtsp_pass));
     /* 板级覆盖（§5，OV5640 热调优 PIT-016）：SVGA / fps12 / q18 */
     cfg->cam_framesize = CAMERA_RES_SVGA;
     cfg->cam_fps = 12;
@@ -280,7 +272,6 @@ static void load_legacy_namespace(nvs_handle_t h, cam_config_t *cfg)
     if (rd_u8(h, "allow_ap_fallback", &u8v)) cfg->allow_ap_fallback = u8v != 0;
     rd_str(h, "device_name", cfg->device_name, sizeof(cfg->device_name));
     rd_str(h, "timezone", cfg->timezone, sizeof(cfg->timezone));
-    rd_str(h, "web_password", cfg->web_password, sizeof(cfg->web_password));
 
     /* ---- 相机（v3 改名回退：resolution/jpeg_quality/vflip/hmirror） ---- */
     if (rd_u8(h, "cam_framesize", &u8v) || rd_u8(h, "resolution", &u8v)) {
@@ -393,9 +384,6 @@ static void load_keys_from_nvs(nvs_handle_t h, cam_config_t *cfg)
     rd_str(h, "wifi_pass_2", cfg->wifi_pass_2, sizeof(cfg->wifi_pass_2));
     rd_u8(h, "ap_fallback", (uint8_t *)&cfg->allow_ap_fallback);
     rd_str(h, "timezone", cfg->timezone, sizeof(cfg->timezone));
-    rd_str(h, "web_password", cfg->web_password, sizeof(cfg->web_password));
-    rd_str(h, "rtsp_user", cfg->rtsp_user, sizeof(cfg->rtsp_user));
-    rd_str(h, "rtsp_pass", cfg->rtsp_pass, sizeof(cfg->rtsp_pass));
     rd_u8(h, "cam_framesize", &cfg->cam_framesize);
     rd_u8(h, "cam_fps", &cfg->cam_fps);
     rd_u8(h, "cam_quality", &cfg->cam_quality);
@@ -467,9 +455,6 @@ static void write_keys_to_nvs(nvs_handle_t h, const cam_config_t *cfg)
     wr_str(h, "wifi_pass_2", cfg->wifi_pass_2);
     wr_u8(h, "ap_fallback", cfg->allow_ap_fallback ? 1 : 0);
     wr_str(h, "timezone", cfg->timezone);
-    wr_str(h, "web_password", cfg->web_password);
-    wr_str(h, "rtsp_user", cfg->rtsp_user);
-    wr_str(h, "rtsp_pass", cfg->rtsp_pass);
     wr_u8(h, "cam_framesize", cfg->cam_framesize);
     wr_u8(h, "cam_fps", cfg->cam_fps);
     wr_u8(h, "cam_quality", cfg->cam_quality);
@@ -551,39 +536,11 @@ static bool migrate_legacy_namespace(void)
     load_legacy_namespace(h, &migrated);
     nvs_close(h);
 
-    /* 密码一次性种子标记跨命名空间生效（已种过的设备不得重种，契约 v1.1） */
-    bool pw_seeded = false;
-    uint8_t flag = 0;
-    if (nvs_open(NVS_NS_LEGACY, NVS_READONLY, &h) == ESP_OK) {
-        pw_seeded = (nvs_get_u8(h, KEY_PW_SEED, &flag) == ESP_OK && flag == 1);
-        nvs_close(h);
-    }
-    if (!pw_seeded && nvs_open(NVS_NS, NVS_READONLY, &h) == ESP_OK) {
-        pw_seeded = (nvs_get_u8(h, KEY_PW_SEED, &flag) == ESP_OK && flag == 1);
-        nvs_close(h);
-    }
-    if (!pw_seeded) {
-        ESP_LOGW(TAG, "One-shot password seed: unifying web_password to family default");
-        strlcpy(migrated.web_password, CONFIG_DEFAULT_WEB_PASSWORD,
-                sizeof(migrated.web_password));
-    }
-    /* 空密码迁移到家族统一默认（契约 v1.1） */
-    if (migrated.web_password[0] == '\0') {
-        strlcpy(migrated.web_password, CONFIG_DEFAULT_WEB_PASSWORD,
-                sizeof(migrated.web_password));
-    }
-    /* rtsp_pass 一次性种子 = 现 web_password（契约 §6：本板 RTSP 原用
-     * web_password 做 digest 鉴权，拆分后首次迁移带上现值） */
-    strlcpy(migrated.rtsp_pass, migrated.web_password, sizeof(migrated.rtsp_pass));
-
     if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to open %s for migration", NVS_NS);
         return false;
     }
     write_keys_to_nvs(h, &migrated);
-    if (!pw_seeded) {
-        nvs_set_u8(h, KEY_PW_SEED, 1);
-    }
     nvs_commit(h);
     nvs_close(h);
 
@@ -971,14 +928,6 @@ esp_err_t config_init(void)
     if (s_config.onvif_enable > 1) {
         s_config.onvif_enable = 1;
     }
-    /* 契约 v1.1：空密码迁移到家族统一默认 */
-    if (s_config.web_password[0] == '\0') {
-        strlcpy(s_config.web_password, CONFIG_DEFAULT_WEB_PASSWORD,
-                sizeof(s_config.web_password));
-    }
-    if (s_config.rtsp_user[0] == '\0') {
-        strlcpy(s_config.rtsp_user, "admin", sizeof(s_config.rtsp_user));
-    }
 
     /* 延时模式最优参数（segment/fps 随 interval/mode 联动） */
     config_apply_optimal(&s_config);
@@ -1163,8 +1112,6 @@ bool config_validate(const cam_config_t *cfg)
     if (strnlen(cfg->webdav_user, sizeof(cfg->webdav_user)) >= sizeof(cfg->webdav_user)) { ESP_LOGW(TAG, "validate: webdav_user overflow"); return false; }
     if (strnlen(cfg->webdav_pass, sizeof(cfg->webdav_pass)) >= sizeof(cfg->webdav_pass)) { ESP_LOGW(TAG, "validate: webdav_pass overflow"); return false; }
     if (strnlen(cfg->webdav_base_path, sizeof(cfg->webdav_base_path)) >= sizeof(cfg->webdav_base_path)) { ESP_LOGW(TAG, "validate: webdav_base_path overflow"); return false; }
-    if (strnlen(cfg->rtsp_user, sizeof(cfg->rtsp_user)) >= sizeof(cfg->rtsp_user)) { ESP_LOGW(TAG, "validate: rtsp_user overflow"); return false; }
-    if (strnlen(cfg->rtsp_pass, sizeof(cfg->rtsp_pass)) >= sizeof(cfg->rtsp_pass)) { ESP_LOGW(TAG, "validate: rtsp_pass overflow"); return false; }
 
     return true;
 }
@@ -1234,13 +1181,7 @@ void config_unlock(void)
     }
 }
 
-/* ---- new JSON and web_password accessors ---- */
-
-/** @brief Get current web_password value */
-const char *config_get_web_password(void)
-{
-    return s_config.web_password;
-}
+/* ---- JSON accessor ---- */
 
 /** @brief 生成当前配置的 JSON 对象（契约字段名；密码类掩码，调用方负责释放） */
 cJSON *config_get_json(void)
@@ -1260,11 +1201,6 @@ cJSON *config_get_json(void)
     cJSON_AddBoolToObject(root, "allow_ap_fallback", cfg->allow_ap_fallback);
     cJSON_AddStringToObject(root, "device_name", cfg->device_name);
     cJSON_AddStringToObject(root, "timezone", cfg->timezone);
-    cJSON_AddStringToObject(root, "web_password", cfg->web_password[0] ? "****" : "");
-
-    /* RTSP（契约 §3.2 rtsp 组） */
-    cJSON_AddStringToObject(root, "rtsp_user", cfg->rtsp_user);
-    cJSON_AddStringToObject(root, "rtsp_pass", cfg->rtsp_pass[0] ? "****" : "");
 
     /* 相机（含微调组） */
     cJSON_AddNumberToObject(root, "cam_framesize", (double)cfg->cam_framesize);

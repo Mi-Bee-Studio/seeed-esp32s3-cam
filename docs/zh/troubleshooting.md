@@ -331,8 +331,7 @@ sdspi_device_config_t dev_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
 ### 方法二：API 恢复出厂
 
 ```bash
-curl -X POST http://<设备IP>/api/reset \
-  -H "X-Password: mibeecam2026"
+curl -X POST http://<设备IP>/api/reset
 ```
 
 ### 方法三：擦除 Flash
@@ -349,7 +348,7 @@ idf.py -p COM3 erase-flash
 idf.py -p COM3 flash monitor
 ```
 
-> **注意**：恢复出厂设置将清除所有配置（WiFi、NAS、密码等），恢复为默认值 `mibeecam2026`，设备重启后进入 AP 模式。TF 卡上的录像文件不受影响。
+> **注意**：恢复出厂设置将清除所有配置（WiFi、NAS 等；契约 v1.9 起无 Web 密码可恢复），设备重启后进入 AP 模式。TF 卡上的录像文件不受影响。
 
 
 ### 下载的 AVI 文件无法播放

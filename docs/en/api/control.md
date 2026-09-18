@@ -8,7 +8,7 @@
 
 Manually start or stop video recording.
 
-**Authentication**: Password required
+**Authentication**: None (contract v1.9)
 
 **Source**: `api_record_handler` (web_server.c)
 
@@ -57,23 +57,14 @@ Manually start or stop video recording.
 | `"unknown_action"` | action parameter is neither `"start"` nor `"stop"` |
 
 > Even if `"error"` or `"unknown_action"` is returned, HTTP status code is still 200.
-> Only authentication failure returns 401.
-
-**Error Responses**:
-
-| Status Code | Condition | Error Message |
-|-------------|-----------|---------------|
-| 401 | Wrong or missing password | `"Unauthorized"` |
 
 **cURL Examples**:
 ```bash
 # Start recording
-curl -X POST "http://192.168.4.1/api/record?action=start" \
-  -H "X-Password: mibeecam2026"
+curl -X POST "http://192.168.4.1/api/record?action=start"
 
 # Stop recording
-curl -X POST "http://192.168.4.1/api/record?action=stop" \
-  -H "X-Password: mibeecam2026"
+curl -X POST "http://192.168.4.1/api/record?action=stop"
 ```
 
 **JavaScript Example**:
@@ -81,8 +72,7 @@ curl -X POST "http://192.168.4.1/api/record?action=stop" \
 async function toggleRecording(start) {
   const action = start ? 'start' : 'stop';
   const resp = await fetch(`/api/record?action=${action}`, {
-    method: 'POST',
-    headers: { 'X-Password': 'mibeecam2026' }
+    method: 'POST'
   });
   const { data } = await resp.json();
   console.log(`Action: ${data.action}, Status: ${data.status}`);
@@ -96,7 +86,7 @@ async function toggleRecording(start) {
 
 Manually set device system time. When NTP auto-sync is not possible (e.g., AP mode), use this endpoint to manually calibrate time.
 
-**Authentication**: Password required
+**Authentication**: None (contract v1.9)
 
 **Source**: `api_time_handler` (web_server.c)
 
@@ -136,7 +126,6 @@ Manually set device system time. When NTP auto-sync is not possible (e.g., AP mo
 
 | Status Code | Condition | Error Message |
 |-------------|-----------|---------------|
-| 401 | Wrong or missing password | `"Unauthorized"` |
 | 400 | Empty body (exceeds 512 byte limit) | `"Empty body"` |
 | 400 | JSON parsing failed | `"Invalid JSON"` |
 | 400 | Missing time fields | `"Missing time fields"` |
@@ -146,7 +135,6 @@ Manually set device system time. When NTP auto-sync is not possible (e.g., AP mo
 ```bash
 curl -X POST http://192.168.4.1/api/time \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
   -d '{"year": 2026, "month": 4, "day": 24, "hour": 14, "min": 30, "sec": 0}'
 ```
 
@@ -156,8 +144,7 @@ async function setDeviceTime(date) {
   const resp = await fetch('/api/time', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'X-Password': 'mibeecam2026'
+      'Content-Type': 'application/json'
     },
     body: JSON.stringify({
       year: date.getFullYear(),
@@ -181,7 +168,7 @@ setDeviceTime(new Date());
 
 Restore device configuration to factory default values and reboot. Configuration is reset immediately, device reboots after sending response.
 
-**Authentication**: Password required
+**Authentication**: None (contract v1.9)
 
 **Source**: `api_reset_handler` (web_server.c)
 
@@ -198,7 +185,7 @@ Restore device configuration to factory default values and reboot. Configuration
 ```
 
 > **Note**: Device executes reboot immediately after sending this response. Client should expect connection disconnect after receiving this response.
-> After reboot, device will start with default configuration (default AP mode, password restored to `mibeecam2026`).
+> After reboot, device will start with default configuration (default AP mode; no web password exists, contract v1.9).
 
 **Factory Default Values**:
 
@@ -207,7 +194,6 @@ Restore device configuration to factory default values and reboot. Configuration
 | wifi_ssid | `""` (AP mode) |
 | wifi_pass | `""` |
 | device_name | `"MiBee Cam"` |
-| web_password | `"mibeecam2026"` |
 | resolution | `1` (SVGA) |
 | fps | `10` |
 | segment_sec | `300` |
@@ -215,16 +201,9 @@ Restore device configuration to factory default values and reboot. Configuration
 | upload_method | `0` (Disabled) |
 | webdav_enabled | `false` |
 
-**Error Responses**:
-
-| Status Code | Condition | Error Message |
-|-------------|-----------|---------------|
-| 401 | Wrong or missing password | `"Unauthorized"` |
-
 **cURL Example**:
 ```bash
-curl -X POST http://192.168.4.1/api/reset \
-  -H "X-Password: mibeecam2026"
+curl -X POST http://192.168.4.1/api/reset
 ```
 
 **JavaScript Example**:
@@ -232,8 +211,7 @@ curl -X POST http://192.168.4.1/api/reset \
 async function factoryReset() {
   if (!confirm('Are you sure you want to factory reset? Device will reboot.')) return;
   const resp = await fetch('/api/reset', {
-    method: 'POST',
-    headers: { 'X-Password': 'mibeecam2026' }
+    method: 'POST'
   });
   const result = await resp.json();
   if (result.ok) {

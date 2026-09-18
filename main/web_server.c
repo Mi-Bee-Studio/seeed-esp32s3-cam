@@ -21,7 +21,7 @@
  *   Route table (s_uris[]) .... every HTTP endpoint in one place, near the
  *                               top of this file — start here to answer
  *                               "what URI is handled where"
- *   Helpers ................... auth (X-Password), CORS, JSON envelope
+ *   Helpers ................... CORS, JSON envelope (无设备级认证，契约 v1.9)
  *   Handlers .................. one static esp_err_t *_handler() per
  *                               endpoint (plus static-file/metrics/audio/
  *                               capture/OTA), same names as the table
@@ -103,7 +103,6 @@ static esp_err_t api_config_get_handler(httpd_req_t *req);
 static esp_err_t api_config_post_handler(httpd_req_t *req);
 static esp_err_t api_camera_get_handler(httpd_req_t *req);
 static esp_err_t api_camera_post_handler(httpd_req_t *req);
-static esp_err_t api_auth_handler(httpd_req_t *req);
 static esp_err_t api_reboot_handler(httpd_req_t *req);
 static esp_err_t api_csi_calibrate_handler(httpd_req_t *req);
 static esp_err_t api_setup_done_handler(httpd_req_t *req);
@@ -133,7 +132,6 @@ static const uri_entry_t s_uris[] = {
     { "/api/config",   HTTP_POST,   api_config_post_handler   },
     { "/api/camera",   HTTP_GET,    api_camera_get_handler    },
     { "/api/camera",   HTTP_POST,   api_camera_post_handler   },
-    { "/api/auth",     HTTP_GET,    api_auth_handler          },
     { "/api/reboot",   HTTP_POST,   api_reboot_handler        },
     { "/api/csi/calibrate", HTTP_POST, api_csi_calibrate_handler },  /* 契约 v1.7 */
     { "/api/setup/done", HTTP_POST,   api_setup_done_handler   },
@@ -167,65 +165,13 @@ static const uri_entry_t s_uris[] = {
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-
-/** @brief 验证请求中的密码，仅检查X-Password头部（移除了?password=查询参数回退） */
-static bool check_password(httpd_req_t *req)
-{
-    /* Only check X-Password header */
-    char password[64] = {0};
-    if (httpd_req_get_hdr_value_str(req, "X-Password", password, sizeof(password)) == ESP_OK) {
-        cam_config_t *cfg = config_get();
-        if (strcmp(password, cfg->web_password) == 0) return true;
-    }
-    return false;
-}
-
-/* 公开 wrapper，供 ota_updater.c 复用 - 返回 esp_err_t 以处理 SET_PASSWORD_FIRST 状态 */
-esp_err_t web_server_check_auth(httpd_req_t *req) {
-    cam_config_t *cfg = config_get();
-    
-    /* State A: web_password is empty - return SET_PASSWORD_FIRST for all write ops */
-    if (cfg->web_password[0] == '\0') {
-        return json_error(req, "SET_PASSWORD_FIRST", HTTPD_401_UNAUTHORIZED);
-    }
-    
-    /* State B: web_password is set - require X-Password header */
-    if (!check_password(req)) {
-        return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
-    }
-    
-    return ESP_OK;
-}
 /** @brief 设置跨域资源共享(CORS)响应头，允许所有来源访问 */
 static void set_cors_headers(httpd_req_t *req)
 {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type, X-Password");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
     httpd_resp_set_hdr(req, "Access-Control-Max-Age", "86400");
-}
-
-/** @brief 检查认证状态，返回错误如果未授权或需要先设置密码 */
-static esp_err_t require_auth(httpd_req_t *req, bool is_config_endpoint)
-{
-    cam_config_t *cfg = config_get();
-    
-    /* State A: web_password is empty - only allow POST /api/config with web_password field */
-    if (cfg->web_password[0] == '\0') {
-        if (is_config_endpoint) {
-            /* This is a first-time password setup - allow it */
-            return ESP_OK;
-        }
-        /* All other write operations blocked until password is set */
-        return json_error(req, "SET_PASSWORD_FIRST", HTTPD_401_UNAUTHORIZED);
-    }
-    
-    /* State B: web_password is set - require X-Password header */
-    if (!check_password(req)) {
-        return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
-    }
-    
-    return ESP_OK;
 }
 
 /** @brief 发送JSON成功响应，格式为 {"ok":true,"data":...} */
@@ -464,7 +410,7 @@ static esp_err_t api_capabilities_handler(httpd_req_t *req)
     cJSON *data = cJSON_CreateObject();
 
     /* 契约 v1.1：12 个布尔能力位 + api_version/wifi_scan（见 docs/api-contract.md） */
-    cJSON_AddStringToObject(data, "api_version", "1.8");
+    cJSON_AddStringToObject(data, "api_version", "1.9");
     cJSON_AddBoolToObject(data, "wifi_scan", true);
     cJSON_AddBoolToObject(data, "ai", false);           /* On-device AI detection */
     cJSON_AddBoolToObject(data, "sd", storage_is_available());  /* SD card storage */
@@ -509,11 +455,6 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(data, "allow_ap_fallback", cfg->allow_ap_fallback);
     cJSON_AddStringToObject(data, "device_name", cfg->device_name);
     cJSON_AddStringToObject(data, "timezone", cfg->timezone);
-    cJSON_AddStringToObject(data, "web_password", cfg->web_password[0] ? "****" : "");
-
-    /* RTSP（契约 §3.2 rtsp 组，2026-09-05 起独立于 web_password） */
-    cJSON_AddStringToObject(data, "rtsp_user", cfg->rtsp_user);
-    cJSON_AddStringToObject(data, "rtsp_pass", cfg->rtsp_pass[0] ? "****" : "");
 
     /* 相机（契约 §3.1 + §3.2 画质微调组） */
     cJSON_AddNumberToObject(data, "cam_framesize", (double)cfg->cam_framesize);
@@ -604,8 +545,6 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     {
         return (val >= min && val <= max);
     }
-    esp_err_t auth_err = require_auth(req, true);  /* true = is_config_endpoint for SET_PASSWORD_FIRST handling */
-    if (auth_err != ESP_OK) return auth_err;
 
     char *body = read_body(req, 2048);
     if (!body) return json_error(req, "Empty or too large body", HTTPD_400_BAD_REQUEST);
@@ -744,20 +683,6 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
         strncpy(cfg->webdav_pass, item->valuestring, sizeof(cfg->webdav_pass) - 1);
         cfg->webdav_pass[sizeof(cfg->webdav_pass) - 1] = '\0';
     }
-    /* RTSP 凭据（契约 §3.2；pass 掩码回传不落盘） */
-    if ((item = cJSON_GetObjectItem(json, "rtsp_user")) && cJSON_IsString(item)) {
-        strncpy(cfg->rtsp_user, item->valuestring, sizeof(cfg->rtsp_user) - 1);
-        cfg->rtsp_user[sizeof(cfg->rtsp_user) - 1] = '\0';
-    }
-    if ((item = cJSON_GetObjectItem(json, "rtsp_pass")) && cJSON_IsString(item) && strcmp(item->valuestring, "****") != 0) {
-        if (strlen(item->valuestring) >= sizeof(cfg->rtsp_pass)) {
-            cJSON_Delete(json);
-            config_unlock();
-            return json_error(req, "rtsp_pass too long (max 63)", HTTPD_400_BAD_REQUEST);
-        }
-        strncpy(cfg->rtsp_pass, item->valuestring, sizeof(cfg->rtsp_pass) - 1);
-        cfg->rtsp_pass[sizeof(cfg->rtsp_pass) - 1] = '\0';
-    }
 
     uint8_t prev_resolution = cfg->cam_framesize;
     if ((item = cJSON_GetObjectItem(json, "cam_framesize"))) {
@@ -857,16 +782,6 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
     /* Apply camera flip/mirror immediately */
     camera_set_flip(cfg->cam_vflip, cfg->cam_hmirror);
     camera_set_day_night(cfg->day_night_mode);
-    if ((item = cJSON_GetObjectItem(json, "web_password")) && cJSON_IsString(item) && strcmp(item->valuestring, "****") != 0) {
-        /* 契约 v1.1：拒绝空/过短密码 — 空密码会让设备退回 SET_PASSWORD_FIRST 状态 */
-        if (strlen(item->valuestring) < 6) {
-            cJSON_Delete(json);
-            config_unlock();
-            return json_error(req, "web_password must be at least 6 characters", HTTPD_400_BAD_REQUEST);
-        }
-        strncpy(cfg->web_password, item->valuestring, sizeof(cfg->web_password) - 1);
-        cfg->web_password[sizeof(cfg->web_password) - 1] = '\0';
-    }
     if ((item = cJSON_GetObjectItem(json, "timezone")) && cJSON_IsString(item)) {
         size_t len = strlen(item->valuestring);
         if (len == 0 || len > 64) {
@@ -1118,9 +1033,6 @@ static esp_err_t api_files_get_handler(httpd_req_t *req)
 /** @brief 处理DELETE /api/files请求，删除指定录像文件（含路径遍历攻击防护） */
 static esp_err_t api_files_delete_handler(httpd_req_t *req)
 {
-    esp_err_t auth_err = require_auth(req, false);
-    if (auth_err != ESP_OK) return auth_err;
-
     char query[256] = {0};
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK)
         return json_error(req, "Missing query", HTTPD_400_BAD_REQUEST);
@@ -1179,9 +1091,6 @@ static int delete_recordings_recursive(const char *dir, const char *current_rel)
 /** @brief Batch delete multiple recording files */
 static esp_err_t api_files_batch_handler(httpd_req_t *req)
 {
-    esp_err_t auth_err = require_auth(req, false);
-    if (auth_err != ESP_OK) return auth_err;
-
     int content_len = req->content_len;
     if (content_len <= 0 || content_len > 16384) {
         return json_error(req, "Invalid request body", HTTPD_400_BAD_REQUEST);
@@ -1472,9 +1381,6 @@ static esp_err_t api_scan_handler(httpd_req_t *req)
 /** @brief 处理POST /api/time请求，手动设置系统时间（需密码认证） */
 static esp_err_t api_time_handler(httpd_req_t *req)
 {
-    esp_err_t auth_err = require_auth(req, false);
-    if (auth_err != ESP_OK) return auth_err;
-
     char *body = read_body(req, 512);
     if (!body) return json_error(req, "Empty body", HTTPD_400_BAD_REQUEST);
 
@@ -1513,9 +1419,6 @@ static esp_err_t api_time_handler(httpd_req_t *req)
 /** @brief 处理POST /api/record请求，通过action参数控制录像开始或停止（需密码认证） */
 static esp_err_t api_record_handler(httpd_req_t *req)
 {
-    esp_err_t auth_err = require_auth(req, false);
-    if (auth_err != ESP_OK) return auth_err;
-
     char query[64] = {0};
     char action[16] = {0};
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
@@ -1570,9 +1473,6 @@ static esp_err_t api_record_get_handler(httpd_req_t *req)
 /** @brief 处理POST /api/reset请求，执行恢复出厂设置（需密码认证，会清空所有配置） */
 static esp_err_t api_reset_handler(httpd_req_t *req)
 {
-    esp_err_t auth_err = require_auth(req, false);
-    if (auth_err != ESP_OK) return auth_err;
-
     ESP_LOGW(TAG, "Factory reset requested via web API");
     config_reset();
 
@@ -1588,9 +1488,6 @@ static esp_err_t api_reset_handler(httpd_req_t *req)
 /** @brief 处理POST /api/format请求，格式化SD卡（需密码认证，会擦除所有数据） */
 static esp_err_t api_format_handler(httpd_req_t *req)
 {
-    esp_err_t auth_err = require_auth(req, false);
-    if (auth_err != ESP_OK) return auth_err;
-
     /* Stop recording if active */
     bool was_recording = (recorder_get_state() == RECORDER_RECORDING ||
                           recorder_get_state() == RECORDER_PAUSED);
@@ -2160,9 +2057,6 @@ static esp_err_t api_camera_get_handler(httpd_req_t *req)
 /** @brief POST /api/camera — 更新相机设置（翻转/镜像/日夜模式立即生效，分辨率触发重配） */
 static esp_err_t api_camera_post_handler(httpd_req_t *req)
 {
-    esp_err_t auth_err = require_auth(req, false);
-    if (auth_err != ESP_OK) return auth_err;
-
     char *body = read_body(req, 1024);
     if (!body) return json_error(req, "Empty or too large body", HTTPD_400_BAD_REQUEST);
     cJSON *json = cJSON_Parse(body);
@@ -2251,9 +2145,6 @@ static esp_err_t api_camera_post_handler(httpd_req_t *req)
 /** @brief POST /api/reboot — 重启设备（需密码认证，响应发出后延迟重启） */
 static esp_err_t api_reboot_handler(httpd_req_t *req)
 {
-    esp_err_t auth_err = require_auth(req, false);
-    if (auth_err != ESP_OK) return auth_err;
-
     cJSON *data = cJSON_CreateObject();
     cJSON_AddStringToObject(data, "message", "Rebooting...");
     esp_err_t resp = json_ok(req, data);
@@ -2272,9 +2163,6 @@ static esp_err_t api_reboot_handler(httpd_req_t *req)
  *  运行时未就绪 503），背景执行，进度见 csi.calibrating / 串口日志。 */
 static esp_err_t api_csi_calibrate_handler(httpd_req_t *req)
 {
-    esp_err_t auth_err = require_auth(req, false);
-    if (auth_err != ESP_OK) return auth_err;
-
     esp_err_t ret = csi_motion_recalibrate();
     if (ret == ESP_ERR_NOT_SUPPORTED) {
         return json_error(req, "CSI sensing not built (csi_motion capability absent)",
@@ -2286,26 +2174,6 @@ static esp_err_t api_csi_calibrate_handler(httpd_req_t *req)
     cJSON *data = cJSON_CreateObject();
     cJSON_AddStringToObject(data, "message", "CSI recalibration started");
     return json_ok(req, data);
-}
-
-/** @brief GET /api/auth — 校验 X-Password；未设密码时返回 password_set:false */
-static esp_err_t api_auth_handler(httpd_req_t *req)
-{
-    cam_config_t *cfg = config_get();
-
-    if (cfg->web_password[0] == '\0') {
-        cJSON *data = cJSON_CreateObject();
-        cJSON_AddBoolToObject(data, "auth", true);
-        cJSON_AddBoolToObject(data, "password_set", false);
-        return json_ok(req, data);
-    }
-    if (check_password(req)) {
-        cJSON *data = cJSON_CreateObject();
-        cJSON_AddBoolToObject(data, "auth", true);
-        cJSON_AddBoolToObject(data, "password_set", true);
-        return json_ok(req, data);
-    }
-    return json_error(req, "Unauthorized", HTTPD_401_UNAUTHORIZED);
 }
 
 /* ------------------------------------------------------------------ */

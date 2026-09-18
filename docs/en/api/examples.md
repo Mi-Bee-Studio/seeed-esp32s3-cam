@@ -8,15 +8,13 @@
 
 ```javascript
 class MiBee Cam API {
-  constructor(baseURL = '', password = 'mibeecam2026') {
+  constructor(baseURL = '') {
     this.base = baseURL;
-    this.password = password;
   }
 
   get headers() {
     return {
-      'Content-Type': 'application/json',
-      'X-Password': this.password
+      'Content-Type': 'application/json'
     };
   }
 
@@ -113,7 +111,7 @@ class MiBee Cam API {
 ## JavaScript Usage Examples
 
 ```javascript
-const cam = new MiBee CamAPI('http://192.168.4.1', 'admin');
+const cam = new MiBee CamAPI('http://192.168.4.1');
 
 // Get and display status
 async function showStatus() {
@@ -157,13 +155,11 @@ curl http://192.168.4.1/api/config
 # Modify device name
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
   -d '{"device_name": "KitchenCam"}'
 
 # Configure WiFi connection (effective after reboot)
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
   -d '{"wifi_ssid": "HomeWiFi", "wifi_pass": "wifipassword"}'
 ```
 
@@ -171,12 +167,10 @@ curl -X POST http://192.168.4.1/api/config \
 
 ```bash
 # Start recording
-curl -X POST "http://192.168.4.1/api/record?action=start" \
-  -H "X-Password: mibeecam2026"
+curl -X POST "http://192.168.4.1/api/record?action=start"
 
 # Stop recording
-curl -X POST "http://192.168.4.1/api/record?action=stop" \
-  -H "X-Password: mibeecam2026"
+curl -X POST "http://192.168.4.1/api/record?action=stop"
 ```
 
 ### File Management
@@ -189,8 +183,7 @@ curl http://192.168.4.1/api/files
 curl -o recording.avi "http://192.168.4.1/api/download?name=20260424_120000.avi"
 
 # Delete specified file
-curl -X DELETE "http://192.168.4.1/api/files?name=20260424_120000.avi" \
-  -H "X-Password: mibeecam2026"
+curl -X DELETE "http://192.168.4.1/api/files?name=20260424_120000.avi"
 ```
 
 ### Network and Time
@@ -202,7 +195,6 @@ curl http://192.168.4.1/api/scan
 # Manually set time
 curl -X POST http://192.168.4.1/api/time \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
   -d '{"year": 2026, "month": 4, "day": 24, "hour": 14, "min": 30, "sec": 0}'
 ```
 
@@ -212,7 +204,6 @@ curl -X POST http://192.168.4.1/api/time \
 # Configure upload method as WebDAV
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
   -d '{
     "upload_method": 1,
     "webdav_url": "https://dav.example.com/MiBee Cam",
@@ -224,7 +215,6 @@ curl -X POST http://192.168.4.1/api/config \
 # Configure upload method as HTTP(S)
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
   -d '{
     "upload_method": 2,
     "http_upload_url": "https://upload.example.com/api/cam",
@@ -239,19 +229,16 @@ curl -X POST http://192.168.4.1/api/config \
 # Set to XGA resolution, 15 FPS
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
   -d '{"resolution": 2, "fps": 15}'
 
 # Set high quality JPEG (lower value = higher quality)
 curl -X POST http://192.168.4.1/api/config \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
   -d '{"jpeg_quality": 6}'
 ```
 
 ### Factory Reset
 
 ```bash
-curl -X POST http://192.168.4.1/api/reset \
-  -H "X-Password: mibeecam2026"
+curl -X POST http://192.168.4.1/api/reset
 ```

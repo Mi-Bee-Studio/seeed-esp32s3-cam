@@ -105,15 +105,15 @@ idf.py -p COM3 flash monitor
 |------|------|------|------|
 | GET | `/api/status` | 否 | 设备状态（录像、WiFi、存储、温度、运动、固件） |
 | GET | `/api/config` | 否 | 当前配置（密码字段返回 `****`） |
-| POST | `/api/config` | 是 | 修改配置 |
-| POST | `/api/record?action=start\|stop` | 是 | 录像控制 |
-| POST | `/api/ota` | 是 | OTA 固件升级（从 URL） |
-| POST | `/api/format` | 是 | 格式化 SD 卡 |
-| POST | `/api/reset` | 是 | 恢复出厂设置 |
-| POST | `/api/time` | 是 | 手动设置系统时间 |
+| POST | `/api/config` | 否 | 修改配置 |
+| POST | `/api/record?action=start\|stop` | 否 | 录像控制 |
+| POST | `/api/ota` | 否 | OTA 固件升级（从 URL） |
+| POST | `/api/format` | 否 | 格式化 SD 卡 |
+| POST | `/api/reset` | 否 | 恢复出厂设置 |
+| POST | `/api/time` | 否 | 手动设置系统时间 |
 | GET | `/api/files` | 否 | 录像文件列表 |
-| POST | `/api/files/batch` | 是 | 批量删除文件 |
-| DELETE | `/api/files?name=xxx` | 是 | 删除单个文件 |
+| POST | `/api/files/batch` | 否 | 批量删除文件 |
+| DELETE | `/api/files?name=xxx` | 否 | 删除单个文件 |
 | GET | `/api/download?name=xxx` | 否 | 下载录像文件 |
 | GET | `/api/scan` | 否 | 扫描 WiFi 网络 |
 | GET | `/stream` | 否 | MJPEG 实时视频流 |
@@ -121,9 +121,10 @@ idf.py -p COM3 flash monitor
 | GET | `/onvif/*` | 否 | ONVIF WS-Discovery + SOAP 服务 |
 | WS | `ws://<IP>/` | 否 | WebSocket 实时推送 |
 | GET | `/api/audio` | 否 | HTTP 分块 G.711 音频流（网页预览） |
-| RTSP | `rtsp://<IP>:554/stream` | 摘要认证 | MJPEG+G.711 双轨道流，供 NVR 使用 |
+| RTSP | `rtsp://<IP>:554/stream` | 否 | MJPEG+G.711 双轨道流，供 NVR 使用 |
 
-默认密码：`mibeecam2026` 👉 [完整 API 文档](docs/zh/api/overview.md)
+无设备级密码（契约 v1.9）：所有端点在可信局域网内开放（边界 = 路由器
+WPA2）；AP 模式 WiFi 密码不变。👉 [完整 API 文档](docs/zh/api/overview.md)
 
 ---
 
@@ -151,7 +152,7 @@ main/  —  27 个 C 模块 + main.c + cJSON（平面布局）
 ├── audio_ns.c/h           # 频谱降噪器（256 点 FFT，Wiener 增益）
 ├── audio_broadcaster.c/h  # 音频帧发布/订阅中心（镜像帧广播器）
 ├── g711_codec.c/h         # G.711 μ-law 编解码器（ITU-T 标准）
-├── rtsp_server.cpp/h      # RTSP 服务器（MJPEG+G.711 双轨道，摘要认证，端口 554）
+├── rtsp_server.cpp/h      # RTSP 服务器（MJPEG+G.711 双轨道，端口 554）
 └── sd_log.c/h             # SD 卡结构化事件日志，自动轮转
 ├── wifi_manager.c/h       # WiFi AP/STA 双模管理
 ├── config_manager.c/h     # NVS 配置持久化 + SD 卡覆盖

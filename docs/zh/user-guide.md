@@ -22,7 +22,7 @@
 
 ### 登录密码
 
-默认管理密码：`mibeecam2026`。涉及写操作的 API 请求需要通过 `X-Password` 请求头或 `?password=xxx` 查询参数传递密码。
+无。设备级密码已家族性移除（契约 v1.9，2026-09-18）——Web 界面与全部 API 在可信局域网内开放，安全边界 = 路由器 WPA2；AP 模式热点密码不变。
 
 ### 页面说明
 
@@ -45,13 +45,13 @@
 
 ![配置页面](../images/config-page.png)
 
-所有设备参数均可在此修改：WiFi 凭据、视频分辨率/帧率/画质、录像分段时长、WebDAV/HTTP(S) 上传设置、摄像头翻转和系统密码。
+所有设备参数均可在此修改：WiFi 凭据、视频分辨率/帧率/画质、录像分段时长、WebDAV/HTTP(S) 上传设置、摄像头翻转。
 
 ### 文件管理页面
 
 ![文件管理](../images/files-page.png)
 
-按日期组织的录像文件浏览。支持折叠展开日期分组、批量选择、文件夹级下载/删除和持久化登录认证。
+按日期组织的录像文件浏览。支持折叠展开日期分组、批量选择、文件夹级下载/删除。
 
 ### 视频预览页面
 
@@ -67,17 +67,17 @@
 
 ### 通过 API
 
-使用 `POST /api/config` 接口修改配置，需附带 `X-Password` 认证：
+使用 `POST /api/config` 接口修改配置（无认证，契约 v1.9）：
 
 ```bash
 # 修改 WiFi
 curl -X POST http://192.168.4.1/api/config \
-  -H 'Content-Type: application/json' -H 'X-Password: mibeecam2026' \
+  -H 'Content-Type: application/json' \
   -d '{"wifi_ssid":"MyWiFi","wifi_pass":"mypassword"}'
 
 # 修改视频参数
 curl -X POST http://192.168.4.1/api/config \
-  -H 'Content-Type: application/json' -H 'X-Password: mibeecam2026' \
+  -H 'Content-Type: application/json' \
   -d '{"resolution":1,"fps":10,"jpeg_quality":12,"segment_sec":300}'
 ```
 
@@ -98,7 +98,6 @@ curl -X POST http://192.168.4.1/api/config \
 
 | 参数 | 类型 | 默认值 | 说明 |
 | `device_name` | string | `"MiBee Cam"` | 设备名称 |
-| `web_password` | string | `"admin"` | Web 管理密码 |
 
 #### 上传方式配置
 
@@ -222,12 +221,9 @@ STA 模式下断开后，设备每 60 秒自动尝试重连，无需手动干预
 
 ```bash
 # 开始录像
-curl -X POST "http://192.168.4.1/api/record?action=start" \
-  -H "X-Password: mibeecam2026"
-
+curl -X POST "http://192.168.4.1/api/record?action=start"
 # 停止录像
-curl -X POST "http://192.168.4.1/api/record?action=stop" \
-  -H "X-Password: mibeecam2026"
+curl -X POST "http://192.168.4.1/api/record?action=stop"
 ```
 
 ### 录像格式
@@ -354,7 +350,7 @@ curl http://192.168.4.1/api/status
 ### 通过 API
 
 ```bash
-curl -X POST http://192.168.4.1/api/ota -H "Content-Type: application/json" -H "X-Password: mibeecam2026" -d '{"url":"https://example.com/firmware/mibee_cam.bin"}'
+curl -X POST http://192.168.4.1/api/ota -H "Content-Type: application/json" -d '{"url":"https://example.com/firmware/mibee_cam.bin"}'
 ```
 
 当前固件版本：v0.4.0，可在仪表盘页面查看。
@@ -433,7 +429,6 @@ TF 卡配置文件 > NVS 闪存 > 默认值
 ```bash
 curl -X POST http://192.168.4.1/api/ota \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
   -d '{"url":"https://example.com/firmware/mibee_cam.bin"}'
 ```
 
@@ -478,7 +473,7 @@ http://<设备IP>:81/stream
 
 ```bash
 curl -X POST http://192.168.4.1/api/config \
-  -H 'Content-Type: application/json' -H 'X-Password: mibeecam2026' \
+  -H 'Content-Type: application/json' \
   -d '{"vflip":true,"hmirror":true}'
 ```
 
@@ -502,7 +497,6 @@ STA 模式下设备启动后会自动通过 NTP 同步时间：
 ```bash
 curl -X POST http://192.168.4.1/api/time \
   -H "Content-Type: application/json" \
-  -H "X-Password: mibeecam2026" \
   -d '{"year":2026,"month":4,"day":24,"hour":14,"min":30,"sec":0}'
 ```
 
@@ -519,13 +513,12 @@ curl -X POST http://192.168.4.1/api/time \
 ### 方法三：API
 
 ```bash
-curl -X POST http://192.168.4.1/api/reset \
-  -H "X-Password: mibeecam2026"
+curl -X POST http://192.168.4.1/api/reset
 ```
 
 ### 恢复结果
 
-所有配置参数恢复为默认值（WiFi 清空、密码重置为 `mibeecam2026`），设备重启后进入 AP 模式。TF 卡中的录像文件不会被删除。
+所有配置参数恢复为默认值（WiFi 清空；契约 v1.9 起无 Web 密码），设备重启后进入 AP 模式。TF 卡中的录像文件不会被删除。
 
 ---
 
