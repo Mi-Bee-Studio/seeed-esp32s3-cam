@@ -1,4 +1,4 @@
-# MiBee Cam 家族 API 契约 v1.8
+# MiBee Cam 家族 API 契约 v1.9
 
 > 适用四仓：`ai-thinker-esp32-cam` · `esp32s3-n16r8-cam` · `luatos-esp32s3-a10-camera` · `seeed-esp32s3-cam`
 >
@@ -26,18 +26,19 @@
 > （阈值锁定=断 settle 单边下调，PIT-041 误报根因的根治开关）、动作端点
 > `POST /api/csi/calibrate`、`csi` 快照与 `csi_status` 心跳增补诊断字段
 > （profile/thr_locked/calibrating/flip_rate/tx·cb·adm pps）（见 §5/§6/§15）。
+> **v1.9 变更（2026-09-18）**：**设备级密码整体移除**——Web 管理密码
+> （`X-Password`/`web_password`/`SET_PASSWORD_FIRST`/`GET /api/auth`）与
+> RTSP digest 凭据（`rtsp_user`/`rtsp_pass`）全家族废除，全部端点（含 OTA、
+> RTSP）开放；信任边界=路由器 WPA2（内网）。配置契约同步 v2.0（见 §18）。
 
 ## 1. 信封与鉴权（所有板一致）
 
-- 成功：`{"ok":true,"data":...}` HTTP 200；失败：`{"ok":false,"error":"<msg>"}` + 400/401/404/500/503。
-- 写操作鉴权：`X-Password` 请求头。
-- **默认密码**：公开固件统一默认 `mibeecam2026`（2026-09-05 起 Kconfig 默认值并公开于文档；本地构建可在 gitignored sdkconfig 用 `CONFIG_MIBEE_CAM_DEFAULT_WEB_PASSWORD` 覆盖）；
-  服务端拒绝空或长度 <6 的密码（400）。空密码的 `SET_PASSWORD_FIRST` 状态仅在
-  极早期固件上出现，新固件保留该兼容分支但正常流程不会触达。
-- **修改密码**：`POST /api/config` 携带 `{"web_password":"<新密码>"}`，需带当前密码的
-  `X-Password` 头（旧密码即隐式验证）。UI 入口：WiFi 页 → 修改密码（旧密码经
-  `GET /api/auth` 预验证）。
-- 密码类字段在 GET 响应中以 `"****"` 掩码；POST 回传 `"****"` 视为"未修改"。
+- 成功：`{"ok":true,"data":...}` HTTP 200；失败：`{"ok":false,"error":"<msg>"}` + 400/404/500/503。
+- **无设备级认证（v1.9 起）**：全部端点（含全部写操作与 OTA）开放，不校验任何
+  凭据。`X-Password` 请求头被忽略（老客户端照常工作）；`401`/`SET_PASSWORD_FIRST`
+  与 `GET /api/auth` 端点废除（404）。**信任边界 = 路由器 WPA2**——设备面向
+  可信内网；AP 模式热点口令不受影响。
+- 密码类字段（`wifi_pass` 等 WiFi 凭据）在 GET 响应中仍以 `"****"` 掩码。
 - CORS：`OPTIONS /*` → 204；所有响应带 `Access-Control-Allow-Origin: *`。
 - MJPEG 流在独立 TCP 服务器 `:81/stream`（`multipart/x-mixed-replace`，超限 503）。
   客户端上限按硬件不同：ai-thinker 1 / n16r8 2 / luatos 2 / seeed 3，
@@ -45,19 +46,18 @@
 
 ## 2. 核心端点（四板 100% 一致，必须实现）
 
-| Method | Path | Auth | 说明 |
-|---|---|---|---|
-| GET | `/api/status` | open | 设备状态（字段见 §4） |
-| GET | `/api/config` | open | 当前配置（密码掩码） |
-| POST | `/api/config` | write | 部分更新；WiFi 变更写 NVS、重启生效 |
-| GET | `/api/capabilities` | open | 能力矩阵（见 §3） |
-| GET | `/api/capture` | open | 单帧 JPEG（`image/jpeg`） |
-| GET | `/api/scan` | open | WiFi 扫描 `{networks:[{ssid,rssi,auth}]}`（RSSI 降序） |
-| POST | `/api/time` | write | 手动设时间 `{year,month,day,hour,min,sec}` |
-| POST | `/api/reset` | write | 恢复出厂并重启 |
-| POST | `/api/reboot` | write | 重启 |
-| GET | `/api/auth` | open | 校验密码 `{auth,password_set}`（未设密码时 auth=true） |
-| GET | `/metrics` | open | Prometheus 文本 |
+| Method | Path | 说明 |
+|---|---|---|
+| GET | `/api/status` | 设备状态（字段见 §4） |
+| GET | `/api/config` | 当前配置（WiFi 凭据掩码） |
+| POST | `/api/config` | 部分更新；WiFi 变更写 NVS、重启生效 |
+| GET | `/api/capabilities` | 能力矩阵（见 §3） |
+| GET | `/api/capture` | 单帧 JPEG（`image/jpeg`） |
+| GET | `/api/scan` | WiFi 扫描 `{networks:[{ssid,rssi,auth}]}`（RSSI 降序） |
+| POST | `/api/time` | 手动设时间 `{year,month,day,hour,min,sec}` |
+| POST | `/api/reset` | 恢复出厂并重启 |
+| POST | `/api/reboot` | 重启 |
+| GET | `/metrics` | Prometheus 文本 |
 
 ## 3. 能力门控（`GET /api/capabilities`）
 
@@ -83,7 +83,7 @@
 | `GET /ws` | WebSocket 事件推送（见 §6） | — | — | ✅ | ✅ |
 | `/onvif/device_service` · `/onvif/media_service` | ONVIF SOAP | ✅ | ✅ | ✅ | ✅ |
 | `/onvif/events_service` | ONVIF Pull-Point 事件（v1.5 §13：MotionAlarm ← CSI） | — | ✅ | — | ✅ |
-| RTSP `:554/stream` | **必须 digest 鉴权** | — | ✅(rtsp_user/pass) | — | ✅(web_password) |
+| RTSP `:554/stream` | **免认证（v1.9）**，`rtsp://<ip>:554/stream` 直连 | — | ✅ | — | ✅ |
 
 非布尔扩展键：`api_version`（本契约版本字符串）、`wifi_scan`。
 `csi_motion`（布尔，v1.4）：编译期 Kconfig `MIBEE_CSI_MOTION` 门控，恒定不翻转。
@@ -197,7 +197,7 @@ q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-think
   capabilities + status 字段缺省 + `supported_resolutions`。
 - **ai-thinker**：2026-09-03 起同样服务统一 SPA 四文件（与三 S3 仓 md5 一致）；
   旧 MPA 页面保留在原路径兜底（preview/config/files/setup.html 直达可用）。
-- 鉴权 UX：密码存 sessionStorage，写操作自动附 `X-Password`；401 时提示到系统页设置。
+- 鉴权 UX：v1.9 起无设备级认证，SPA 无登录/解锁/改密交互；写操作直接提交。
 
 ## 8. 已知容忍差异（记录在案，计划收敛）
 
@@ -372,3 +372,22 @@ q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-think
    `MIBEE_DAY_NIGHT_AUTO` 门）：`{"effective":"color|bw","bw_supported":bool,
    "luma":0-255|-1,"switches":n}`——day_night_mode=2 自动切换的观测面
    （判定参数见 config-contract v1.3 §3.2 画质微调行）。
+
+## 18. v1.9 变更清单（2026-09-18，设备级密码整体移除）
+
+1. **决策背景**：家用内网部署中 WPA2 即信任边界，设备层密码（Web 管理密码、
+   RTSP digest 凭据）只增加配置摩擦（SPA 弹窗、NVR 凭据、工具带
+   `X-Password`）而无实际安全收益；且默认密码体系曾引发 PIT-027 全历史
+   清剿（默认值入历史/release 二进制的泄密面）——整体移除后此类问题归零。
+2. **Web 面**：`X-Password` 校验、`web_password` 配置键（含 Kconfig 默认、
+   `pw_seed_v1` 一次性种子、`SET_PASSWORD_FIRST` 首设流程）、`GET /api/auth`
+   端点全部废除；全部端点（含 OTA 上传）开放。SPA 同步移除解锁/改密 UI。
+3. **RTSP 面**（n16r8/seeed）：`rtsp_user`/`rtsp_pass` 配置键废除，digest
+   质询不再发生；n16r8 `rtsp_get_url()` 不再内嵌明文凭据（连带消除 ONVIF
+   GetStreamUri 明文密码下发与启动日志打印密码两处泄露点）。
+4. **兼容性**：老客户端多发的 `X-Password` 头、NVR 预配的 RTSP 凭据均被
+   忽略不报错；存量设备 NVS 中的 `web_password`/`rtsp_user`/`rtsp_pass`/
+   `pw_seed_v1` 键升级后不再读取（残留无害）。配置契约同步 v2.0
+   （schema_ver=2）。
+5. **不受影响**：AP 模式热点 WPA2 口令（网络边界）、WiFi STA 凭据、
+   webhook/webdav 凭据（外部服务凭据）。

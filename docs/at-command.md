@@ -1,4 +1,4 @@
-# MiBee Cam 家族 AT 指令契约（v1.3，2026-09-09）
+# MiBee Cam 家族 AT 指令契约（v1.4，2026-09-18）
 
 > **定位**：四仓（ai-thinker / esp32s3-n16r8 / luatos / seeed）串口 AT 控制面的
 > 统一契约，地位同 `docs/api-contract.md`（HTTP 面）。各仓实现可按板能力裁剪，
@@ -12,6 +12,9 @@
 > **v1.3 变更（2026-09-09）**：§2 CFG 白名单增 `csi_*` 六键（热生效；
 > `csi_threshold` 为字符串 `%.3f`）；§5 登记 CSI 板扩展 `AT+CSI?`/`AT+CSICAL`
 > （seeed/n16r8）。配套：config-contract v1.2 §3.2、api-contract v1.7 §15。
+> **v1.4 变更（2026-09-18）**：设备级密码移除（api-contract v1.9 §18、
+> config-contract v2.0）——CFG 白名单删 `web_password`/`rtsp_user`/`rtsp_pass`，
+> n16r8 扩展指令删 `AT+RTSPPASS`，§3 红线名单同步缩减。
 >
 > **v1.1 变更（2026-09-05）**：共享核心纪律（§0）；`AT+WIFISCAN` 升为四板必备；
 > 删除未登记的 `AT+RESET`；`AT+WIFI=` 生效方式随板登记（§2）；`AT+GMR` 必须
@@ -66,10 +69,11 @@
 
 ## 3. 安全策略（红线）
 
-- **任何读指令不得回显密码**（`wifi_pass` / `wifi_pass_2` / `web_password` /
-  `rtsp_pass` / `webhook_secret` / `webdav_pass`）。凭据只经 `AT+WIFI=` /
+- **任何读指令不得回显密码**（`wifi_pass` / `wifi_pass_2` /
+  `webhook_secret` / `webdav_pass`）。凭据只经 `AT+WIFI=` /
   `AT+CFGSET=` 写入。历史教训：luatos 旧版 `AT+CFGGET=wifi_pass` 明文可读
-  （2026-09-04 曾用它做板间凭据迁移，属一次性特权操作），统一后已从白名单剔除。
+  （2026-09-04 曾用它做板间凭据迁移，属一次性特权操作），统一后已从白名单剔除
+  （v1.4：`web_password`/`rtsp_pass` 随设备级密码移除而废除，出红线名单）。
 - 串口物理接触 = 完全控制（esptool 可刷任意固件），AT 层的脱敏是防肩窥/防日志
   泄漏，不是安全边界。
 
@@ -92,7 +96,7 @@
 |---|---|---|
 | n16r8 | `AT+AIFACE?/=`,`AT+AIMOTION?/=`,`AT+AIQR?/=` | AI 管线开关（唯一带 AI 的板） |
 | n16r8 | `AT+WIFI2=ssid,pass` | 备用网络凭据（查询脱敏；`ssid,` 空串清除） |
-| n16r8 | `AT+LED`/`AT+LED=`,`AT+RTSPPASS=` | 闪光灯 / RTSP 密码写 |
+| n16r8 | `AT+LED`/`AT+LED=` | 闪光灯（v1.4：`AT+RTSPPASS` 随密码体系移除而删除） |
 | n16r8 | `AT+CAMCAP` | 拍一帧报告尺寸 |
 | ai-thinker | `AT+WIFI2=ssid,pass` | 备用网络凭据（查询脱敏；`ssid,` 空串清除；保存+重启生效） |
 | luatos | `AT+STREAM?` | MJPEG 流状态 |

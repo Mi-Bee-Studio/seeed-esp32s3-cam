@@ -105,15 +105,15 @@ Dynamic timelapse is the killer feature — set `timelapse_mode=2`, tune sensiti
 |--------|------|------|-------------|
 | GET | `/api/status` | No | Device status (recording, WiFi, storage, temp, motion, firmware) |
 | GET | `/api/config` | No | Current configuration (passwords masked as `****`) |
-| POST | `/api/config` | Yes | Update configuration |
-| POST | `/api/record?action=start\|stop` | Yes | Recording control |
-| POST | `/api/ota` | Yes | OTA firmware update from URL |
-| POST | `/api/format` | Yes | Format SD card |
-| POST | `/api/reset` | Yes | Factory reset |
-| POST | `/api/time` | Yes | Set system time manually |
+| POST | `/api/config` | No | Update configuration |
+| POST | `/api/record?action=start\|stop` | No | Recording control |
+| POST | `/api/ota` | No | OTA firmware update from URL |
+| POST | `/api/format` | No | Format SD card |
+| POST | `/api/reset` | No | Factory reset |
+| POST | `/api/time` | No | Set system time manually |
 | GET | `/api/files` | No | Recording file list |
-| POST | `/api/files/batch` | Yes | Batch delete files |
-| DELETE | `/api/files?name=xxx` | Yes | Delete single file |
+| POST | `/api/files/batch` | No | Batch delete files |
+| DELETE | `/api/files?name=xxx` | No | Delete single file |
 | GET | `/api/download?name=xxx` | No | Download recording |
 | GET | `/api/scan` | No | Scan WiFi networks |
 | GET | `/stream` | No | MJPEG live stream |
@@ -121,9 +121,10 @@ Dynamic timelapse is the killer feature — set `timelapse_mode=2`, tune sensiti
 | GET | `/onvif/*` | No | ONVIF WS-Discovery + SOAP services |
 | WS | `ws://<IP>/` | No | WebSocket real-time push |
 | GET | `/api/audio` | No | HTTP chunked G.711 audio stream (Web preview) |
-| RTSP | `rtsp://<IP>:554/stream` | Digest | MJPEG+G.711 dual-track stream for NVR |
+| RTSP | `rtsp://<IP>:554/stream` | No | MJPEG+G.711 dual-track stream for NVR |
 
-Default password: `mibeecam2026` 👉 [Complete API docs](docs/en/api/overview.md)
+No device-level password (contract v1.9): all endpoints are open on the trusted
+LAN (boundary = router WPA2); the AP-mode WiFi passphrase is unchanged. 👉 [Complete API docs](docs/en/api/overview.md)
 
 ---
 
@@ -151,7 +152,7 @@ main/  —  27 C modules + main.c + cJSON (flat layout)
 ├── audio_ns.c/h           # Spectral noise suppressor (256-pt FFT, Wiener gain)
 ├── audio_broadcaster.c/h  # Audio frame pub/sub (mirrors frame_broadcaster)
 ├── g711_codec.c/h         # G.711 μ-law encoder/decoder (ITU-T standard)
-├── rtsp_server.cpp/h      # RTSP server (MJPEG+G.711 dual-track, digest auth, port 554)
+├── rtsp_server.cpp/h      # RTSP server (MJPEG+G.711 dual-track, port 554)
 └── sd_log.c/h             # SD card structured event logging with rotation
 ├── wifi_manager.c/h       # AP/STA dual-mode
 ├── config_manager.c/h     # NVS config + SD card override

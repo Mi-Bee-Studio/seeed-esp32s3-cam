@@ -92,6 +92,9 @@ testing; read it from the boot log or `GET /api/status` (`camera` field).
 > **契约 v1.1（2026-09-02）**：家族统一公开默认密码 `mibeecam2026`（Kconfig `CONFIG_MIBEE_CAM_DEFAULT_WEB_PASSWORD` 默认值，可入文档；本地可在 gitignored sdkconfig 覆盖）；
 > 空密码加载自动迁移 + 存量设备一次性种子（NVS `pw_seed_v1`，只跑一次）；服务端拒绝 <6 位密码；
 > 新增 `GET /api/record`、UI"修改密码"模态；api_version=1.1。
+> **（2026-09-18 契约 v1.9 已推翻：设备级 Web 密码全家族移除——X-Password/
+> web_password/SET_PASSWORD_FIRST/`/api/auth`/pw_seed_v1 均不复存在；
+> 本段仅作历史记录。）**
 
 All business endpoints use the `/api/` prefix. Returns JSON envelope `{"ok":true,"data":...}` on success, `{"ok":false,"error":"..."}` on failure.
 
@@ -99,26 +102,26 @@ All business endpoints use the `/api/` prefix. Returns JSON envelope `{"ok":true
 |--------|------|------|-------------|
 | GET | `/api/status` | open | Device status (WiFi, camera, system, storage) |
 | GET | `/api/config` | open | Current configuration (passwords masked) |
-| POST | `/api/config` | write | Partial config update; first-time password setup when `web_password` is empty |
+| POST | `/api/config` | open | Partial config update |
 | GET | `/api/camera` | open | Camera sensor settings |
-| POST | `/api/camera` | write | Update camera settings (framesize/quality may reinit) |
+| POST | `/api/camera` | open | Update camera settings (framesize/quality may reinit) |
 | GET | `/api/capabilities` | open | Board capability flags (12 booleans) |
 | GET | `/api/capture` | open | Single JPEG snapshot (`image/jpeg`, not JSON) |
 | GET | `/api/scan` | open | WiFi AP scan |
-| POST | `/api/time` | write | Manually set system time |
-| POST | `/api/record` | write | Start/stop recording (`?action=start|stop`) |
+| POST | `/api/time` | open | Manually set system time |
+| POST | `/api/record` | open | Start/stop recording (`?action=start|stop`) |
 | GET | `/api/record` | open | Recording status |
 | GET | `/api/files` | open | List SD files |
-| DELETE | `/api/files` | write | Delete a file (`?name=...`) |
+| DELETE | `/api/files` | open | Delete a file (`?name=...`) |
 | GET | `/api/download` | open | Download file (`?name=...&type=photo|recording`) |
-| POST | `/api/format` | write | Format SD card |
+| POST | `/api/format` | open | Format SD card |
 | GET | `/api/ota/info` | open | OTA status/info |
-| POST | `/api/ota/upload` | write | Upload firmware binary |
-| POST | `/api/ota/spiffs` | write | Upload SPIFFS image |
+| POST | `/api/ota/upload` | open | Upload firmware binary |
+| POST | `/api/ota/spiffs` | open | Upload SPIFFS image |
 | GET | `/api/led` | open | Flash LED state |
 | OPTIONS | `/*` | — | CORS preflight (204 No Content) |
 
-**Auth:** `X-Password` header for write operations. When `web_password` is empty (first boot), all writes return 401 `SET_PASSWORD_FIRST` except `POST /api/config` with a `web_password` field (first-time setup).
+**Auth:** none (contract v1.9, 2026-09-18): device-level passwords (web admin `X-Password`/`web_password` and RTSP digest `rtsp_user`/`rtsp_pass`) were removed family-wide; all endpoints incl. OTA and RTSP are open on the trusted LAN (boundary = router WPA2). AP-mode WiFi passphrase unchanged.
 
 **MJPEG stream:** Separate TCP server on port `:81` (independent of main web server on port 80).
 
@@ -165,7 +168,7 @@ idf.py build
 
 # Flash full image (bootloader + partition-table + app + SPIFFS)
 # DEFAULT DELIVERY = Web OTA (flashing policy, root AGENTS.md 2026-09-04):
-#   curl -X POST http://<ip>/api/ota/upload -H 'X-Password: <pwd>' \
+#   curl -X POST http://<ip>/api/ota/upload \
 #        -H 'Content-Type: application/octet-stream' --data-binary @build/mibee_cam.bin
 #   (UI: same but /api/ota/spiffs with build/spiffs.bin; verify /api/ota/info
 #   running_partition flip + device /app.js md5 == repo — PIT-017. Slot limit ~1.9MB.)
@@ -543,6 +546,7 @@ Creating a release:
   的"检测照跑不联动"语义一致。
 - **RTSP 鉴权独立**：`rtsp_user`/`rtsp_pass`（原用 web_password）；迁移一次性
   种子 rtsp_pass = web_password；rtsp_server.cpp 已切换。GET 掩码 `****`。
+  （2026-09-18 契约 v1.9：RTSP 凭据键已随设备级密码一并移除，RTSP 免认证。）
 - **onvif_enable**（新增，默认 1）：0 = 不注册 SOAP 处理器 + 不启动
   WS-Discovery；**变更需重启生效**（POST /api/config 响应带提示）。
 - **SD provisioning**：wifi.txt 接受家族键名（`wifi_ssid=` 等，旧大写键兼容）+

@@ -150,7 +150,6 @@ uint16_t segment_sec;     // Segment duration (seconds)
 uint8_t jpeg_quality;     // 1-63
 bool vflip;               // Vertical flip
 bool hmirror;             // Horizontal mirror
-char web_password[32];    // Web management password
 char device_name[32];     // Device name
 bool allow_ap_fallback;   // Allow fallback to AP mode when WiFi fails
 uint16_t timelapse_interval_sec; // Timelapse interval (0=continuous, >0=timelapse)
@@ -297,24 +296,24 @@ Server runs on port 80, with additional ONVIF SOAP endpoints:
 |--------|------|------|-------------|
 | GET | `/api/status` | No | Device status (recording, WiFi, storage, camera, temperature) |
 | GET | `/api/config` | No | Current config (password fields return `****`) |
-| POST | `/api/config` | Yes | Modify config |
+| POST | `/api/config` | No | Modify config |
 | GET | `/api/files` | No | Recording file list |
-| POST | `/api/files/batch` | Yes | Batch delete files |
-| DELETE | `/api/files` | Yes | Delete specified file |
+| POST | `/api/files/batch` | No | Batch delete files |
+| DELETE | `/api/files` | No | Delete specified file |
 | GET | `/api/download?name=xxx` | No | Download recording file |
 | GET | `/api/scan` | No | WiFi AP scan |
-| POST | `/api/time` | Yes | Manually set time |
-| POST | `/api/record?action=start\|stop` | Yes | Recording control |
-| POST | `/api/ota` | Yes | Firmware OTA update via URL |
-| POST | `/api/format` | Yes | Format SD card (requires confirmation) |
-| POST | `/api/reset` | Yes | Factory reset |
+| POST | `/api/time` | No | Manually set time |
+| POST | `/api/record?action=start\|stop` | No | Recording control |
+| POST | `/api/ota` | No | Firmware OTA update via URL |
+| POST | `/api/format` | No | Format SD card (requires confirmation) |
+| POST | `/api/reset` | No | Factory reset |
 | GET | `/metrics` | No | Prometheus metrics (text format) |
 | POST | `/onvif/device_service` | No | ONVIF Device Service (SOAP) |
 | POST | `/onvif/media_service` | No | ONVIF Media Service (SOAP) |
 | OPTIONS | `/*` | No | CORS preflight |
 | GET | `/*` | No | Static files (Web UI) |
 
-Authentication: Pass management password via `X-Password` request header or `?password=xxx` query parameter.
+Authentication: None (contract v1.9 — device-level passwords removed family-wide; boundary = router WPA2).
 
 ---
 

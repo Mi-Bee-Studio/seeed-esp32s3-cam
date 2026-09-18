@@ -123,7 +123,7 @@ ESP32-S3 摄像头监控系统基于 FreeRTOS 实时操作系统，在双核 ESP
 | 频谱降噪器 | `audio_ns.c` | 256 点 FFT 频谱减法，Wiener 增益，最小统计量噪声估计 | `audio_ns_init()`, `audio_ns_process()` |
 | 音频广播器 | `audio_broadcaster.c` | 音频帧发布/订阅中心（镜像帧广播器） | `abroadcast_publish()`, `abroadcast_subscribe()` |
 | G.711 编解码 | `g711_codec.c` | G.711 μ-law 编解码器（ITU-T 标准） | `g711_encode()`, `g711_decode()` |
-| RTSP 服务器 | `rtsp_server.cpp` | RTSP 服务器（MJPEG+G.711 双轨道，摘要认证，端口 554） | `rtsp_server_init()`, `rtsp_server_start()` |
+| RTSP 服务器 | `rtsp_server.cpp` | RTSP 服务器（MJPEG+G.711 双轨道，端口 554） | `rtsp_server_init()`, `rtsp_server_start()` |
 | SD 日志 | `sd_log.c` | SD 卡结构化事件日志，自动轮转 | `sd_log_init()`, `sd_log_write()` |
 
 ---
@@ -199,7 +199,7 @@ HTTP 分块传输 (multipart/x-mixed-replace)
 RTSP Server (端口 554) ← frame_broadcaster + audio_broadcaster
   → MJPEG 视频轨道（RTP payload type 26）
   → G.711 μ-law 音频轨道（RTP payload type 0, PCMU）
-  → 摘要认证
+  → 无认证（契约 v1.9）
 
 ---
 
@@ -256,24 +256,24 @@ RTSP Server (端口 554) ← frame_broadcaster + audio_broadcaster
 |------|------|------|------|
 | GET | `/api/status` | 否 | 设备状态（录像、WiFi、存储、摄像头、温度） |
 | GET | `/api/config` | 否 | 当前配置（密码字段返回 `****`） |
-| POST | `/api/config` | 是 | 修改配置 |
+| POST | `/api/config` | 否 | 修改配置 |
 | GET | `/api/files` | 否 | 录像文件列表 |
-| POST | `/api/files/batch` | 是 | 批量删除文件 |
-| DELETE | `/api/files` | 是 | 删除指定文件 |
+| POST | `/api/files/batch` | 否 | 批量删除文件 |
+| DELETE | `/api/files` | 否 | 删除指定文件 |
 | GET | `/api/download?name=xxx` | 否 | 下载录像文件 |
 | GET | `/api/scan` | 否 | 扫描 WiFi AP |
-| POST | `/api/time` | 是 | 手动设置时间 |
-| POST | `/api/record?action=start\|stop` | 是 | 录像控制 |
-| POST | `/api/ota` | 是 | 通过 URL 触发 OTA 固件更新 |
-| POST | `/api/format` | 是 | 格式化 SD 卡（需确认） |
-| POST | `/api/reset` | 是 | 恢复出厂设置 |
+| POST | `/api/time` | 否 | 手动设置时间 |
+| POST | `/api/record?action=start\|stop` | 否 | 录像控制 |
+| POST | `/api/ota` | 否 | 通过 URL 触发 OTA 固件更新 |
+| POST | `/api/format` | 否 | 格式化 SD 卡（需确认） |
+| POST | `/api/reset` | 否 | 恢复出厂设置 |
 | GET | `/metrics` | 否 | Prometheus 指标（文本格式） |
 | POST | `/onvif/device_service` | 否 | ONVIF 设备服务（SOAP） |
 | POST | `/onvif/media_service` | 否 | ONVIF 媒体服务（SOAP） |
 | OPTIONS | `/*` | 否 | CORS 预检请求 |
 | GET | `/*` | 否 | 静态文件（Web UI） |
 
-认证：通过 `X-Password` 请求头或 `?password=xxx` 查询参数传递管理密码。
+认证：无（契约 v1.9——设备级密码已家族性移除，边界 = 路由器 WPA2）。
 
 ---
 

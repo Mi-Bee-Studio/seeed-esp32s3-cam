@@ -9,7 +9,7 @@
  *   - supported_resolutions 动态填充分辨率
  * 交互规范:
  *   - 所有异步按钮必须有 busy 态；破坏性操作走 Modal.confirm
- *   - 401/SET_PASSWORD_FIRST 统一走 AuthSheet（解锁/首设），成功后自动重试原操作
+ *   - 无设备级认证（契约 v1.9）：写操作直接提交，无解锁/改密交互
  *   - 流断线 → 骨架屏 + 重连提示；恢复 → 隐藏
  * ================================================================ */
 
@@ -167,124 +167,21 @@ const Modal = {
     }
 };
 
-/* ---------- 5. Auth（会话密码 + 鉴权抽屉） ---------- */
+/* ---------- 5. API helper（契约 v1.9：无设备级认证，直接提交） ---------- */
 
-const Auth = {
-    KEY: 'mibee.pw',
-    get() { return sessionStorage.getItem(this.KEY) || ''; },
-    set(pw) { sessionStorage.setItem(this.KEY, pw); },
-    clear() { sessionStorage.removeItem(this.KEY); },
-
-    _open: false,
-
-    /** 打开鉴权抽屉。mode: 'unlock' | 'set'。返回 Promise<boolean> 是否成功 */
-    ensure(mode = 'unlock') {
-        if (Auth._open) return Promise.resolve(false);
-        Auth._open = true;
-        return new Promise((resolve) => {
-            const isSet = mode === 'set';
-            Modal._open((modal, done) => {
-                modal.innerHTML = `
-                    <div class="modal-icon">${icon('lock')}</div>
-                    <div class="modal-title"></div>
-                    <p class="modal-msg"></p>
-                    <div class="pw-field">
-                        <input type="password" id="auth-pw" autocomplete="current-password">
-                        <button class="pw-eye" id="auth-eye" tabindex="-1">${icon('eye', 'sm')}</button>
-                    </div>
-                    <div class="field-error" id="auth-err"></div>
-                    <div class="modal-actions">
-                        <button class="btn btn-ghost act-cancel"></button>
-                        <button class="btn btn-primary act-ok"></button>
-                    </div>`;
-                const t = window.i18n.t;
-                modal.querySelector('.modal-title').textContent = t(isSet ? 'auth.set_title' : 'auth.unlock_title');
-                modal.querySelector('.modal-msg').textContent = t(isSet ? 'auth.set_msg' : 'auth.unlock_msg');
-                const pwInput = modal.querySelector('#auth-pw');
-                pwInput.placeholder = t('auth.placeholder');
-                modal.querySelector('.act-cancel').textContent = t('btn.cancel');
-                const okBtn = modal.querySelector('.act-ok');
-                okBtn.textContent = t(isSet ? 'auth.set_ok' : 'auth.unlock_ok');
-                const errEl = modal.querySelector('#auth-err');
-
-                const eye = modal.querySelector('#auth-eye');
-                eye.addEventListener('click', () => {
-                    const show = pwInput.type === 'password';
-                    pwInput.type = show ? 'text' : 'password';
-                    eye.innerHTML = icon(show ? 'eye-off' : 'eye', 'sm');
-                });
-
-                const finish = (ok) => { Auth._open = false; done(ok); resolve(ok); };
-
-                const submit = () => busy(okBtn, async () => {
-                    const pw = pwInput.value;
-                    if (!pw) { errEl.textContent = t('auth.empty'); return; }
-                    try {
-                        if (isSet) {
-                            /* 首设密码：直接写配置 */
-                            const resp = await fetch('/api/config', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ web_password: pw })
-                            });
-                            const j = await resp.json().catch(() => ({}));
-                            if (!j.ok) throw new Error(j.error || `HTTP ${resp.status}`);
-                        } else {
-                            /* 解锁：校验 */
-                            const resp = await fetch('/api/auth', { headers: { 'X-Password': pw } });
-                            if (resp.status === 401) throw new Error('unauthorized');
-                        }
-                        Auth.set(pw);
-                        toast(t('auth.ok'), { type: 'success' });
-                        finish(true);
-                    } catch (e) {
-                        errEl.textContent = t(isSet ? 'auth.set_fail' : 'auth.wrong');
-                    }
-                });
-
-                okBtn.addEventListener('click', submit);
-                pwInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
-                modal.addEventListener('modal-cancel', () => finish(false));
-                setTimeout(() => pwInput.focus(), 120);
-            });
-            Modal._dismiss = null; /* AuthSheet 自管 resolve */
-        });
+async function api(path, options = {}) {
+    const headers = Object.assign({}, options.headers);
+    const resp = await fetch(path, Object.assign({}, options, { headers }));
+    let json;
+    try { json = await resp.json(); }
+    catch (e) { throw new Error(`HTTP ${resp.status}`); }
+    if (!json.ok) {
+        const err = new Error(json.error || `HTTP ${resp.status}`);
+        err.status = resp.status;
+        err.code = json.error;
+        throw err;
     }
-};
-
-/* ---------- 6. API helper（401 → AuthSheet → 自动重试一次） ---------- */
-
-let apiSeq = 0;
-async function api(path, options = {}, opts = {}) {
-    /* 密码必须在 attempt() 内部读取：2026-09-03 发现 401→AuthSheet→重试
-     * 用的是入口时构建的旧 headers（无 X-Password），首次写操作必然二次 401 */
-    const attempt = async () => {
-        const headers = Object.assign({}, options.headers);
-        const pw = Auth.get();
-        if (pw) headers['X-Password'] = pw;
-        const resp = await fetch(path, Object.assign({}, options, { headers }));
-        let json;
-        try { json = await resp.json(); }
-        catch (e) { throw new Error(`HTTP ${resp.status}`); }
-        if (!json.ok) {
-            const err = new Error(json.error || `HTTP ${resp.status}`);
-            err.status = resp.status;
-            err.code = json.error;
-            return { __fail: err };
-        }
-        return { data: json.data || {} };
-    };
-
-    let r = await attempt();
-    if (r.__fail && (r.__fail.status === 401)) {
-        const needSet = r.__fail.code === 'SET_PASSWORD_FIRST';
-        if (!opts.noAuthSheet) {
-            const ok = await Auth.ensure(needSet ? 'set' : 'unlock');
-            if (ok) r = await attempt();
-        }
-    }
-    if (r.__fail) throw r.__fail;
-    return r.data;
+    return json.data || {};
 }
 
 /* ---------- 7. Capabilities ---------- */
@@ -404,7 +301,7 @@ function renderCsiCard() {
 
 async function pollStatus() {
     let d;
-    try { d = await api('/api/status', {}, { noAuthSheet: true }); }
+    try { d = await api('/api/status'); }
     catch (e) { $('net-dot').className = 'status-dot bad'; return; }
     lastStatus = d;
 
@@ -552,7 +449,7 @@ async function pollRecordFallback() {
     if (recPollTick++ % 3 !== 0 || recPollBusy) return;
     recPollBusy = true;
     try {
-        const d = await api('/api/record', {}, { noAuthSheet: true });
+        const d = await api('/api/record');
         const s = String(d.state || d.status || '').toLowerCase();
         lastStatus.recording = s.includes('record') ? 'recording'
             : s.includes('pause') ? 'paused' : 'idle';
@@ -564,7 +461,7 @@ async function pollRecordFallback() {
 
 async function pollAI() {
     let d;
-    try { d = await api('/api/ai/status', {}, { noAuthSheet: true }); }
+    try { d = await api('/api/ai/status'); }
     catch (e) { return; }
     const canvas = $('stream-overlay');
     const ctx = canvas.getContext('2d');
@@ -632,7 +529,7 @@ async function saveAI() {
 let cameraData = null;
 
 async function loadCamera() {
-    try { cameraData = await api('/api/camera', {}, { noAuthSheet: true }); }
+    try { cameraData = await api('/api/camera'); }
     catch (e) { return; }
     const d = cameraData;
 
@@ -857,7 +754,7 @@ async function loadFiles(reset = true) {
     $('files-bar').hidden = true;
     $('btn-files-more').hidden = true;
     try {
-        const d = await api(`/api/files?type=${Files.type}&offset=${Files.offset}&limit=${Files.limit}`, {}, { noAuthSheet: true });
+        const d = await api(`/api/files?type=${Files.type}&offset=${Files.offset}&limit=${Files.limit}`);
         const files = d.files || [];
         if (reset) listEl.innerHTML = '';
         if (d.total !== undefined) Files.total = d.total;
@@ -982,7 +879,7 @@ async function wifiScan() {
     const listEl = $('scan-list');
     await busy(btn, async () => {
         try {
-            const d = await api('/api/scan', {}, { noAuthSheet: true });
+            const d = await api('/api/scan');
             listEl.innerHTML = '';
             const nets = d.networks || [];
             if (!nets.length) {
@@ -1021,7 +918,7 @@ let hasWifi2 = false;
 
 async function loadConfig() {
     let d;
-    try { d = await api('/api/config', {}, { noAuthSheet: true }); }
+    try { d = await api('/api/config'); }
     catch (e) { return; }
     $('wifi-ssid').value = d.wifi_ssid || '';
     if (d.wifi_ssid_2 !== undefined) {
@@ -1032,8 +929,6 @@ async function loadConfig() {
     }
     if (d.device_name !== undefined) $('device-name').value = d.device_name || '';
     if (d.timezone !== undefined) $('timezone').value = d.timezone || '';
-    if (d.rtsp_user !== undefined) { $('row-rtsp-user').hidden = false; $('rtsp-user').value = d.rtsp_user || ''; }
-    if (d.rtsp_pass !== undefined) { $('row-rtsp-pass').hidden = false; }
     if (d.onvif_enable !== undefined) { $('row-onvif-enable').hidden = false; setToggle('onvif-enable', d.onvif_enable); }
     if (d.onvif_events !== undefined) { $('row-onvif-events').hidden = false; setToggle('onvif-events', d.onvif_events); }
     /* 水印（契约 v1.3，issue #11；板返回 wm_* 字段才渲染整卡） */
@@ -1073,8 +968,8 @@ async function loadConfig() {
         $('row-flash-viewers').hidden = false;
         setToggle('flash-viewers', d.flash_viewers);
     }
-    /* 没有任何可编辑项时隐藏 Save（RTSP 凭据走 web_password 的板，该页只读展示） */
-    const anyEditable = !$('row-rtsp-user').hidden || !$('row-rtsp-pass').hidden || !$('row-onvif-enable').hidden || !$('row-onvif-events').hidden || !$('row-csi-threshold').hidden;
+    /* 没有任何可编辑项时隐藏 Save（契约 v1.9：RTSP 免认证无凭据字段） */
+    const anyEditable = !$('row-onvif-enable').hidden || !$('row-onvif-events').hidden || !$('row-csi-threshold').hidden;
     $('btn-streaming-save').hidden = !anyEditable;
 }
 
@@ -1130,86 +1025,13 @@ async function saveNetwork() {
     });
 }
 
-/* ---------- 17b. 修改密码（旧密码经 /api/auth 验证后写入新密码） ---------- */
-
-function pwRow(id, placeholderKey) {
-    return `
-        <div class="pw-field">
-            <input type="password" id="${id}" autocomplete="new-password"
-                   placeholder="${window.i18n.t(placeholderKey)}">
-            <button class="pw-eye" tabindex="-1">${icon('eye', 'sm')}</button>
-        </div>`;
-}
-
-function openPasswordModal() {
-    Modal._open((modal, done) => {
-        const t = window.i18n.t;
-        modal.innerHTML = `
-            <div class="modal-icon">${icon('lock')}</div>
-            <div class="modal-title">${t('pw.change')}</div>
-            <p class="modal-msg">${t('pw.change_msg')}</p>
-            ${pwRow('pw-old', 'pw.old')}
-            ${pwRow('pw-new', 'pw.new')}
-            ${pwRow('pw-confirm', 'pw.confirm')}
-            <div class="field-error" id="pw-err"></div>
-            <div class="modal-actions">
-                <button class="btn btn-ghost act-cancel">${t('btn.cancel')}</button>
-                <button class="btn btn-primary act-ok">${t('pw.ok')}</button>
-            </div>`;
-        modal.querySelectorAll('.pw-eye').forEach(eye => {
-            eye.addEventListener('click', () => {
-                const input = eye.parentElement.querySelector('input');
-                const show = input.type === 'password';
-                input.type = show ? 'text' : 'password';
-                eye.innerHTML = icon(show ? 'eye-off' : 'eye', 'sm');
-            });
-        });
-        const errEl = modal.querySelector('#pw-err');
-        const okBtn = modal.querySelector('.act-ok');
-        const finish = (r) => { done(r); };
-
-        const submit = () => busy(okBtn, async () => {
-            const oldPw = modal.querySelector('#pw-old').value;
-            const newPw = modal.querySelector('#pw-new').value;
-            const confirmPw = modal.querySelector('#pw-confirm').value;
-            if (newPw.length < 6) { errEl.textContent = t('pw.too_short'); return; }
-            if (newPw !== confirmPw) { errEl.textContent = t('pw.mismatch'); return; }
-            /* 先用旧密码验证（改密后 /api/auth 依然可用） */
-            try {
-                const resp = await fetch('/api/auth', { headers: { 'X-Password': oldPw } });
-                if (resp.status === 401) { errEl.textContent = t('pw.wrong_old'); return; }
-            } catch (e) {
-                errEl.textContent = t('toast.save_failed', { msg: e.message }); return;
-            }
-            try {
-                await api('/api/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-Password': oldPw },
-                    body: JSON.stringify({ web_password: newPw })
-                }, { noAuthSheet: true });
-                Auth.set(newPw);
-                toast(t('pw.changed'), { type: 'success' });
-                finish(true);
-            } catch (e) {
-                errEl.textContent = t('pw.failed', { msg: e.message });
-            }
-        });
-        okBtn.addEventListener('click', submit);
-        modal.addEventListener('modal-cancel', () => finish(false));
-        setTimeout(() => modal.querySelector('#pw-old').focus(), 120);
-    });
-}
+/* ---------- 17b. 串流设置（RTSP 免认证，契约 v1.9：无凭据字段） ---------- */
 
 async function saveStreaming() {
     const btn = $('btn-streaming-save');
     await busy(btn, async () => {
         try {
             const payload = {};
-            if (!$('row-rtsp-user').hidden) {
-                const u = $('rtsp-user').value, p = $('rtsp-pass').value;
-                if (u) payload.rtsp_user = u;
-                if (p) payload.rtsp_pass = p;
-            }
             if (!$('row-onvif-enable').hidden) payload.onvif_enable = $('onvif-enable').classList.contains('active');
             if (!$('row-onvif-events').hidden) payload.onvif_events = $('onvif-events').classList.contains('active');
             /* CSI 调参键族（契约 v1.7；即时保存型 toggle 也走这里 → 全字段一并提交） */
@@ -1396,7 +1218,6 @@ async function doReset() {
     const btn = $('btn-reset');
     await busy(btn, async () => {
         try { await api('/api/reset', { method: 'POST' }); } catch (e) { /* 重启前断开属预期 */ }
-        Auth.clear();
         toast(window.i18n.t('toast.rebooting'), { duration: 6000 });
     });
 }
@@ -1409,7 +1230,7 @@ async function doOta(endpoint, file, btn) {
             toast(window.i18n.t('toast.upload_done'), { type: 'success', duration: 6000 });
         } catch (e) {
             if (e.status !== undefined && e.status !== null) {
-                /* 服务器明确返回错误状态（含鉴权失败）— 走 api() 的鉴权重试后仍失败 */
+                /* 服务器明确返回错误状态（校验失败/超限等） */
                 toast(window.i18n.t('toast.upload_failed', { msg: e.message }), { type: 'error', duration: 5000 });
             } else {
                 /* 连接中断 = 烧写完成后设备重启断开，视为成功 */
@@ -1564,21 +1385,11 @@ const bootSPA = async () => {
         if (Caps.sd) loadFiles();
     });
     $('lang-label').textContent = window.i18n.getLang() === 'zh' ? '中' : 'EN';
-    $('btn-lock').addEventListener('click', async () => {
-        if (Auth._open) return;
-        try {
-            const a = await api('/api/auth', {}, { noAuthSheet: true });
-            await Auth.ensure(a.password_set ? 'unlock' : 'set');
-        } catch (e) {
-            /* 401 = 会话里存的旧密码不对（或设备已设密）→ 解锁模式 */
-            await Auth.ensure('unlock');
-        }
-    });
 
     /* capabilities：失败自动重试（最多 10 次×5s，覆盖掉线窗口），成功后应用能力
      * 并拉取板级数据。原来的单次 try/catch 失败后所有能力驱动面板永久缺失 */
     const loadCapsRetry = async (n) => {
-        try { Object.assign(Caps, await api('/api/capabilities', {}, { noAuthSheet: true })); }
+        try { Object.assign(Caps, await api('/api/capabilities')); }
         catch (e) {
             if (n > 0) return setTimeout(() => loadCapsRetry(n - 1), 5000);
             console.error('capabilities:', e);
@@ -1657,7 +1468,6 @@ const bootSPA = async () => {
     initFilesUI();
     $('btn-wifi-scan').addEventListener('click', wifiScan);
     $('btn-network-save').addEventListener('click', saveNetwork);
-    $('btn-change-pw').addEventListener('click', openPasswordModal);
     $('btn-streaming-save').addEventListener('click', saveStreaming);
     $('btn-wm-save').addEventListener('click', saveWatermark);
     document.querySelectorAll('#wm-pos-seg button').forEach(b =>

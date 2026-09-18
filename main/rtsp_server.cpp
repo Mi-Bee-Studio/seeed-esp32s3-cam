@@ -21,8 +21,8 @@
  *   Track 0 — MJPEG video (payload type 26, RFC 2435)
  *   Track 1 — PCMU audio (payload type 0, RFC 3551)
  *
- * Digest authentication via config rtsp_user/rtsp_pass（契约 §3.2 rtsp 组；
- * 迁移前本板用 web_password 鉴权，迁移函数已一次性种子）。
+ * No authentication（契约 v1.9）：设备级密码已家族性移除，RTSP 流在
+ * 可信 LAN 上开放（边界 = 路由器 WPA2）。
  *
  * Architecture:
  *   rtsp_server_init()
@@ -197,11 +197,12 @@ extern "C" esp_err_t rtsp_server_init(void)
         return ESP_OK;
     }
 
-        cam_config_t *cfg = config_get();
         std::string ip = get_ip_string();
 
         ESP_LOGI(TAG, "Creating RTSP server on %s:%d", ip.c_str(), RTSP_PORT);
 
+        /* 契约 v1.9：不配置凭据——espp 会话层空用户名即免认证
+         * （check_auth 直接放行），digest 质询不再发生 */
         s_server = std::make_unique<espp::RtspServer>(espp::RtspServer::Config{
             .server_address = ip,
             .port = RTSP_PORT,
@@ -211,11 +212,9 @@ extern "C" esp_err_t rtsp_server_init(void)
             .accept_task_stack_size_bytes = 4096,
             .session_task_stack_size_bytes = 8192,
             .control_task_stack_size_bytes = 8192,
-            /* 契约 §3.2 rtsp 组（2026-09-05 起）：digest 鉴权用独立的
-             * rtsp_user/rtsp_pass（存量迁移一次性种子 = 原 web_password） */
-            .auth_username = cfg->rtsp_user,
-            .auth_password = cfg->rtsp_pass,
-            .auth_realm = "MiBee Cam",
+            .auth_username = "",   /* 空 = 会话层免认证（espp check_auth 直接放行） */
+            .auth_password = "",
+            .auth_realm = "",
             .max_sessions = MAX_RTSP_CLIENTS,
         });
 
@@ -245,8 +244,8 @@ extern "C" esp_err_t rtsp_server_init(void)
             .packetizer = audio_packer,
         });
 
-        ESP_LOGI(TAG, "RTSP server initialized: rtsp://%s:***@%s:%d%s",
-                 config_get()->rtsp_user, ip.c_str(), RTSP_PORT, RTSP_PATH);
+        ESP_LOGI(TAG, "RTSP server initialized: rtsp://%s:%d%s",
+                 ip.c_str(), RTSP_PORT, RTSP_PATH);
         return ESP_OK;
 
 }

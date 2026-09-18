@@ -64,7 +64,7 @@ data.files.forEach(f => {
 
 Delete specified recording file on SD card.
 
-**Authentication**: Password required
+**Authentication**: None (contract v1.9)
 
 **Source**: `api_files_delete_handler` (web_server.c)
 
@@ -97,8 +97,7 @@ Delete specified recording file on SD card.
 
 **cURL Example**:
 ```bash
-curl -X DELETE "http://192.168.4.1/api/files?name=20260424_120000.avi" \
-  -H "X-Password: mibeecam2026"
+curl -X DELETE "http://192.168.4.1/api/files?name=20260424_120000.avi"
 ```
 
 **JavaScript Example**:
@@ -107,8 +106,7 @@ async function deleteFile(filename) {
   const resp = await fetch(
     `/api/files?name=${encodeURIComponent(filename)}`,
     {
-      method: 'DELETE',
-      headers: { 'X-Password': 'mibeecam2026' }
+      method: 'DELETE'
     }
   );
   return await resp.json();

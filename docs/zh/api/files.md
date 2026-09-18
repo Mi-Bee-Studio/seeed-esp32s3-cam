@@ -64,7 +64,7 @@ data.files.forEach(f => {
 
 删除 SD 卡上指定的录制文件。
 
-**认证**：需要密码认证
+**认证**：无（契约 v1.9）
 
 **源码**：`api_files_delete_handler`（web_server.c）
 
@@ -89,7 +89,6 @@ data.files.forEach(f => {
 
 | 状态码 | 条件 | 错误信息 |
 |--------|------|----------|
-| 401 | 未提供正确密码 | `"Unauthorized"` |
 | 400 | 缺少查询参数 | `"Missing query"` |
 | 400 | 缺少 name 参数 | `"Missing name parameter"` |
 | 400 | 文件名包含 `..` | `"Invalid name"` |
@@ -97,8 +96,7 @@ data.files.forEach(f => {
 
 **cURL 示例**：
 ```bash
-curl -X DELETE "http://192.168.4.1/api/files?name=20260424_120000.avi" \
-  -H "X-Password: mibeecam2026"
+curl -X DELETE "http://192.168.4.1/api/files?name=20260424_120000.avi"
 ```
 
 **JavaScript 示例**：
@@ -107,8 +105,7 @@ async function deleteFile(filename) {
   const resp = await fetch(
     `/api/files?name=${encodeURIComponent(filename)}`,
     {
-      method: 'DELETE',
-      headers: { 'X-Password': 'mibeecam2026' }
+      method: 'DELETE'
     }
   );
   return await resp.json();

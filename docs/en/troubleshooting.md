@@ -335,8 +335,7 @@ sdspi_device_config_t dev_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
 ### Method 2: API Factory Reset
 
 ```bash
-curl -X POST http://<deviceIP>/api/reset \
-  -H "X-Password: mibeecam2026"
+curl -X POST http://<deviceIP>/api/reset
 ```
 
 ### Method 3: Erase Flash
