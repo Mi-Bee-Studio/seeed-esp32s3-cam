@@ -157,7 +157,15 @@ config 键 `onvif_events`（默认 0）运行时门控——即商用相机的"�
   前端**禁止硬编码分辨率表**，只从 `supported_resolutions` 填充下拉框，POST 只回传列表内的 value；
   画质滑杆的 min/max 必须取自 `quality_min`/`quality_max`（字段缺失时回退 1-63 兼容旧固件）。
   AI↔VGA 联动通过 label 前缀 `VGA` 识别。
-- `POST /api/camera` 接受同名字段，**越界值一律 400**（错误信息含板级上限）。
+- **动态画质下限（v1.9，issue #27）**：`quality_min` 可随当前档位收紧（只紧不松；
+  板级实测定标，如 n16r8：≤SVGA=10、XGA/HD=12、SXGA=14——fb 按 w×h/5 分配，高档位
+  低 q 码流超限截帧，PIT-021 边界内移）。`GET /api/camera` 下发当前档位的 min；
+  `POST /api/camera`/`POST /api/config` 按目标档位校验，低于下限 400（错误信息含
+  下限值）。AT `AT+CAMQUAL?/[n]` 同源。前端滑杆每档自适应（既有 quality_min 消费
+  路径不变）。
+- `POST /api/camera` 接受同名字段，**越界值一律 400**（错误信息含板级上限）；
+  **未知键不再静默**（v1.9，issue #27）：响应 data 增补 `ignored` 数组点名被忽略
+  的键（拼写错误排障），设备侧同时 WARN 日志。
   应用语义按板不同：
   - **ai-thinker**：分辨率/画质热重配（camera 互斥锁 + drain，无重启）。
   - **seeed**：画质热应用（OV5640 set_quality 单寄存器写）；**分辨率变化保存+1s 后重启应用**
@@ -391,3 +399,6 @@ q<10 在细节丰富的场景会超预算产生截断帧；q10 实测（ai-think
    （schema_ver=2）。
 5. **不受影响**：AP 模式热点 WPA2 口令（网络边界）、WiFi STA 凭据、
    webhook/webdav 凭据（外部服务凭据）。
+6. **同日补遗（issue #27）**：§5 增补动态画质下限（quality_min 随档位收紧，
+   板级定标）与 `POST /api/camera` 未知键 `ignored` 回显；静态 404 日志增补
+   URI+来源对端（issue ai#8 的 NVR 排障对照）。同属 v1.9 变更窗口。

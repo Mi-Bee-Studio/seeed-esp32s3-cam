@@ -56,7 +56,7 @@
 | `AT+STATUS` | 汇总状态：uptime / heap / 温度(有则给) / WiFi / 摄像头 / 分辨率 / 画质 | 历史名 `AT+CONFIG`/`AT+INFO` 保留为别名 |
 | `AT+CAMRES?` | 当前分辨率 + 板级可选列表 + 板级上限 | 列表与 `GET /api/camera` 的 `supported_resolutions` 同源；**value 为家族统一 framesize_t 刻度**（api-contract §5） |
 | `AT+CAMRES=n` | 设分辨率（越界 ERROR）；**生效方式随板**（§7） | |
-| `AT+CAMQUAL?` | 当前画质 + `[min,max]` 边界 | 家族边界 10-63（PIT-021） |
+| `AT+CAMQUAL?` | 当前画质 + `[min,max]` 边界 | 家族边界 10-63（PIT-021）；v1.4 起 min 随当前档位收紧（板级定标，api-contract v1.9 §5） |
 | `AT+CAMQUAL=n` | 设画质，越界（<10 或 >63）ERROR | |
 | `AT+REBOOT` | 重启（别名 `AT+RST`） | |
 | `AT+RESTORE` | 恢复出厂配置 → 重启 | **不存在 `AT+RESET`**（v1.1 起从 ai-thinker/n16r8 删除：其曾映射为恢复出厂，跨板反射会误清配置） |
