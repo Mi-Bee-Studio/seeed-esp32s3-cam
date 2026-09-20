@@ -42,7 +42,7 @@ void onvif_c_cfg_set(const onvif_c_config_t *cfg)
     if (!s_cfg.hardware_id)
         s_cfg.hardware_id = "ESP32";
     if (!s_cfg.firmware_version)
-        s_cfg.firmware_version = "v0.2.0";
+        s_cfg.firmware_version = "v0.1.0";
     if (s_cfg.http_port == 0)
         s_cfg.http_port = 80;
     if (!s_cfg.scopes) {

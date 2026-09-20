@@ -1,5 +1,9 @@
 # onvif-c
 
+[![CI](https://github.com/mickeyzzc/onvif-c/actions/workflows/ci.yml/badge.svg)](https://github.com/mickeyzzc/onvif-c/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Coverage](https://img.shields.io/badge/line%20coverage-95%25-brightgreen.svg)](tests/coverage.sh)
+
 [English](README.md) | 中文
 
 **纯 C 的 ESP-IDF ONVIF 设备端（服务端）库** —— 用 SOAP + WS-Discovery +
@@ -17,12 +21,14 @@ Pull-Point 事件把相机交给 NVR，零第三方依赖，代码占用 ~10 KB�
   TerminationTime、120s 空闲过期、**无长轮询**（PullMessages 立即返回，
   esp_http_server worker 永不阻塞）。
 - **WS-Discovery 应答器** —— UDP 3702 / 组播 239.255.255.250；对 Probe 单播
-  回 ProbeMatches，每 ~30s 周期性 Hello 广播。
-- **可选 mDNS** —— `_onvif._tcp` 广告。
+  回 ProbeMatches，每 ~30s 周期性 Hello 广播；socket/bind/组播加入失败自动
+  重试直至 WiFi 就绪。
+- **可选 mDNS** —— `_onvif._tcp` 广告；构建里没有 `espressif/mdns` 时干净
+  编译出局。
 - **无 XML 解析器、无动态状态** —— 动作识别 `strstr()`、响应生成
   `snprintf()`；仅每请求缓冲；运动事件生产者钩子非阻塞，传感器回调语境安全。
-- **单一配置接缝** —— 板级差异（身份、IP、流地址、运行时开关）全部收敛到
-  `onvif_c_config_t` 回调。
+- **单一配置接缝** —— 板级差异（身份、IP、流地址、运行时开关、HTTP 端口）
+  全部收敛到 `onvif_c_config_t` 回调，零硬编码。
 
 ## 用法
 
@@ -41,7 +47,7 @@ void app_onvif_start(httpd_handle_t httpd) {
         .manufacturer     = "MiBee",
         .model            = "MiBeeCam",
         .hardware_id      = "ESP32-S3-N16R8",
-        .firmware_version = "v0.2.0",
+        .firmware_version = "v0.1.0",
         .serial           = my_serial,        /* 稳定十六进制序列号          */
         .uuid             = my_uuid,          /* 不带 urn:uuid: 前缀         */
         .ip               = my_ip,            /* NULL/"0.0.0.0" = 未就绪     */
@@ -62,6 +68,47 @@ onvif_c_motion(false, 4);
 `tools/onvif_probe.py <ip>` 是免硬件冒烟测试：跑遍所有已服务动作与完整
 Pull-Point 订阅周期，全过退出 0。
 
+## API 参考
+
+完整契约内联在 [`include/onvif_c.h`](include/onvif_c.h)，速查：
+
+| 函数 | 契约 |
+| --- | --- |
+| `onvif_c_start(httpd, cfg)` | 注册 `/onvif/device_service` + `/onvif/media_service`（带 `events_enabled` 时加 `/onvif/events_service`），启动 WS-Discovery（+ 可选 mDNS）。缺必填回调返回 `ESP_ERR_INVALID_ARG`，否则返回首个注册错误；重启后的重复注册被容忍（`ESP_ERR_HTTPD_HANDLER_EXISTS` 记 WARN 忽略）。 |
+| `onvif_c_stop()` | 停发现任务、摘 mDNS 服务。SOAP handler 留在 httpd（esp_http_server 无注销 API）。 |
+| `onvif_c_motion(active, score)` | 喂入运动状态迁移。永不阻塞（锁竞争即丢弃）、无 I/O，传感器/CSI 回调语境安全。仅订阅存活且 `events_enabled()` 为真时入队。 |
+| `onvif_c_events_subscribed()` | 订阅存活期间为真（诊断面）。 |
+| `onvif_c_version()` | 返回 `ONVIF_C_VERSION`（`主*10000+次*100+修订`，v0.1.0 → 100）。 |
+
+`onvif_c_config_t` 字段（字符串按引用持有，须比服务活得久）：
+
+| 字段 | 必填 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `serial`、`uuid`、`ip`、`stream_uri` | **是**（启动校验） | — | `ip` 连网中可答 `NULL`/`"0.0.0.0"`，发现任务会等；`uuid` 不带 `urn:uuid:` 前缀。 |
+| `manufacturer`、`model`、`hardware_id`、`firmware_version` | 否 | `"MiBee"`、`"MiBeeCam"`、`"ESP32"`、`"v0.1.0"` | GetDeviceInformation 身份串。 |
+| `frame_rate` | 否 | 15 | GetProfiles `FrameRateLimit`。 |
+| `snapshot_uri` | 否 | 派生 `http://<ip>:<http_port>/api/capture` | GetSnapshotUri 应答。 |
+| `events_enabled` | 否 | NULL = 无此能力 | 运行时门；NULL 时事件服务不注册也不广播。 |
+| `http_port` | 否 | 80 | 流入**所有**广告 URI。 |
+| `mdns_hostname`、`mdns_instance` | 否 | NULL = 跳过 mDNS | instance 默认取 `model`。 |
+| `scopes` | 否 | 由 `model` 生成 | WS-Discovery Scopes 正文；启动时一次性解析。 |
+
+## 集成指南
+
+1. 把本树 vendored 到 `components/onvif-c`（`tests/`、`examples/`、`docs/`、
+   `.github/` 可删），main 的 `REQUIRES` 加 `onvif-c`。`espressif/mdns`
+   可选：声明即启用 mDNS。
+2. 写你的板级适配层——所有板级事实只住这里。完整真实范例见 MiBee Cam 固件
+   的 [`main/onvif_port.c`](https://github.com/Mi-Bee-Studio/esp32s3-n16r8-cam/blob/main/main/onvif_port.c)
+   （约 100 行：身份取 MAC/efuse、IP 取 wifi_manager、流地址取 RTSP 服务、
+   事件门接配置）。
+3. httpd 起来后调一次 `onvif_port_start()`；检测器里喂
+   `onvif_c_motion()`。
+4. 用 `tools/onvif_probe.py <ip>` 验收（退出 0 = 全表面 OK）。
+
+四个 MiBee Cam 仓（ESP32 + ESP32-S3，IDF v5.5/v6.0）锁步携带本组件，
+是上游的生产用户。
+
 ## 字节稳定保证
 
 响应的元素名、前缀、属性顺序与命名空间风格都是**承重的**——NVR 集成方可能
@@ -79,7 +126,7 @@ Pull-Point 订阅周期，全过退出 0。
 
 | 门禁 | 命令 | 强制内容 |
 | --- | --- | --- |
-| 宿主机测试 | `tests/run.sh` | 212 项检查：core 金样本字节 + 经桩件驱动的完整 esp_idf 移植层 |
+| 宿主机测试 | `tests/run.sh` | 213 项检查：core 金样本字节 + 经桩件驱动的完整 esp_idf 移植层 |
 | 覆盖率 | `tests/coverage.sh` | `core/` + `esp_idf/` 行覆盖 ≥80%（当前 95%） |
 | 代码风格 | `tools/check_style.sh` | clang-format 干净（锁定 `clang-format==22.1.8`，见 `.clang-format`） |
 | 仓库卫生 | `tools/check-repo-hygiene.sh` | 不跟踪垃圾/涉密文件 |
@@ -99,14 +146,25 @@ Pull-Point 订阅周期，全过退出 0。
 
 - core（`core/`）纯 C、不含 ESP-IDF 头——宿主机系统 `cc` 即可测试；
   ESP-IDF 面（`esp_idf/`）是薄传输层。
-- 同时支持 ESP-IDF v5.5.x 与 v6.0.x。
+- 同时支持 ESP-IDF v5.5.x 与 v6.0.x（双双在 CI）。
 - 库代码路径无 `ESP_LOGx` 之外日志、无 `printf`、生产者语境 API 不阻塞。
 - **零硬编码端点**：`cfg->http_port` 流入所有广告 URI（capabilities
   XAddr、WS-Discovery XAddr、订阅地址）；板级细节绝不漏进库内。
 
+## 版本策略
+
+语义化版本；`ONVIF_C_VERSION` 编码为 `主*10000+次*100+修订`
+（运行期 `onvif_c_version()` 可读）。兼容规则：
+
+- **字节钉死**：同一大版本内，未改语义的动作响应字节永不变化——金样本
+  diff 是发版阻断事件。
+- core 构造器签名（`core/*.h`）属内部稳定面：破坏性变更升次版本；公共
+  `onvif_c.h` 面目标是大版本内永不破坏。
+- 发版由 tag（`v*`）触发；发版工作流会先跑全套宿主机测试再发布。
+
 ## 状态
 
-v0.2.0 —— API 接缝稳定；在 [Mi-Bee Studio](https://github.com/Mi-Bee-Studio)
+v0.1.0 —— 首个发版；API 接缝稳定；在 [Mi-Bee Studio](https://github.com/Mi-Bee-Studio)
 四块 ESP32/ESP32-S3 相机板上对 MiBee NVR 每日生产验证。客户端对应（Go）：
 [onvif-go](https://github.com/mickeyzzc/onvif-go)；兄弟设备端库（Rust）：
 [onvif-rs](https://github.com/mickeyzzc/onvif-rs)。

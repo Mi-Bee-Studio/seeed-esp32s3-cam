@@ -10,3 +10,4 @@ build-cov/
 *.gcda
 *.gcno
 *.gcov
+AGENTS.md
