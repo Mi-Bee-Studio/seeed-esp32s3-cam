@@ -117,6 +117,18 @@ outlive the service):
 The four MiBee Cam repos (ESP32 + ESP32-S3, IDF v5.5/v6.0) carry this
 component in lockstep and are the upstream production users.
 
+## Security
+
+**onvif-c does not implement ONVIF authentication.** There is no
+WS-UsernameToken / `wsse` header parsing, no HTTP basic/digest auth, no
+credential callback, and no 401 path — every served action, the Pull-Point
+subscription, and the WS-Discovery responder answer any host that can reach
+the device. Deploy it only on a network where every host is trusted (or
+behind a reverse proxy that enforces credentials), and note that an ONVIF
+client configured with credentials may refuse to add the device. This is a
+deliberate scope decision for a minimal device library, not an oversight; if
+you need auth, treat it as a feature request for a future minor version.
+
 ## Byte stability guarantee
 
 Response element names, prefixes, attribute order and namespace style are

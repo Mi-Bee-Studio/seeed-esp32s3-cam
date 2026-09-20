@@ -22,6 +22,7 @@
 static const char *TAG = "onvif_c_ev";
 
 #define ONVIF_EV_BODY_MAX  4096 /* accepted request body ceiling */
+#define ONVIF_EV_RESP_MAX  4096 /* PullMessages response buffer */
 #define ONVIF_EV_PULL_MAX  6    /* max events per PullMessages (buffer) */
 #define SUB_LIFETIME_S     3600 /* granted TerminationTime */
 #define SUB_IDLE_TIMEOUT_S 120  /* auto-expire without pulls */
@@ -55,12 +56,17 @@ static char *ev_read_body(httpd_req_t *req)
     if (!buf) {
         return NULL;
     }
-    int ret = httpd_req_recv(req, buf, len);
-    if (ret <= 0) {
-        free(buf);
-        return NULL;
+    /* Loop: a partial recv is one TCP segment, not a dead request. */
+    size_t got = 0;
+    while (got < len) {
+        int ret = httpd_req_recv(req, buf + got, len - got);
+        if (ret <= 0) {
+            free(buf);
+            return NULL;
+        }
+        got += (size_t)ret;
     }
-    buf[ret] = '\0';
+    buf[len] = '\0';
     return buf;
 }
 
@@ -141,12 +147,13 @@ static esp_err_t handle_pull_messages(httpd_req_t *req, const char *body)
     iso8601(now, now_s, sizeof(now_s));
 
     /* Response assembled dynamically (max 6 events x ~440B + envelope). */
-    size_t cap  = 4096;
+    size_t cap  = ONVIF_EV_RESP_MAX;
     char  *resp = malloc(cap);
     if (!resp) {
         return ev_fault(req, "ter:ActionNotSupported", "oom");
     }
-    int off = onvif_xml_pull_open(resp, cap);
+    int  off       = onvif_xml_pull_open(resp, cap);
+    bool truncated = off <= 0 || (size_t)off >= cap;
 
     int delivered = 0;
     xSemaphoreTake(s_ev.mtx, portMAX_DELAY);
@@ -155,10 +162,15 @@ static esp_err_t handle_pull_messages(httpd_req_t *req, const char *body)
         s_ev.sub_last_pull = now;
         iso8601(s_ev.sub_termination, term_s, sizeof(term_s));
         onvif_c_event_t e;
-        while (delivered < limit && onvif_c_ring_pop(&s_ev.ring, &e)) {
+        while (!truncated && delivered < limit && onvif_c_ring_pop(&s_ev.ring, &e)) {
             char ts[24];
             iso8601((time_t)e.utc, ts, sizeof(ts));
-            off += onvif_xml_pull_event(resp + off, cap - off, ts, e.active, e.score);
+            int w = onvif_xml_pull_event(resp + off, cap - off, ts, e.active, e.score);
+            if (w <= 0 || (size_t)w >= cap - off) {
+                truncated = true;
+                break;
+            }
+            off += w;
             delivered++;
         }
     }
@@ -170,8 +182,12 @@ static esp_err_t handle_pull_messages(httpd_req_t *req, const char *body)
                         "no active subscription (expired)");
     }
 
-    off += onvif_xml_pull_close(resp + off, cap - off, now_s, term_s);
-    if (off <= 0 || (size_t)off >= cap) {
+    if (truncated) {
+        free(resp);
+        return ev_fault(req, "ter:ActionNotSupported", "response overflow");
+    }
+    int wc = onvif_xml_pull_close(resp + off, cap - off, now_s, term_s);
+    if (wc <= 0 || (size_t)wc >= cap - off) {
         free(resp);
         return ev_fault(req, "ter:ActionNotSupported", "response overflow");
     }

@@ -139,14 +139,20 @@ static void onvif_c_discovery_task(void *arg)
             char hello_buf[RESP_BUF_SIZE];
             int  hl = onvif_probe_build_hello(hello_buf, sizeof(hello_buf), device_uuid, local_ip,
                                               cfg->http_port, onvif_c_cfg_scopes());
-            struct sockaddr_in dest;
-            memset(&dest, 0, sizeof(dest));
-            dest.sin_family      = AF_INET;
-            dest.sin_port        = htons(ONVIF_DISCOVERY_PORT);
-            dest.sin_addr.s_addr = inet_addr(ONVIF_MULTICAST_GROUP);
-            sendto(sock, hello_buf, hl > 0 ? hl : 0, 0, (struct sockaddr *)&dest, sizeof(dest));
-            ESP_LOGI(TAG, "Sent initial Hello to %s:%d", ONVIF_MULTICAST_GROUP,
-                     ONVIF_DISCOVERY_PORT);
+            if (hl <= 0 || (size_t)hl >= sizeof(hello_buf)) {
+                /* Would-be length is not a byte count: sending it would
+                 * read past this stack buffer. Skip, keep serving. */
+                ESP_LOGW(TAG, "Hello truncated - check uuid/scopes length");
+            } else {
+                struct sockaddr_in dest;
+                memset(&dest, 0, sizeof(dest));
+                dest.sin_family      = AF_INET;
+                dest.sin_port        = htons(ONVIF_DISCOVERY_PORT);
+                dest.sin_addr.s_addr = inet_addr(ONVIF_MULTICAST_GROUP);
+                sendto(sock, hello_buf, hl > 0 ? hl : 0, 0, (struct sockaddr *)&dest, sizeof(dest));
+                ESP_LOGI(TAG, "Sent initial Hello to %s:%d", ONVIF_MULTICAST_GROUP,
+                         ONVIF_DISCOVERY_PORT);
+            }
         }
 
         int hello_counter = 0;
@@ -182,9 +188,11 @@ static void onvif_c_discovery_task(void *arg)
                         local_addr.s_addr = inet_addr(ip_str);
                         setsockopt(sock, IPPROTO_IP, IP_MULTICAST_IF, &local_addr,
                                    sizeof(local_addr));
-                        sendto(sock, hello_buf, hl > 0 ? hl : 0, 0, (struct sockaddr *)&dest,
-                               sizeof(dest));
-                        ESP_LOGI(TAG, "Resent Hello (periodic)");
+                        if (hl > 0 && (size_t)hl < sizeof(hello_buf)) {
+                            sendto(sock, hello_buf, (size_t)hl, 0, (struct sockaddr *)&dest,
+                                   sizeof(dest));
+                            ESP_LOGI(TAG, "Resent Hello (periodic)");
+                        }
                     }
                 }
                 continue;
@@ -214,10 +222,16 @@ static void onvif_c_discovery_task(void *arg)
             int  rl = onvif_probe_build_matches(resp_buf, sizeof(resp_buf), relates_to, device_uuid,
                                                 ip_str, cfg->http_port, onvif_c_cfg_scopes());
 
+            if (rl <= 0 || (size_t)rl >= sizeof(resp_buf)) {
+                ESP_LOGW(TAG, "ProbeMatches truncated - check uuid/scopes "
+                              "length, dropping probe");
+                continue;
+            }
+
             struct in_addr if_addr;
             if_addr.s_addr = inet_addr(ip_str);
             setsockopt(sock, IPPROTO_IP, IP_MULTICAST_IF, &if_addr, sizeof(if_addr));
-            int sent = sendto(sock, resp_buf, rl > 0 ? rl : 0, 0, (struct sockaddr *)&sender_addr,
+            int sent = sendto(sock, resp_buf, (size_t)rl, 0, (struct sockaddr *)&sender_addr,
                               sizeof(sender_addr));
             ESP_LOGI(TAG, "ProbeMatches sent to %s:%d, result=%d", inet_ntoa(sender_addr.sin_addr),
                      ntohs(sender_addr.sin_port), sent);
