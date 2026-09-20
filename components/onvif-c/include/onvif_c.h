@@ -33,7 +33,7 @@ extern "C" {
 #endif
 
 /* Bump on API/behavior changes: major*10000 + minor*100 + patch. */
-#define ONVIF_C_VERSION 200
+#define ONVIF_C_VERSION 100
 
 typedef struct {
     /* ---- identity (strings copied by reference; must outlive onvif_c_start) ---- */
