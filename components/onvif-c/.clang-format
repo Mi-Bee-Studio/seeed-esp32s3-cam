@@ -1,0 +1,48 @@
+# onvif-c code style — matches the ESP-IDF-family C dialect this library
+# was extracted from. Enforced by tools/check_style.sh (CI + pre-commit).
+---
+Language:        Cpp
+BasedOnStyle:    LLVM
+IndentWidth:     4
+TabWidth:        4
+UseTab:          Never
+ColumnLimit:     100
+
+# K&R for control flow, own-line braces for function bodies (ESP-IDF style)
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterControlStatement: false
+  AfterEnum: false
+  AfterStruct: false
+  AfterUnion: false
+  AfterExternBlock: false
+  AfterNamespace: false
+  AfterObjCDeclaration: false
+  AfterCaseLabel: false
+  BeforeElse: false
+  BeforeCatch: false
+  IndentBraces: false
+  SplitEmptyFunction: true
+  SplitEmptyRecord: true
+PointerAlignment: Right
+DerivePointerAlignment: false
+AlignAfterOpenBracket: Align
+AlignConsecutiveMacros: true
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
+AlignTrailingComments: true
+AlignOperands: true
+
+# bin-pack long calls (SOAP builder argument lists stay compact)
+BinPackArguments: true
+BinPackParameters: true
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+SpaceBeforeParens: ControlStatements
+IndentCaseLabels: false
+SortIncludes: Never
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1

@@ -21,16 +21,16 @@
 
 static const char *TAG = "onvif_c_ev";
 
-#define ONVIF_EV_BODY_MAX    4096   /* accepted request body ceiling */
-#define ONVIF_EV_PULL_MAX       6   /* max events per PullMessages (buffer) */
-#define SUB_LIFETIME_S       3600   /* granted TerminationTime */
-#define SUB_IDLE_TIMEOUT_S    120   /* auto-expire without pulls */
+#define ONVIF_EV_BODY_MAX  4096 /* accepted request body ceiling */
+#define ONVIF_EV_PULL_MAX  6    /* max events per PullMessages (buffer) */
+#define SUB_LIFETIME_S     3600 /* granted TerminationTime */
+#define SUB_IDLE_TIMEOUT_S 120  /* auto-expire without pulls */
 
 static struct {
-    SemaphoreHandle_t mtx;
-    bool     sub_valid;
-    time_t   sub_termination;
-    time_t   sub_last_pull;
+    SemaphoreHandle_t    mtx;
+    bool                 sub_valid;
+    time_t               sub_termination;
+    time_t               sub_last_pull;
     onvif_c_event_ring_t ring;
 } s_ev;
 
@@ -73,7 +73,7 @@ static esp_err_t ev_send(httpd_req_t *req, const char *xml)
 static esp_err_t ev_fault(httpd_req_t *req, const char *subcode, const char *text)
 {
     char resp[768];
-    int len = onvif_xml_events_fault(resp, sizeof(resp), subcode, text);
+    int  len = onvif_xml_events_fault(resp, sizeof(resp), subcode, text);
     if (len <= 0 || (size_t)len >= sizeof(resp)) {
         return ESP_FAIL;
     }
@@ -86,8 +86,7 @@ static bool sub_alive(time_t now)
     if (!s_ev.sub_valid) {
         return false;
     }
-    if (now > s_ev.sub_termination ||
-        (now - s_ev.sub_last_pull) > SUB_IDLE_TIMEOUT_S) {
+    if (now > s_ev.sub_termination || (now - s_ev.sub_last_pull) > SUB_IDLE_TIMEOUT_S) {
         s_ev.sub_valid = false;
         ESP_LOGI(TAG, "Subscription expired (idle/termination)");
         return false;
@@ -103,23 +102,21 @@ static esp_err_t handle_create_pull_point(httpd_req_t *req)
 {
     time_t now = time(NULL);
     xSemaphoreTake(s_ev.mtx, portMAX_DELAY);
-    bool replaced = s_ev.sub_valid;
-    s_ev.sub_valid = true;
+    bool replaced        = s_ev.sub_valid;
+    s_ev.sub_valid       = true;
     s_ev.sub_termination = now + SUB_LIFETIME_S;
-    s_ev.sub_last_pull = now;
+    s_ev.sub_last_pull   = now;
     onvif_c_ring_reset(&s_ev.ring);
     xSemaphoreGive(s_ev.mtx);
-    ESP_LOGI(TAG, "Pull-Point subscription created%s",
-             replaced ? " (replaced previous)" : "");
+    ESP_LOGI(TAG, "Pull-Point subscription created%s", replaced ? " (replaced previous)" : "");
 
     char now_s[24], term_s[24];
     iso8601(now, now_s, sizeof(now_s));
     iso8601(now + SUB_LIFETIME_S, term_s, sizeof(term_s));
 
     char resp[1024];
-    int len = onvif_xml_create_pull_point_response(resp, sizeof(resp),
-                                                   onvif_c_cfg_ip(), now_s,
-                                                   term_s);
+    int  len = onvif_xml_create_pull_point_response(resp, sizeof(resp), onvif_c_cfg_ip(),
+                                                    onvif_c_cfg()->http_port, now_s, term_s);
     if (len <= 0 || (size_t)len >= sizeof(resp)) {
         return ev_fault(req, "ter:ActionNotSupported", "response overflow");
     }
@@ -129,23 +126,23 @@ static esp_err_t handle_create_pull_point(httpd_req_t *req)
 static esp_err_t handle_pull_messages(httpd_req_t *req, const char *body)
 {
     /* MessageLimit (optional): default/cap ONVIF_EV_PULL_MAX */
-    int limit = ONVIF_EV_PULL_MAX;
-    const char *ml = body ? strstr(body, "MessageLimit") : NULL;
+    int         limit = ONVIF_EV_PULL_MAX;
+    const char *ml    = body ? strstr(body, "MessageLimit") : NULL;
     if (ml) {
         const char *gt = strchr(ml, '>');
-        int v = gt ? atoi(gt + 1) : 0;
+        int         v  = gt ? atoi(gt + 1) : 0;
         if (v > 0 && v < limit) {
             limit = v;
         }
     }
 
     time_t now = time(NULL);
-    char now_s[24], term_s[24];
+    char   now_s[24], term_s[24];
     iso8601(now, now_s, sizeof(now_s));
 
     /* Response assembled dynamically (max 6 events x ~440B + envelope). */
-    size_t cap = 4096;
-    char *resp = malloc(cap);
+    size_t cap  = 4096;
+    char  *resp = malloc(cap);
     if (!resp) {
         return ev_fault(req, "ter:ActionNotSupported", "oom");
     }
@@ -161,8 +158,7 @@ static esp_err_t handle_pull_messages(httpd_req_t *req, const char *body)
         while (delivered < limit && onvif_c_ring_pop(&s_ev.ring, &e)) {
             char ts[24];
             iso8601((time_t)e.utc, ts, sizeof(ts));
-            off += onvif_xml_pull_event(resp + off, cap - off, ts,
-                                        e.active, e.score);
+            off += onvif_xml_pull_event(resp + off, cap - off, ts, e.active, e.score);
             delivered++;
         }
     }
@@ -202,7 +198,7 @@ static esp_err_t handle_renew(httpd_req_t *req)
     iso8601(now + SUB_LIFETIME_S, term_s, sizeof(term_s));
 
     char resp[512];
-    int len = onvif_xml_renew_response(resp, sizeof(resp), term_s);
+    int  len = onvif_xml_renew_response(resp, sizeof(resp), term_s);
     if (len <= 0 || (size_t)len >= sizeof(resp)) {
         return ESP_FAIL;
     }
@@ -225,7 +221,7 @@ static esp_err_t handle_unsubscribe(httpd_req_t *req)
 
 static esp_err_t events_service_handler(httpd_req_t *req)
 {
-    char *body = ev_read_body(req);
+    char     *body = ev_read_body(req);
     esp_err_t ret;
     if (!body) {
         return ev_fault(req, "ter:ActionNotSupported", "empty/oversized body");
@@ -295,8 +291,7 @@ esp_err_t onvif_c_events_register(httpd_handle_t server)
     };
     esp_err_t ret = httpd_register_uri_handler(server, &uri);
     if (ret != ESP_OK && ret != ESP_ERR_HTTPD_HANDLER_EXISTS) {
-        ESP_LOGE(TAG, "Failed to register events service: %s",
-                 esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to register events service: %s", esp_err_to_name(ret));
         return ret;
     }
     ESP_LOGI(TAG, "Registered /onvif/events_service (Pull-Point, MotionAlarm)");

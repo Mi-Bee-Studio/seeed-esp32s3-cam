@@ -18,8 +18,8 @@
 
 static const char *TAG = "onvif_c_svc";
 
-#define ONVIF_C_BODY_MAX  4096
-#define ONVIF_C_RESP_MAX  4096
+#define ONVIF_C_BODY_MAX 4096
+#define ONVIF_C_RESP_MAX 4096
 
 static onvif_c_config_t s_cfg;
 
@@ -35,11 +35,30 @@ const onvif_c_config_t *onvif_c_cfg(void)
 void onvif_c_cfg_set(const onvif_c_config_t *cfg)
 {
     s_cfg = *cfg;
-    if (!s_cfg.manufacturer)     s_cfg.manufacturer = "MiBee";
-    if (!s_cfg.model)            s_cfg.model = "MiBeeCam";
-    if (!s_cfg.hardware_id)      s_cfg.hardware_id = "ESP32";
-    if (!s_cfg.firmware_version) s_cfg.firmware_version = "v0.1.0";
-    if (s_cfg.http_port == 0)    s_cfg.http_port = 80;
+    if (!s_cfg.manufacturer)
+        s_cfg.manufacturer = "MiBee";
+    if (!s_cfg.model)
+        s_cfg.model = "MiBeeCam";
+    if (!s_cfg.hardware_id)
+        s_cfg.hardware_id = "ESP32";
+    if (!s_cfg.firmware_version)
+        s_cfg.firmware_version = "v0.2.0";
+    if (s_cfg.http_port == 0)
+        s_cfg.http_port = 80;
+    if (!s_cfg.scopes) {
+        /* Resolve the default ONCE, before any task exists that reads it:
+         * deriving it per-call would race the discovery task on a shared
+         * static buffer. It depends only on model, fixed after this call. */
+        static char default_scopes[256];
+        snprintf(default_scopes, sizeof(default_scopes),
+                 "onvif://www.onvif.org/type/video_encoder "
+                 "onvif://www.onvif.org/type/NetworkVideoTransmitter "
+                 "onvif://www.onvif.org/hardware/%s "
+                 "onvif://www.onvif.org/name/%s "
+                 "onvif://www.onvif.org/Profile/Streaming",
+                 s_cfg.model, s_cfg.model);
+        s_cfg.scopes = default_scopes;
+    }
 }
 
 const char *onvif_c_cfg_ip(void)
@@ -50,18 +69,7 @@ const char *onvif_c_cfg_ip(void)
 
 const char *onvif_c_cfg_scopes(void)
 {
-    if (s_cfg.scopes) {
-        return s_cfg.scopes;
-    }
-    static char buf[256];
-    snprintf(buf, sizeof(buf),
-             "onvif://www.onvif.org/type/video_encoder "
-             "onvif://www.onvif.org/type/NetworkVideoTransmitter "
-             "onvif://www.onvif.org/hardware/%s "
-             "onvif://www.onvif.org/name/%s "
-             "onvif://www.onvif.org/Profile/Streaming",
-             s_cfg.model, s_cfg.model);
-    return buf;
+    return s_cfg.scopes;
 }
 
 bool onvif_c_cfg_has_events(void)
@@ -93,15 +101,16 @@ static char *read_body(httpd_req_t *req)
 }
 
 /** Build + send: fn writes into a heap buffer of ONVIF_C_RESP_MAX. */
-#define SEND_BUILT(req, build)                                        \
-    do {                                                              \
-        char *resp_ = malloc(ONVIF_C_RESP_MAX);                       \
-        if (!resp_) return ESP_FAIL;                                  \
-        int len_ = (build);                                           \
-        httpd_resp_set_type(req, "application/soap+xml");             \
-        httpd_resp_send(req, resp_, len_ > 0 ? len_ : 0);             \
-        free(resp_);                                                  \
-        return ESP_OK;                                                \
+#define SEND_BUILT(req, build)                                                                     \
+    do {                                                                                           \
+        char *resp_ = malloc(ONVIF_C_RESP_MAX);                                                    \
+        if (!resp_)                                                                                \
+            return ESP_FAIL;                                                                       \
+        int len_ = (build);                                                                        \
+        httpd_resp_set_type(req, "application/soap+xml");                                          \
+        httpd_resp_send(req, resp_, len_ > 0 ? len_ : 0);                                          \
+        free(resp_);                                                                               \
+        return ESP_OK;                                                                             \
     } while (0)
 
 /* ------------------------------------------------------------------ */
@@ -110,26 +119,24 @@ static char *read_body(httpd_req_t *req)
 
 static esp_err_t handle_get_system_date_and_time(httpd_req_t *req)
 {
-    time_t now = time(NULL);
+    time_t    now = time(NULL);
     struct tm utc_tm;
     gmtime_r(&now, &utc_tm);
-    SEND_BUILT(req, onvif_xml_system_date_and_time(resp_, ONVIF_C_RESP_MAX,
-                                                   &utc_tm));
+    SEND_BUILT(req, onvif_xml_system_date_and_time(resp_, ONVIF_C_RESP_MAX, &utc_tm));
 }
 
 static esp_err_t handle_get_device_information(httpd_req_t *req)
 {
-    SEND_BUILT(req, onvif_xml_device_information(
-        resp_, ONVIF_C_RESP_MAX,
-        s_cfg.manufacturer, s_cfg.model, s_cfg.firmware_version,
-        s_cfg.serial ? s_cfg.serial() : "000000000000", s_cfg.hardware_id));
+    /* serial() is validated non-NULL by onvif_c_start() — no fallback. */
+    SEND_BUILT(req, onvif_xml_device_information(resp_, ONVIF_C_RESP_MAX, s_cfg.manufacturer,
+                                                 s_cfg.model, s_cfg.firmware_version,
+                                                 s_cfg.serial(), s_cfg.hardware_id));
 }
 
 static esp_err_t handle_get_capabilities(httpd_req_t *req)
 {
-    SEND_BUILT(req, onvif_xml_capabilities(resp_, ONVIF_C_RESP_MAX,
-                                           onvif_c_cfg_ip(),
-                                           onvif_c_cfg_has_events()));
+    SEND_BUILT(req, onvif_xml_capabilities(resp_, ONVIF_C_RESP_MAX, onvif_c_cfg_ip(),
+                                           s_cfg.http_port, onvif_c_cfg_has_events()));
 }
 
 /* ------------------------------------------------------------------ */
@@ -144,20 +151,18 @@ static esp_err_t handle_get_profiles(httpd_req_t *req)
 
 static esp_err_t handle_get_stream_uri(httpd_req_t *req)
 {
-    const char *uri = s_cfg.stream_uri ? s_cfg.stream_uri()
-                                       : "rtsp://0.0.0.0:554/stream";
-    SEND_BUILT(req, onvif_xml_stream_uri(resp_, ONVIF_C_RESP_MAX, uri));
+    /* stream_uri() is validated non-NULL by onvif_c_start() — no fallback. */
+    SEND_BUILT(req, onvif_xml_stream_uri(resp_, ONVIF_C_RESP_MAX, s_cfg.stream_uri()));
 }
 
 static esp_err_t handle_get_snapshot(httpd_req_t *req)
 {
     if (s_cfg.snapshot_uri) {
-        SEND_BUILT(req, onvif_xml_snapshot_uri(resp_, ONVIF_C_RESP_MAX,
-                                               s_cfg.snapshot_uri()));
+        SEND_BUILT(req, onvif_xml_snapshot_uri(resp_, ONVIF_C_RESP_MAX, s_cfg.snapshot_uri()));
     }
     char uri[128];
-    snprintf(uri, sizeof(uri), "http://%s:%u/api/capture",
-             onvif_c_cfg_ip(), (unsigned)s_cfg.http_port);
+    snprintf(uri, sizeof(uri), "http://%s:%u/api/capture", onvif_c_cfg_ip(),
+             (unsigned)s_cfg.http_port);
     SEND_BUILT(req, onvif_xml_snapshot_uri(resp_, ONVIF_C_RESP_MAX, uri));
 }
 
@@ -173,11 +178,13 @@ static void log_unsupported(const char *body)
         if (act_start) {
             act_start++;
             const char *act_end = strchr(act_start, ' ');
-            if (!act_end) act_end = strchr(act_start, '>');
+            if (!act_end)
+                act_end = strchr(act_start, '>');
             if (act_end) {
                 char action[64] = {0};
-                int len = act_end - act_start;
-                if (len > 63) len = 63;
+                int  len        = act_end - act_start;
+                if (len > 63)
+                    len = 63;
                 memcpy(action, act_start, len);
                 ESP_LOGW(TAG, "Unsupported action: %s", action);
             }
@@ -288,14 +295,12 @@ static esp_err_t register_one(httpd_handle_t server, const char *uri,
 
 esp_err_t onvif_c_start(httpd_handle_t httpd, const onvif_c_config_t *cfg)
 {
-    if (!httpd || !cfg || !cfg->serial || !cfg->uuid || !cfg->ip ||
-        !cfg->stream_uri) {
+    if (!httpd || !cfg || !cfg->serial || !cfg->uuid || !cfg->ip || !cfg->stream_uri) {
         return ESP_ERR_INVALID_ARG;
     }
     onvif_c_cfg_set(cfg);
 
-    esp_err_t ret = register_one(httpd, "/onvif/device_service",
-                                 device_service_handler);
+    esp_err_t ret = register_one(httpd, "/onvif/device_service", device_service_handler);
     if (ret != ESP_OK) {
         return ret;
     }

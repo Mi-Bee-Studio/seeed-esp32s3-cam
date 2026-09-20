@@ -41,13 +41,14 @@ void app_onvif_start(httpd_handle_t httpd) {
         .manufacturer     = "MiBee",
         .model            = "MiBeeCam",
         .hardware_id      = "ESP32-S3-N16R8",
-        .firmware_version = "v0.1.0",
+        .firmware_version = "v0.2.0",
         .serial           = my_serial,        /* 稳定十六进制序列号          */
         .uuid             = my_uuid,          /* 不带 urn:uuid: 前缀         */
         .ip               = my_ip,            /* NULL/"0.0.0.0" = 未就绪     */
         .stream_uri       = my_stream_uri,
         .frame_rate       = my_fps,           /* NULL -> 15                  */
         .events_enabled   = my_events_gate,   /* NULL = 不提供事件服务       */
+        .http_port        = 80,               /* 0 -> 80；进所有广告 URI     */
         .mdns_hostname    = "mibeecam-a1b2",  /* NULL = 跳过 mDNS            */
     };
     onvif_c_start(httpd, &cfg);
@@ -72,17 +73,40 @@ Pull-Point 订阅周期，全过退出 0。
 两个服务族的前缀风格刻意不同——各自都是真实 NVR 在生产中对话过的字节，
 不要"统一"。
 
+## 质量门禁（TDD）
+
+库内一切变更先写测试、后改代码，并由 CI 门禁焊死：
+
+| 门禁 | 命令 | 强制内容 |
+| --- | --- | --- |
+| 宿主机测试 | `tests/run.sh` | 212 项检查：core 金样本字节 + 经桩件驱动的完整 esp_idf 移植层 |
+| 覆盖率 | `tests/coverage.sh` | `core/` + `esp_idf/` 行覆盖 ≥80%（当前 95%） |
+| 代码风格 | `tools/check_style.sh` | clang-format 干净（锁定 `clang-format==22.1.8`，见 `.clang-format`） |
+| 仓库卫生 | `tools/check-repo-hygiene.sh` | 不跟踪垃圾/涉密文件 |
+
+宿主机测试设施（`tests/`）只需一个 C 编译器 + pthreads：
+
+- **core 金样本**（`test_core.c`）—— 纯 C，钉死每个响应字节。
+- **移植层**（`test_service.c` / `test_events.c` / `test_discovery.c`）——
+  用 ESP-IDF 桩件（`tests/host_stubs/`）驱动真实 `esp_idf/` handler：
+  请求/响应捕获型假 httpd、假时钟（`-Wl,--wrap=time`，订阅过期完全可
+  复现）、pthread 任务、虚拟 UDP 网络（注入 WS-Discovery Probe、捕获
+  ProbeMatches/Hello，含 socket/bind/组播加入失败的重试路径）。
+
+克隆后装一次 pre-commit 钩子：`tools/setup-hooks.sh`。
+
 ## 库卫生
 
 - core（`core/`）纯 C、不含 ESP-IDF 头——宿主机系统 `cc` 即可测试；
   ESP-IDF 面（`esp_idf/`）是薄传输层。
 - 同时支持 ESP-IDF v5.5.x 与 v6.0.x。
 - 库代码路径无 `ESP_LOGx` 之外日志、无 `printf`、生产者语境 API 不阻塞。
-- `tests/run.sh` —— 金样本测试，零依赖，CI 强制。
+- **零硬编码端点**：`cfg->http_port` 流入所有广告 URI（capabilities
+  XAddr、WS-Discovery XAddr、订阅地址）；板级细节绝不漏进库内。
 
 ## 状态
 
-v0.1.0 —— API 接缝稳定；在 [Mi-Bee Studio](https://github.com/Mi-Bee-Studio)
+v0.2.0 —— API 接缝稳定；在 [Mi-Bee Studio](https://github.com/Mi-Bee-Studio)
 四块 ESP32/ESP32-S3 相机板上对 MiBee NVR 每日生产验证。客户端对应（Go）：
 [onvif-go](https://github.com/mickeyzzc/onvif-go)；兄弟设备端库（Rust）：
 [onvif-rs](https://github.com/mickeyzzc/onvif-rs)。

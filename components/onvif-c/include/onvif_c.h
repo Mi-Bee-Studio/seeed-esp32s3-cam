@@ -33,14 +33,14 @@ extern "C" {
 #endif
 
 /* Bump on API/behavior changes: major*10000 + minor*100 + patch. */
-#define ONVIF_C_VERSION 100
+#define ONVIF_C_VERSION 200
 
 typedef struct {
     /* ---- identity (strings copied by reference; must outlive onvif_c_start) ---- */
-    const char *manufacturer;      /* NULL -> "MiBee"                          */
-    const char *model;             /* NULL -> "MiBeeCam"                       */
-    const char *hardware_id;       /* NULL -> "ESP32"                          */
-    const char *firmware_version;  /* NULL -> "v0.1.0"                         */
+    const char *manufacturer;     /* NULL -> "MiBee"                          */
+    const char *model;            /* NULL -> "MiBeeCam"                       */
+    const char *hardware_id;      /* NULL -> "ESP32"                          */
+    const char *firmware_version; /* NULL -> "v0.1.0"                         */
 
     /* ---- required callbacks ---- */
     /** Stable device serial (hex string). Used by GetDeviceInformation. */
@@ -61,12 +61,12 @@ typedef struct {
     /* ---- events (Pull-Point MotionAlarm). NULL = feature absent:
      * /onvif/events_service is not registered and its XAddr is not
      * advertised in GetCapabilities.                                    */
-    bool (*events_enabled)(void);  /* runtime gate; false = drop motion events */
+    bool (*events_enabled)(void); /* runtime gate; false = drop motion events */
 
     /* ---- discovery / mDNS ---- */
-    uint16_t  http_port;           /* 0 -> 80. Used in XAddrs/URIs.           */
-    const char *mdns_hostname;     /* NULL = skip mDNS entirely.              */
-    const char *mdns_instance;     /* NULL = model.                           */
+    uint16_t    http_port;     /* 0 -> 80. Used in XAddrs/URIs.           */
+    const char *mdns_hostname; /* NULL = skip mDNS entirely.              */
+    const char *mdns_instance; /* NULL = model.                           */
     /** WS-Discovery Scopes body. NULL = default set (video_encoder,
      *  NetworkVideoTransmitter, hardware/<model>, name/<model>, Streaming). */
     const char *scopes;
