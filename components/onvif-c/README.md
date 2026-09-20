@@ -44,13 +44,14 @@ void app_onvif_start(httpd_handle_t httpd) {
         .manufacturer     = "MiBee",
         .model            = "MiBeeCam",
         .hardware_id      = "ESP32-S3-N16R8",
-        .firmware_version = "v0.1.0",
+        .firmware_version = "v0.2.0",
         .serial           = my_serial,        /* stable hex string          */
         .uuid             = my_uuid,          /* no urn:uuid: prefix        */
         .ip               = my_ip,            /* NULL/"0.0.0.0" = not ready */
         .stream_uri       = my_stream_uri,
         .frame_rate       = my_fps,           /* NULL -> 15                 */
         .events_enabled   = my_events_gate,   /* NULL = no events service   */
+        .http_port        = 80,               /* 0 -> 80; used in every URI */
         .mdns_hostname    = "mibeecam-a1b2",  /* NULL = skip mDNS           */
     };
     onvif_c_start(httpd, &cfg);
@@ -78,6 +79,30 @@ Namespace style intentionally differs between service families because each
 style is what real NVRs have been talking to in production — do not
 "unify" them.
 
+## Quality gates (TDD)
+
+Everything the library ships is developed test-first and gated in CI:
+
+| Gate | Command | What it enforces |
+| --- | --- | --- |
+| Host tests | `tests/run.sh` | 212 checks: core golden bytes + the full ESP-IDF port layer driven through stubs |
+| Coverage | `tests/coverage.sh` | ≥80% line coverage over `core/` + `esp_idf/` (currently 95%) |
+| Style | `tools/check_style.sh` | clang-format clean (pinned `clang-format==22.1.8`, see `.clang-format`) |
+| Hygiene | `tools/check-repo-hygiene.sh` | no junk/secret files tracked |
+
+The host harness (`tests/`) needs nothing but a C compiler and pthreads:
+
+- **Core goldens** (`test_core.c`) — pure C, pins every response byte.
+- **Port layer** (`test_service.c` / `test_events.c` / `test_discovery.c`) —
+  the real `esp_idf/` handlers against ESP-IDF stubs (`tests/host_stubs/`):
+  a fake httpd capturing requests/responses, a fake clock
+  (`-Wl,--wrap=time`) making subscription expiry deterministic, pthread
+  tasks, and a virtual UDP network feeding WS-Discovery probes and
+  capturing ProbeMatches/Hello — including socket/bind/membership failure
+  retry paths.
+
+Set up the pre-commit hook once per clone: `tools/setup-hooks.sh`.
+
 ## Library hygiene
 
 - Core (`core/`) is pure C with no ESP-IDF includes — host-testable with the
@@ -85,11 +110,13 @@ style is what real NVRs have been talking to in production — do not
 - Builds on ESP-IDF v5.5.x and v6.0.x.
 - No logging outside `ESP_LOGx`, no `printf` in library code paths, no
   blocking in producer-context APIs.
-- `tests/run.sh` — golden tests, zero dependencies, CI-enforced.
+- No hardcoded endpoints: `cfg->http_port` flows into every advertised URI
+  (capabilities XAddrs, WS-Discovery XAddrs, subscription address); board
+  specifics never leak into the library.
 
 ## Status
 
-v0.1.0 — API seam stable; production-tested daily at
+v0.2.0 — API seam stable; production-tested daily at
 [Mi-Bee Studio](https://github.com/Mi-Bee-Studio) on four ESP32/ESP32-S3
 camera boards against the MiBee NVR. Client counterpart (Go):
 [onvif-go](https://github.com/mickeyzzc/onvif-go); sibling device library

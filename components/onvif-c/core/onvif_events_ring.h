@@ -12,24 +12,23 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define ONVIF_C_EVENT_QUEUE_MAX 12   /* per-subscription depth (drop oldest) */
+#define ONVIF_C_EVENT_QUEUE_MAX 12 /* per-subscription depth (drop oldest) */
 
 typedef struct {
     bool    active;
     uint8_t score;
-    int64_t utc;          /* unix seconds (int64 for host/target parity) */
+    int64_t utc; /* unix seconds (int64 for host/target parity) */
 } onvif_c_event_t;
 
 typedef struct {
     onvif_c_event_t q[ONVIF_C_EVENT_QUEUE_MAX];
-    int      head;        /* oldest slot */
-    int      count;
-    uint32_t generated;   /* cumulative pushes (diagnostic) */
+    int             head; /* oldest slot */
+    int             count;
+    uint32_t        generated; /* cumulative pushes (diagnostic) */
 } onvif_c_event_ring_t;
 
 void onvif_c_ring_reset(onvif_c_event_ring_t *r);
-bool onvif_c_ring_push(onvif_c_event_ring_t *r, bool active, uint8_t score,
-                       int64_t utc);
+bool onvif_c_ring_push(onvif_c_event_ring_t *r, bool active, uint8_t score, int64_t utc);
 /** Pop oldest event into *out; returns true when one was popped. */
 bool onvif_c_ring_pop(onvif_c_event_ring_t *r, onvif_c_event_t *out);
 

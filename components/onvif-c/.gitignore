@@ -6,3 +6,7 @@ dependencies.lock
 __pycache__/
 *.pyc
 /tmp/
+build-cov/
+*.gcda
+*.gcno
+*.gcov

@@ -45,6 +45,9 @@ static const char *port_ip(void)
  * （旧实现对请求体含 RTP-RTSP/RTSP 的客户端回 rtsp://ip:554/stream；
  * 组件回调拿不到请求体，统一回 MJPEG URI —— 本板 :81 流无鉴权、
  * NVR 拉流行为不变。） */
+/* MJPEG 流端口（:81 为 web_server 流服务器监听口） */
+#define STREAM_HTTP_PORT 81
+
 static const char *port_stream_uri(void)
 {
     static char uri[64];
@@ -52,7 +55,7 @@ static const char *port_stream_uri(void)
     if (!ip || strcmp(ip, "0.0.0.0") == 0) {
         ip = "0.0.0.0";
     }
-    snprintf(uri, sizeof(uri), "http://%s:81/stream", ip);
+    snprintf(uri, sizeof(uri), "http://%s:%d/stream", ip, STREAM_HTTP_PORT);
     return uri;
 }
 
