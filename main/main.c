@@ -73,7 +73,7 @@
 #include "mjpeg_streamer.h"
 #include "nas_uploader.h"
 #include "ota_updater.h"
-#include "onvif_discovery.h"
+#include "onvif_port.h"
 #include "frame_broadcaster.h"
 #include "audio_broadcaster.h"
 #include "audio_driver.h"
@@ -658,14 +658,11 @@ void app_main(void)
 
         if (wifi_get_state() == WIFI_STATE_STA_CONNECTED) {
             time_sync_init();   /* retry / ensure synced */
-            /* 契约核心字段 onvif_enable（默认 1=历史行为）：0 = 不启动
-             * WS-Discovery（SOAP 处理器注册在 web_server_start 内同受门控）。
+            /* 契约核心字段 onvif_enable（默认 1=历史行为）：门控收进
+             * onvif_port_start（onvif-c 组件：SOAP 处理器注册 + WS-Discovery
+             * 一体；原 web_server_start 内的注册门同源合并）。
              * 变更经 POST /api/config 保存，重启生效。 */
-            if (config_get()->onvif_enable) {
-                onvif_discovery_init();  /* start WS-Discovery after WiFi connected */
-            } else {
-                ESP_LOGI(TAG, "ONVIF disabled in config (onvif_enable=0)");
-            }
+            onvif_port_start();
             led_set_status(LED_RUNNING);
         }
     }

@@ -70,7 +70,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include "sha256.h"
-#include "onvif_service.h"
 #include "lwip/sockets.h"
 #include "lwip/tcp.h"
 #include "frame_broadcaster.h"
@@ -2309,16 +2308,8 @@ esp_err_t web_server_start(uint16_t port)
         httpd_register_uri_handler(s_server, &uri);
     }
 
-    /* Register ONVIF SOAP service handlers（契约核心字段 onvif_enable=0 时
-     * 不注册 SOAP 处理器，与 main.c 的 WS-Discovery 启动门控同源；变更需重启） */
-    if (config_get()->onvif_enable) {
-        esp_err_t onvif_ret = onvif_register_handlers(s_server);
-        if (onvif_ret != ESP_OK) {
-            ESP_LOGW(TAG, "ONVIF handler registration: %s", esp_err_to_name(onvif_ret));
-        }
-    } else {
-        ESP_LOGI(TAG, "ONVIF disabled in config (onvif_enable=0), handlers not registered");
-    }
+    /* ONVIF SOAP 处理器注册已移交 onvif_port_start（onvif-c 组件，
+     * main.c 第 15 步 STA 连上后调用；onvif_enable 门控同在其内） */
 
     s_port = port;
     ESP_LOGI(TAG, "Web server started on port %d", port);

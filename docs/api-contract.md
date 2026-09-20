@@ -81,7 +81,7 @@
 | `GET /api/storage` | 存储详情（v1.3 收编；sd 能力板语义统一，seeed 补齐） | ✅ | — | — | ✅(v1.3 补) |
 | `GET /api/audio` | G.711 μ-law 裸流 8kHz | — | — | — | ✅ |
 | `GET /ws` | WebSocket 事件推送（见 §6） | — | — | ✅ | ✅ |
-| `/onvif/device_service` · `/onvif/media_service` | ONVIF SOAP | ✅ | ✅ | ✅ | ✅ |
+| `/onvif/device_service` · `/onvif/media_service` | ONVIF SOAP（2026-09-20 起由 vendored `components/onvif-c` 组件提供，上游 mickeyzzc/onvif-c） | ✅ | ✅ | ✅ | ✅ |
 | `/onvif/events_service` | ONVIF Pull-Point 事件（v1.5 §13：MotionAlarm ← CSI） | — | ✅ | — | ✅ |
 | RTSP `:554/stream` | **免认证（v1.9）**，`rtsp://<ip>:554/stream` 直连 | — | ✅ | — | ✅ |
 
