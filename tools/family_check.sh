@@ -4,12 +4,13 @@
 #
 # 用法：在任一家族仓内执行 tools/family_check.sh
 #       （家族根默认 = 本仓的上级目录；可用 MIBEE_FAMILY_ROOT=... 覆盖）
-# 校验对象（v2，2026-09-08 焊死门禁波次扩员）：
+# 校验对象（v3，2026-09-20 ONVIF 抽库波）：
 #   A. 单文件字节一致：SPA 五件套 / AT 核心三件 / 契约三文档 / 家族工具 /
 #      门禁与钩子 / LICENSE / csi_motion.h / .gitignore
-#   B. vendored ESPectre 组件（components/espectre 整树哈希一致）
-#   C. 双板件：onvif_events.h + probe —— 持有板之间必须一致
-#      （onvif_events.c / csi_motion.cpp 是板级差异件，不入 md5 纪律）
+#   B. vendored 组件整树哈希一致：ESPectre + onvif-c（mickeyzzc/onvif-c 落仓）
+#   C. 双板件：onvif_events 探针 —— 持有板之间必须一致
+#      （板级差异件 csi_motion.cpp / onvif_port.c 不入 md5 纪律；v2 的
+#       onvif_events.h 已随抽库入组件树，改由 B 节覆盖）
 # 任一分歧即退出码 1 —— 改一处必须同步四仓。
 # =============================================================================
 set -u
@@ -82,30 +83,32 @@ for f in "${SHARED_FILES[@]}"; do
   fi
 done
 
-# ---- B. vendored ESPectre 整树一致 ----
-ref=""; ref_repo=""; bad=""
-for r in "${REPOS[@]}"; do
-  d="$r/components/espectre"
-  if [ ! -d "$d" ]; then
-    bad="$bad 缺失:$(basename "$r")"
-    continue
-  fi
-  h=$(find "$d" -type f -print0 | sort -z | xargs -0 cat | md5sum | cut -d' ' -f1)
-  if [ -z "$ref" ]; then
-    ref="$h"; ref_repo=$(basename "$r")
-  elif [ "$h" != "$ref" ]; then
-    bad="$bad 分歧:$(basename "$r")=${h:0:8}"
+# ---- B. vendored 组件整树一致（espectre + onvif-c）----
+for comp in espectre onvif-c; do
+  ref=""; ref_repo=""; bad=""
+  for r in "${REPOS[@]}"; do
+    d="$r/components/$comp"
+    if [ ! -d "$d" ]; then
+      bad="$bad 缺失:$(basename "$r")"
+      continue
+    fi
+    h=$(find "$d" -type f -print0 | sort -z | xargs -0 cat | md5sum | cut -d' ' -f1)
+    if [ -z "$ref" ]; then
+      ref="$h"; ref_repo=$(basename "$r")
+    elif [ "$h" != "$ref" ]; then
+      bad="$bad 分歧:$(basename "$r")=${h:0:8}"
+    fi
+  done
+  if [ -n "$bad" ]; then
+    printf '✗ %-44s%s\n' "components/$comp（整树）" "$bad"
+    fail=1
+  else
+    printf '✓ %-44s %s（基准 %s）\n' "components/$comp（整树）" "${ref:0:8}" "$ref_repo"
   fi
 done
-if [ -n "$bad" ]; then
-  printf '✗ %-44s%s\n' "components/espectre（整树）" "$bad"
-  fail=1
-else
-  printf '✓ %-44s %s（基准 %s）\n' "components/espectre（整树）" "${ref:0:8}" "$ref_repo"
-fi
 
-# ---- C. 双板件：onvif_events（契约 v1.5 能力位，仅 CSI 板持有）----
-for f in main/onvif_events.h tools/onvif_events_probe.py; do
+# ---- C. 双板件：onvif_events 探针（契约 v1.5 能力位，仅 CSI 板持有）----
+for f in tools/onvif_events_probe.py; do
   ref=""; owners=""; diverged=0
   for r in "${REPOS[@]}"; do
     [ -f "$r/$f" ] || continue

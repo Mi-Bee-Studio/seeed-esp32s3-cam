@@ -40,7 +40,7 @@
  * 的 pump 任务，controller.loop() 在此驱动 listener），ws_broadcast
  * 为快照模式非阻塞（ws_server.c 快照后发送），满足 SDK 有界回调契约。 */
 extern "C" void ws_broadcast(const char *type, const char *data);
-#include "onvif_events.h"   /* 契约 v1.5：MotionAlarm 扇出（onvif_events 门控） */
+#include "onvif_c.h"   /* 契约 v1.5：MotionAlarm 扇出（onvif_events 门控） */
 
 static const char *TAG = "csi_motion";
 
@@ -208,7 +208,7 @@ public:
                          ? "motion_started" : "motion_cleared",
                      ws_data);
         /* 契约 v1.5：同一状态转移扇出到 ONVIF MotionAlarm（NVR 联动） */
-        onvif_events_motion(s.motion_state == espectre::MotionState::MOTION,
+        onvif_c_motion(s.motion_state == espectre::MotionState::MOTION,
                             (uint8_t)(s.movement_metric * 100.0f + 0.5f));
     }
 

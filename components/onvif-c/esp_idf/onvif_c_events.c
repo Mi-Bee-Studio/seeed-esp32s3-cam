@@ -1,78 +1,37 @@
 /*
- * Copyright (C) 2024 MiBee Cam Authors
+ * onvif-c ESP-IDF port — Pull-Point events service.
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * Extracted from the MiBee Cam firmware (main/onvif_events.c, contract
+ * v1.5 semantics): single subscription (new replaces old), 1h granted
+ * TerminationTime, 120s idle expiry, no long polling — PullMessages
+ * returns immediately, pacing is the client's business.
  */
 
-/**
- * @file onvif_events.c
- * @brief ONVIF Pull-Point 事件服务（契约 v1.5）——见 onvif_events.h 总注释。
- */
-
-#include "onvif_events.h"
+#include "onvif_c_events.h"
+#include "onvif_c_port.h"
+#include "../core/onvif_xml.h"
+#include "../core/onvif_events_ring.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "config_manager.h"
-#include "wifi_manager.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 
-static const char *TAG = "onvif_events";
+static const char *TAG = "onvif_c_ev";
 
-/* —— 板级适配（与 n16r8 版本仅此两函数有差异）—— */
-
-static bool motion_alarms_enabled(void)
-{
-    return config_get()->onvif_events != 0;
-}
-
-static const char *device_ip(void)
-{
-    const char *ip = wifi_get_ip_str();
-    return (ip && strcmp(ip, "0.0.0.0") != 0) ? ip : "0.0.0.0";
-}
-
-/* —— 常量 —— */
-
-#define ONVIF_EV_BODY_MAX    4096   /* 接受的请求体上限（对齐 onvif_service.c） */
-#define ONVIF_EV_QUEUE_MAX     12   /* 每订阅事件队列深度（溢出丢最旧） */
-#define ONVIF_EV_PULL_MAX       6   /* 单次 PullMessages 最多吐出（响应缓冲约束） */
-#define SUB_LIFETIME_S       3600   /* 授予的 TerminationTime */
-#define SUB_IDLE_TIMEOUT_S    120   /* 无 PullMessages 自动过期 */
-
-#define NS_EV  "http://www.onvif.org/ver10/events/wsdl"
-#define NS_WSN "http://docs.oasis-open.org/wsn/b-2"
-#define NS_WSA "http://www.w3.org/2005/08/addressing"
-#define NS_TT  "http://www.onvif.org/ver10/schema"
-
-typedef struct {
-    bool    active;
-    uint8_t score;
-    time_t  utc;
-} motion_evt_t;
+#define ONVIF_EV_BODY_MAX    4096   /* accepted request body ceiling */
+#define ONVIF_EV_PULL_MAX       6   /* max events per PullMessages (buffer) */
+#define SUB_LIFETIME_S       3600   /* granted TerminationTime */
+#define SUB_IDLE_TIMEOUT_S    120   /* auto-expire without pulls */
 
 static struct {
     SemaphoreHandle_t mtx;
     bool     sub_valid;
     time_t   sub_termination;
     time_t   sub_last_pull;
-    motion_evt_t q[ONVIF_EV_QUEUE_MAX];
-    int      head, count;
-    uint32_t generated;    /* 累计入队数（诊断） */
+    onvif_c_event_ring_t ring;
 } s_ev;
 
 /* ------------------------------------------------------------------ */
@@ -114,22 +73,14 @@ static esp_err_t ev_send(httpd_req_t *req, const char *xml)
 static esp_err_t ev_fault(httpd_req_t *req, const char *subcode, const char *text)
 {
     char resp[768];
-    int len = snprintf(resp, sizeof(resp),
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-        "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\">"
-        "<s:Body><s:Fault>"
-        "<s:Code><s:Value>s:Sender</s:Value>"
-        "<s:Subcode><s:Value>%s</s:Value></s:Subcode></s:Code>"
-        "<s:Reason><s:Text xml:lang=\"en\">%s</s:Text></s:Reason>"
-        "</s:Fault></s:Body></s:Envelope>",
-        subcode, text);
+    int len = onvif_xml_events_fault(resp, sizeof(resp), subcode, text);
     if (len <= 0 || (size_t)len >= sizeof(resp)) {
         return ESP_FAIL;
     }
     return ev_send(req, resp);
 }
 
-/* 订阅有效性检查（含过期收敛）。调用方持锁。 */
+/* Subscription validity (with expiry convergence). Caller holds the lock. */
 static bool sub_alive(time_t now)
 {
     if (!s_ev.sub_valid) {
@@ -156,8 +107,7 @@ static esp_err_t handle_create_pull_point(httpd_req_t *req)
     s_ev.sub_valid = true;
     s_ev.sub_termination = now + SUB_LIFETIME_S;
     s_ev.sub_last_pull = now;
-    s_ev.head = 0;
-    s_ev.count = 0;
+    onvif_c_ring_reset(&s_ev.ring);
     xSemaphoreGive(s_ev.mtx);
     ESP_LOGI(TAG, "Pull-Point subscription created%s",
              replaced ? " (replaced previous)" : "");
@@ -167,20 +117,9 @@ static esp_err_t handle_create_pull_point(httpd_req_t *req)
     iso8601(now + SUB_LIFETIME_S, term_s, sizeof(term_s));
 
     char resp[1024];
-    int len = snprintf(resp, sizeof(resp),
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-        "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\">"
-        "<s:Body>"
-        "<tev:CreatePullPointSubscriptionResponse xmlns:tev=\"" NS_EV "\" "
-        "xmlns:wsa=\"" NS_WSA "\" xmlns:wsnt=\"" NS_WSN "\">"
-        "<tev:SubscriptionReference>"
-        "<wsa:Address>http://%s:80/onvif/events_service</wsa:Address>"
-        "</tev:SubscriptionReference>"
-        "<wsnt:CurrentTime>%s</wsnt:CurrentTime>"
-        "<wsnt:TerminationTime>%s</wsnt:TerminationTime>"
-        "</tev:CreatePullPointSubscriptionResponse>"
-        "</s:Body></s:Envelope>",
-        device_ip(), now_s, term_s);
+    int len = onvif_xml_create_pull_point_response(resp, sizeof(resp),
+                                                   onvif_c_cfg_ip(), now_s,
+                                                   term_s);
     if (len <= 0 || (size_t)len >= sizeof(resp)) {
         return ev_fault(req, "ter:ActionNotSupported", "response overflow");
     }
@@ -189,7 +128,7 @@ static esp_err_t handle_create_pull_point(httpd_req_t *req)
 
 static esp_err_t handle_pull_messages(httpd_req_t *req, const char *body)
 {
-    /* MessageLimit（可选）：默认/封顶 ONVIF_EV_PULL_MAX */
+    /* MessageLimit (optional): default/cap ONVIF_EV_PULL_MAX */
     int limit = ONVIF_EV_PULL_MAX;
     const char *ml = body ? strstr(body, "MessageLimit") : NULL;
     if (ml) {
@@ -204,18 +143,13 @@ static esp_err_t handle_pull_messages(httpd_req_t *req, const char *body)
     char now_s[24], term_s[24];
     iso8601(now, now_s, sizeof(now_s));
 
-    /* 响应动态拼装（最多 6 条 × ~440B + 外壳） */
+    /* Response assembled dynamically (max 6 events x ~440B + envelope). */
     size_t cap = 4096;
     char *resp = malloc(cap);
     if (!resp) {
         return ev_fault(req, "ter:ActionNotSupported", "oom");
     }
-    int off = snprintf(resp, cap,
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-        "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\">"
-        "<s:Body>"
-        "<tev:PullMessagesResponse xmlns:tev=\"" NS_EV "\" "
-        "xmlns:wsnt=\"" NS_WSN "\" xmlns:tt=\"" NS_TT "\">");
+    int off = onvif_xml_pull_open(resp, cap);
 
     int delivered = 0;
     xSemaphoreTake(s_ev.mtx, portMAX_DELAY);
@@ -223,24 +157,12 @@ static esp_err_t handle_pull_messages(httpd_req_t *req, const char *body)
     if (alive) {
         s_ev.sub_last_pull = now;
         iso8601(s_ev.sub_termination, term_s, sizeof(term_s));
-        while (delivered < limit && s_ev.count > 0) {
-            const motion_evt_t *e = &s_ev.q[s_ev.head];
+        onvif_c_event_t e;
+        while (delivered < limit && onvif_c_ring_pop(&s_ev.ring, &e)) {
             char ts[24];
-            iso8601(e->utc, ts, sizeof(ts));
-            off += snprintf(resp + off, cap - off,
-                "<wsnt:NotificationMessage>"
-                "<wsnt:Topic Dialect=\"http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet\">"
-                "tns1:VideoSource/MotionAlarm</wsnt:Topic>"
-                "<wsnt:Message><tt:Message UtcTime=\"%s\">"
-                "<tt:Source><tt:SimpleItem Name=\"Source\" Value=\"CSI\"/></tt:Source>"
-                "<tt:Data>"
-                "<tt:SimpleItem Name=\"State\" Value=\"%s\"/>"
-                "<tt:SimpleItem Name=\"Score\" Value=\"%u\"/>"
-                "</tt:Data></tt:Message></wsnt:Message>"
-                "</wsnt:NotificationMessage>",
-                ts, e->active ? "true" : "false", e->score);
-            s_ev.head = (s_ev.head + 1) % ONVIF_EV_QUEUE_MAX;
-            s_ev.count--;
+            iso8601((time_t)e.utc, ts, sizeof(ts));
+            off += onvif_xml_pull_event(resp + off, cap - off, ts,
+                                        e.active, e.score);
             delivered++;
         }
     }
@@ -252,11 +174,7 @@ static esp_err_t handle_pull_messages(httpd_req_t *req, const char *body)
                         "no active subscription (expired)");
     }
 
-    off += snprintf(resp + off, cap - off,
-        "<tev:CurrentTime>%s</tev:CurrentTime>"
-        "<tev:TerminationTime>%s</tev:TerminationTime>"
-        "</tev:PullMessagesResponse></s:Body></s:Envelope>",
-        now_s, term_s);
+    off += onvif_xml_pull_close(resp + off, cap - off, now_s, term_s);
     if (off <= 0 || (size_t)off >= cap) {
         free(resp);
         return ev_fault(req, "ter:ActionNotSupported", "response overflow");
@@ -280,20 +198,11 @@ static esp_err_t handle_renew(httpd_req_t *req)
                         "no active subscription (expired)");
     }
 
-    char now_s[24], term_s[24];
-    iso8601(now, now_s, sizeof(now_s));
+    char term_s[24];
     iso8601(now + SUB_LIFETIME_S, term_s, sizeof(term_s));
 
     char resp[512];
-    int len = snprintf(resp, sizeof(resp),
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-        "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\">"
-        "<s:Body>"
-        "<wsnt:RenewResponse xmlns:wsnt=\"" NS_WSN "\">"
-        "<wsnt:TerminationTime>%s</wsnt:TerminationTime>"
-        "</wsnt:RenewResponse>"
-        "</s:Body></s:Envelope>",
-        term_s);
+    int len = onvif_xml_renew_response(resp, sizeof(resp), term_s);
     if (len <= 0 || (size_t)len >= sizeof(resp)) {
         return ESP_FAIL;
     }
@@ -307,13 +216,7 @@ static esp_err_t handle_unsubscribe(httpd_req_t *req)
     xSemaphoreGive(s_ev.mtx);
     ESP_LOGI(TAG, "Subscription closed by client");
 
-    const char *resp =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-        "<s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\">"
-        "<s:Body>"
-        "<wsnt:UnsubscribeResponse xmlns:wsnt=\"" NS_WSN "\"/>"
-        "</s:Body></s:Envelope>";
-    return ev_send(req, resp);
+    return ev_send(req, onvif_xml_unsubscribe_response());
 }
 
 /* ------------------------------------------------------------------ */
@@ -325,8 +228,7 @@ static esp_err_t events_service_handler(httpd_req_t *req)
     char *body = ev_read_body(req);
     esp_err_t ret;
     if (!body) {
-        ret = ev_fault(req, "ter:ActionNotSupported", "empty/oversized body");
-        return ret;
+        return ev_fault(req, "ter:ActionNotSupported", "empty/oversized body");
     }
     if (strstr(body, "CreatePullPointSubscription")) {
         ret = handle_create_pull_point(req);
@@ -348,36 +250,31 @@ static esp_err_t events_service_handler(httpd_req_t *req)
 /*  Public API                                                         */
 /* ------------------------------------------------------------------ */
 
-void onvif_events_motion(bool active, uint8_t score)
+void onvif_c_motion(bool active, uint8_t score)
 {
-    if (!s_ev.mtx || !motion_alarms_enabled()) {
+    if (!s_ev.mtx) {
         return;
     }
-    /* ESPectre 回调契约：非阻塞；锁竞争即丢弃（事件可丢） */
+    const onvif_c_config_t *cfg = onvif_c_cfg();
+    if (cfg->events_enabled && !cfg->events_enabled()) {
+        return;
+    }
+    /* Producer contract: never block; drop on lock contention. */
     if (xSemaphoreTake(s_ev.mtx, 0) != pdTRUE) {
         return;
     }
     if (s_ev.sub_valid) {
-        if (s_ev.count == ONVIF_EV_QUEUE_MAX) {
-            s_ev.head = (s_ev.head + 1) % ONVIF_EV_QUEUE_MAX;
-            s_ev.count--;
-        }
-        motion_evt_t *e = &s_ev.q[(s_ev.head + s_ev.count) % ONVIF_EV_QUEUE_MAX];
-        e->active = active;
-        e->score = score;
-        e->utc = time(NULL);
-        s_ev.count++;
-        s_ev.generated++;
+        onvif_c_ring_push(&s_ev.ring, active, score, (int64_t)time(NULL));
     }
     xSemaphoreGive(s_ev.mtx);
 }
 
-bool onvif_events_subscribed(void)
+bool onvif_c_events_subscribed(void)
 {
     return s_ev.mtx && s_ev.sub_valid;
 }
 
-esp_err_t onvif_events_register(httpd_handle_t server)
+esp_err_t onvif_c_events_register(httpd_handle_t server)
 {
     if (!server) {
         return ESP_ERR_INVALID_ARG;
