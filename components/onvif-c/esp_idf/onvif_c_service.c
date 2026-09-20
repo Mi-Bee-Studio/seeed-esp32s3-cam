@@ -18,6 +18,8 @@
 
 static const char *TAG = "onvif_c_svc";
 
+static esp_err_t send_fault(httpd_req_t *req);
+
 #define ONVIF_C_BODY_MAX 4096
 #define ONVIF_C_RESP_MAX 4096
 
@@ -91,12 +93,19 @@ static char *read_body(httpd_req_t *req)
     if (!buf) {
         return NULL;
     }
-    int ret = httpd_req_recv(req, buf, len);
-    if (ret <= 0) {
-        free(buf);
-        return NULL;
+    /* httpd_req_recv returns bytes read, not a promise to fill the buffer:
+     * a body larger than one TCP segment arrives in pieces — loop until
+     * content_len bytes arrive or the transport errors out. */
+    size_t got = 0;
+    while (got < len) {
+        int ret = httpd_req_recv(req, buf + got, len - got);
+        if (ret <= 0) {
+            free(buf);
+            return NULL;
+        }
+        got += (size_t)ret;
     }
-    buf[ret] = '\0';
+    buf[len] = '\0';
     return buf;
 }
 
@@ -107,8 +116,19 @@ static char *read_body(httpd_req_t *req)
         if (!resp_)                                                                                \
             return ESP_FAIL;                                                                       \
         int len_ = (build);                                                                        \
+        if (len_ <= 0 || (size_t)len_ >= ONVIF_C_RESP_MAX) {                                       \
+            /* Builders return snprintf's would-be length, NOT a byte count. */                    \
+            /* An overflowing response degrades to the standard fault instead */                   \
+            /* of reading past the buffer in httpd_resp_send. */                                   \
+            ESP_LOGW(TAG,                                                                          \
+                     "response truncated (%d B >= %d B buffer) - "                                 \
+                     "check model/serial/uri lengths",                                             \
+                     len_, ONVIF_C_RESP_MAX);                                                      \
+            free(resp_);                                                                           \
+            return send_fault(req);                                                                \
+        }                                                                                          \
         httpd_resp_set_type(req, "application/soap+xml");                                          \
-        httpd_resp_send(req, resp_, len_ > 0 ? len_ : 0);                                          \
+        httpd_resp_send(req, resp_, (size_t)len_);                                                 \
         free(resp_);                                                                               \
         return ESP_OK;                                                                             \
     } while (0)

@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased]
+
+Robustness wave from the v0.1.0 code review (issues #6–#10):
+
+- **Send paths no longer trust snprintf would-be lengths as byte counts**
+  (#6). `SEND_BUILT` degrades an overflowing response to the standard SOAP
+  fault instead of reading past the buffer; the three WS-Discovery `sendto`
+  sites (initial Hello, periodic Hello, ProbeMatches) skip truncated frames
+  with a warning. Oversized integrator strings (model / serial / stream URI
+  / scopes) can no longer cause heap or stack over-reads — pinned by tests
+  that run the huge-string paths and by the new ASan/UBSan CI job.
+- **SOAP body reads loop over `httpd_req_recv`** (#7): a partial read (one
+  TCP segment) is reassembled instead of degrading to
+  `ter:ActionNotSupported`.
+- **PullMessages assembly checks bounds before every write** (#8): per-append
+  truncation checks make `cap - off` underflow impossible; the response
+  buffer size is a named constant (`ONVIF_EV_RESP_MAX`).
+- **CI runs the host suites under ASan/UBSan** (#9) — the stub harness
+  drives the shipped port layer, so length-arithmetic regressions trap.
+- **Security posture documented in the README** (#10): no ONVIF
+  authentication is implemented; the deployment assumption (trusted LAN) is
+  now stated explicitly in both languages.
+
 ## 0.1.0 (2026-09-20)
 
 First release. Initial extraction from the MiBee Cam firmware (GPL-3.0-or-later,
