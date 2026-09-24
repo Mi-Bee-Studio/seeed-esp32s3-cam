@@ -50,6 +50,8 @@ SHARED_FILES=(
   tools/setup-hooks.sh
   tools/compress_ui.py
   main/csi_motion.h
+  main/watchdog.c
+  main/watchdog.h
   LICENSE
   .gitignore
   scripts/security-check.py

@@ -35,6 +35,7 @@
  */
 
 #include "web_server.h"
+#include "watchdog.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "cJSON.h"
@@ -346,6 +347,7 @@ static esp_err_t api_status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "chip_temp", (double)get_chip_temp());
     cJSON_AddNumberToObject(data, "frames_dropped", (double)recorder_get_frames_dropped());
     cJSON_AddStringToObject(data, "firmware_version", FW_VERSION);
+    watchdog_attach_status(data);
     /* 家族 motion/timelapse 模型字段（契约 §3.2 命名） */
     cJSON_AddBoolToObject(data, "timelapse_enabled", cfg->timelapse_enabled);
     cJSON_AddNumberToObject(data, "timelapse_interval_s", (double)cfg->timelapse_interval_s);
@@ -409,7 +411,7 @@ static esp_err_t api_capabilities_handler(httpd_req_t *req)
     cJSON *data = cJSON_CreateObject();
 
     /* 契约 v1.1：12 个布尔能力位 + api_version/wifi_scan（见 docs/api-contract.md） */
-    cJSON_AddStringToObject(data, "api_version", "1.9");
+    cJSON_AddStringToObject(data, "api_version", "1.10");
     cJSON_AddBoolToObject(data, "wifi_scan", true);
     cJSON_AddBoolToObject(data, "ai", false);           /* On-device AI detection */
     cJSON_AddBoolToObject(data, "sd", storage_is_available());  /* SD card storage */

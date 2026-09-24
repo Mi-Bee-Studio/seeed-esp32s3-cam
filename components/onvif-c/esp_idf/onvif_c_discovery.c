@@ -21,6 +21,12 @@
 #include "freertos/task.h"
 #include "lwip/sockets.h"
 #include "esp_heap_caps.h" /* explicit: PSRAM recv buffer (PIT lesson) */
+#if __has_include("esp_task_wdt.h")
+#include "esp_task_wdt.h"
+#define ONVIF_C_HAVE_WDT 1
+#else
+#define ONVIF_C_HAVE_WDT 0
+#endif
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -50,6 +56,18 @@ static void onvif_c_discovery_task(void *arg)
     const char             *device_uuid = cfg->uuid();
     ESP_LOGI(TAG, "Device UUID: %s", device_uuid);
 
+#if ONVIF_C_HAVE_WDT
+    bool wdt_watched = false;
+    if (cfg->wdt_watch_discovery) {
+        if (esp_task_wdt_add(NULL) == ESP_OK) {
+            wdt_watched = true;
+            ESP_LOGI(TAG, "Discovery task subscribed to the task watchdog");
+        } else {
+            ESP_LOGW(TAG, "Task watchdog subscribe failed (CONFIG_ESP_TASK_WDT?)");
+        }
+    }
+#endif
+
     char *recv_buf = (char *)heap_caps_malloc(PROBE_BUF_SIZE, MALLOC_CAP_SPIRAM);
     if (!recv_buf) {
         recv_buf = malloc(PROBE_BUF_SIZE); /* PSRAM-less boards */
@@ -66,6 +84,12 @@ static void onvif_c_discovery_task(void *arg)
         if (s_disc_task == NULL) {
             break;
         }
+
+#if ONVIF_C_HAVE_WDT
+        if (wdt_watched) {
+            esp_task_wdt_reset();
+        }
+#endif
 
         if (sock >= 0) {
             close(sock);
@@ -162,6 +186,12 @@ static void onvif_c_discovery_task(void *arg)
                 break;
             }
 
+#if ONVIF_C_HAVE_WDT
+            if (wdt_watched) {
+                esp_task_wdt_reset();
+            }
+#endif
+
             struct sockaddr_in sender_addr;
             socklen_t          addr_len = sizeof(sender_addr);
             memset(recv_buf, 0, PROBE_BUF_SIZE);
@@ -241,6 +271,11 @@ static void onvif_c_discovery_task(void *arg)
     free(recv_buf);
     if (sock >= 0)
         close(sock);
+#if ONVIF_C_HAVE_WDT
+    if (wdt_watched) {
+        esp_task_wdt_delete(NULL);
+    }
+#endif
     vTaskDelete(NULL);
 }
 

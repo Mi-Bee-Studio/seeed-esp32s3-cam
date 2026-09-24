@@ -89,6 +89,7 @@ esp_err_t onvif_port_start(void)
         .frame_rate       = port_frame_rate,
         .events_enabled   = port_events_enabled,
         .http_port        = 80,
+        .wdt_watch_discovery = true,
         /* mDNS 归 wifi_manager 所有（mibee_cam-XXXX + _http._tcp）：
          * 组件再 init 会与既有实例冲突并翻主机名，故置 NULL 跳过。 */
         .mdns_hostname    = NULL,

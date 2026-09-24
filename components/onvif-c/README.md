@@ -97,6 +97,7 @@ outlive the service):
 | `snapshot_uri` | no | derived `http://<ip>:<http_port>/api/capture` | GetSnapshotUri answer. |
 | `events_enabled` | no | NULL = feature absent | Runtime gate; when NULL the events service is neither registered nor advertised. |
 | `http_port` | no | 80 | Flows into **every** advertised URI. |
+| `wdt_watch_discovery` | no | false | Subscribe the WS-Discovery task to the ESP-IDF task watchdog (`CONFIG_ESP_TASK_WDT`); a wedged discovery task stops feeding and the TWDT fires. |
 | `mdns_hostname`, `mdns_instance` | no | NULL = skip mDNS | instance defaults to `model`. |
 | `scopes` | no | built from `model` | WS-Discovery Scopes body; resolved once at start. |
 

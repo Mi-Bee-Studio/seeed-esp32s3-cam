@@ -64,7 +64,12 @@ typedef struct {
     bool (*events_enabled)(void); /* runtime gate; false = drop motion events */
 
     /* ---- discovery / mDNS ---- */
-    uint16_t    http_port;     /* 0 -> 80. Used in XAddrs/URIs.           */
+    uint16_t http_port; /* 0 -> 80. Used in XAddrs/URIs.           */
+    /** Subscribe the WS-Discovery task to the ESP-IDF task watchdog
+     *  (esp_task_wdt; the loop paces itself with a 5 s receive timeout, so
+     *  a wedged discovery task stops feeding and the TWDT fires). Requires
+     *  CONFIG_ESP_TASK_WDT in the hosting project. Default false. */
+    bool        wdt_watch_discovery;
     const char *mdns_hostname; /* NULL = skip mDNS entirely.              */
     const char *mdns_instance; /* NULL = model.                           */
     /** WS-Discovery Scopes body. NULL = default set (video_encoder,

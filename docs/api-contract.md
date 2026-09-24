@@ -1,4 +1,4 @@
-# MiBee Cam 家族 API 契约 v1.9
+# MiBee Cam 家族 API 契约 v1.10
 
 > 适用四仓：`ai-thinker-esp32-cam` · `esp32s3-n16r8-cam` · `luatos-esp32s3-a10-camera` · `seeed-esp32s3-cam`
 >
@@ -26,6 +26,13 @@
 > （阈值锁定=断 settle 单边下调，PIT-041 误报根因的根治开关）、动作端点
 > `POST /api/csi/calibrate`、`csi` 快照与 `csi_status` 心跳增补诊断字段
 > （profile/thr_locked/calibrating/flip_rate/tx·cb·adm pps）（见 §5/§6/§15）。
+> **v1.10 变更（2026-09-20）**：`GET /api/status` 增补可选 `wdt` 对象——
+> 任务看门狗能力观测面（家族看门狗波）：`{enabled, panic, timeout_s,
+> tasks:[{name, feeds}]}`。`tasks` 为设备侧登记的受监视任务（喂狗计数仅供
+> 诊断，宽松计数非精确）；能力本体是 ESP-IDF TWDT（`CONFIG_ESP_TASK_WDT`，
+> 四仓 PANIC 全开：卡死任务停喂即复位并吐 backtrace）。`api_version` 报
+> "1.10"。
+
 > **v1.9 变更（2026-09-18）**：**设备级密码整体移除**——Web 管理密码
 > （`X-Password`/`web_password`/`SET_PASSWORD_FIRST`/`GET /api/auth`）与
 > RTSP digest 凭据（`rtsp_user`/`rtsp_pass`）全家族废除，全部端点（含 OTA、
@@ -107,6 +114,7 @@ config 键 `onvif_events`（默认 0）运行时门控——即商用相机的"�
 |---|---|---|
 | `device_name` | str | 设备名 |
 | `firmware_version` | str | 固件版本 |
+| `wdt` | obj | （v1.10，可选）任务看门狗观测面：`enabled/panic/timeout_s/tasks[{name,feeds}]` |
 | `uptime` | num(s) | 运行时长 |
 | `wifi_state` | str | 小写枚举 `ap\|connecting\|connected\|disconnected` |
 | `ip` | str | IP |
