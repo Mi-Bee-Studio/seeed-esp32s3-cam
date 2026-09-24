@@ -21,6 +21,7 @@
  *    字段恒 0。
  */
 #include "wifi_channel_health.h"
+#include "watchdog.h"
 
 #include <string.h>
 #include <time.h>

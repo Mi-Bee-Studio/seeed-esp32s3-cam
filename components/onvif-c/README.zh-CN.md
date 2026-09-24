@@ -90,6 +90,7 @@ Pull-Point 订阅周期，全过退出 0。
 | `snapshot_uri` | 否 | 派生 `http://<ip>:<http_port>/api/capture` | GetSnapshotUri 应答。 |
 | `events_enabled` | 否 | NULL = 无此能力 | 运行时门；NULL 时事件服务不注册也不广播。 |
 | `http_port` | 否 | 80 | 流入**所有**广告 URI。 |
+| `wdt_watch_discovery` | 否 | false | 把 WS-Discovery 任务挂上 ESP-IDF 任务看门狗（`CONFIG_ESP_TASK_WDT`）；任务卡死即停喂、TWDT 触发。 |
 | `mdns_hostname`、`mdns_instance` | 否 | NULL = 跳过 mDNS | instance 默认取 `model`。 |
 | `scopes` | 否 | 由 `model` 生成 | WS-Discovery Scopes 正文；启动时一次性解析。 |
 

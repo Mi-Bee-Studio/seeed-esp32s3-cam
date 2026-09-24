@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- **Optional task-watchdog subscription for the WS-Discovery task**
+  (`wdt_watch_discovery` config field, default false): the loop paces
+  itself with a 5 s receive timeout, so a wedged discovery task stops
+  feeding `esp_task_wdt` and the hosting project's TWDT fires. Requires
+  `CONFIG_ESP_TASK_WDT`; compiles out cleanly otherwise. The MiBee Cam
+  firmware family enables this family-wide as part of its watchdog
+  capability rollout.
+
 Robustness wave from the v0.1.0 code review (issues #6–#10):
 
 - **Send paths no longer trust snprintf would-be lengths as byte counts**

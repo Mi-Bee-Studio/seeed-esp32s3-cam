@@ -59,6 +59,7 @@
 
 /* Module headers */
 #include "config_manager.h"
+#include "watchdog.h"
 #include "status_led.h"
 #include "storage_manager.h"
 #include "wifi_manager.h"
@@ -477,6 +478,7 @@ static void health_monitor_task(void *arg)
 
 void app_main(void)
 {
+    watchdog_init();
     /* ---- 0. OTA rollback self-test (PENDING_VERIFY detection) ---- */
     esp_ota_img_states_t ota_state = ESP_OTA_IMG_UNDEFINED;
     const esp_partition_t *running = esp_ota_get_running_partition();
