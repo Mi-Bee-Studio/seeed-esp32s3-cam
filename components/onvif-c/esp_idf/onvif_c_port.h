@@ -22,6 +22,11 @@ const char *onvif_c_cfg_scopes(void);
 /** Events feature present (cfg->events_enabled != NULL)? */
 bool onvif_c_cfg_has_events(void);
 
+/** Authentication gate (issue #17): true = proceed. On rejection the
+ * 401 + fault response has already been written. No-op pass when
+ * cfg->auth_password is NULL (feature absent). */
+bool onvif_c_auth_gate(httpd_req_t *req, const char *body);
+
 /* Lifecycle halves implemented in onvif_c_discovery.c (called by
  * onvif_c_start / onvif_c_stop in onvif_c_service.c). */
 esp_err_t onvif_c_discovery_start(void);

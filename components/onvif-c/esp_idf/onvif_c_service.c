@@ -8,6 +8,7 @@
 #include "onvif_c_port.h"
 #include "onvif_c_events.h"
 #include "../core/onvif_xml.h"
+#include "../core/onvif_wsse.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_err.h"
@@ -239,6 +240,22 @@ static esp_err_t dispatch_device_action(httpd_req_t *req, const char *body)
     if (strstr(body, "GetCapabilities")) {
         return handle_get_capabilities(req);
     }
+    if (strstr(body, "GetServices")) {
+        SEND_BUILT(req, onvif_xml_services(resp_, ONVIF_C_RESP_MAX, onvif_c_cfg_ip(),
+                                           s_cfg.http_port, onvif_c_cfg_has_events()));
+    }
+    if (strstr(body, "GetScopes")) {
+        SEND_BUILT(req, onvif_xml_get_scopes(resp_, ONVIF_C_RESP_MAX, onvif_c_cfg_scopes()));
+    }
+    if (strstr(body, "SystemReboot")) {
+        SEND_BUILT(req, onvif_xml_system_reboot(resp_, ONVIF_C_RESP_MAX));
+    }
+    if (strstr(body, "SetSystemDateAndTime")) {
+        SEND_BUILT(req, onvif_xml_set_system_date_and_time_ack(resp_, ONVIF_C_RESP_MAX));
+    }
+    if (strstr(body, "GetServiceCapabilities")) {
+        SEND_BUILT(req, onvif_xml_device_service_capabilities(resp_, ONVIF_C_RESP_MAX));
+    }
     log_unsupported(body);
     return send_fault(req);
 }
@@ -257,6 +274,40 @@ static esp_err_t dispatch_media_action(httpd_req_t *req, const char *body)
     if (strstr(body, "GetSnapshotUri") || strstr(body, "GetSnapshot")) {
         return handle_get_snapshot(req);
     }
+    if (strstr(body, "GetVideoSources")) {
+        SEND_BUILT(req, onvif_xml_video_sources(resp_, ONVIF_C_RESP_MAX, "VideoSource_1", 640, 480,
+                                                s_cfg.frame_rate ? s_cfg.frame_rate() : 15));
+    }
+    if (strstr(body, "GetVideoEncoderConfigurationOptions")) {
+        SEND_BUILT(req, onvif_xml_video_encoder_configuration_options(
+                            resp_, ONVIF_C_RESP_MAX, 640, 480,
+                            s_cfg.frame_rate ? s_cfg.frame_rate() : 15));
+    }
+    if (strstr(body, "GetVideoEncoderConfigurations")) {
+        SEND_BUILT(req, onvif_xml_video_encoder_configurations(
+                            resp_, ONVIF_C_RESP_MAX, "VideoEncoder_1", 640, 480,
+                            s_cfg.frame_rate ? s_cfg.frame_rate() : 15, 4096));
+    }
+    if (strstr(body, "GetVideoEncoderConfiguration")) {
+        SEND_BUILT(req, onvif_xml_video_encoder_configuration(
+                            resp_, ONVIF_C_RESP_MAX, "VideoEncoder_1", 640, 480,
+                            s_cfg.frame_rate ? s_cfg.frame_rate() : 15, 4096));
+    }
+    if (strstr(body, "SetVideoEncoderConfiguration")) {
+        SEND_BUILT(req, onvif_xml_set_video_encoder_configuration_ack(resp_, ONVIF_C_RESP_MAX));
+    }
+    if (strstr(body, "GetGuaranteedNumberOfVideoEncoderInstances")) {
+        SEND_BUILT(req, onvif_xml_guaranteed_encoder_instances(resp_, ONVIF_C_RESP_MAX));
+    }
+    if (strstr(body, "SetSynchronizationPoint")) {
+        if (s_cfg.on_keyframe) {
+            s_cfg.on_keyframe();
+        }
+        SEND_BUILT(req, onvif_xml_set_synchronization_point_ack(resp_, ONVIF_C_RESP_MAX));
+    }
+    if (strstr(body, "GetServiceCapabilities")) {
+        SEND_BUILT(req, onvif_xml_media_service_capabilities(resp_, ONVIF_C_RESP_MAX));
+    }
     log_unsupported(body);
     return send_fault(req);
 }
@@ -265,11 +316,90 @@ static esp_err_t dispatch_media_action(httpd_req_t *req, const char *body)
 /*  HTTP handlers                                                      */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/*  Authentication gate (issue #17)                                    */
+/* ------------------------------------------------------------------ */
+
+static onvif_wsse_nonce_cache_t s_nonce_cache;
+
+bool onvif_c_auth_gate(httpd_req_t *req, const char *body)
+{
+    const onvif_c_config_t *cfg = onvif_c_cfg();
+    if (!cfg || !cfg->auth_password) {
+        return true; /* feature absent — historical open behavior */
+    }
+    if (body && strstr(body, "GetSystemDateAndTime")) {
+        return true; /* pre-auth per the ONVIF Core spec */
+    }
+
+    const char         *password = cfg->auth_password();
+    const char         *username = cfg->auth_username ? cfg->auth_username : "admin";
+    onvif_wsse_status_t st = onvif_wsse_verify(body ? body : "", username, password,
+                                               (int64_t)time(NULL), (int)cfg->auth_window_secs,
+                                               cfg->auth_allow_password_text, &s_nonce_cache);
+    if (st == ONVIF_WSSE_OK) {
+        return true;
+    }
+
+    char *resp = malloc(ONVIF_C_RESP_MAX);
+    if (!resp) {
+        return false;
+    }
+    int len = onvif_xml_fault_not_authorized(resp, ONVIF_C_RESP_MAX);
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_set_type(req, "application/soap+xml");
+    httpd_resp_send(req, resp, len > 0 ? len : 0);
+    free(resp);
+    ESP_LOGW(TAG, "WS-Security rejected (status %d)", (int)st);
+    return false;
+}
+
+static esp_err_t dispatch_media2_action(httpd_req_t *req, const char *body)
+{
+    if (!body) {
+        return send_fault(req);
+    }
+    if (strstr(body, "GetProfiles")) {
+        SEND_BUILT(req, onvif_xml_media2_profiles(resp_, ONVIF_C_RESP_MAX,
+                                                  s_cfg.frame_rate ? s_cfg.frame_rate() : 15));
+    }
+    if (strstr(body, "GetStreamUri")) {
+        SEND_BUILT(req, onvif_xml_media2_stream_uri(resp_, ONVIF_C_RESP_MAX, s_cfg.stream_uri()));
+    }
+    if (strstr(body, "SetSynchronizationPoint")) {
+        if (s_cfg.on_keyframe) {
+            s_cfg.on_keyframe();
+        }
+        SEND_BUILT(req, onvif_xml_media2_sync_point_ack(resp_, ONVIF_C_RESP_MAX));
+    }
+    log_unsupported(body);
+    return send_fault(req);
+}
+
+static esp_err_t media2_service_handler(httpd_req_t *req)
+{
+    char *body = read_body(req);
+    if (body) {
+        ESP_LOGI(TAG, "MEDIA2 REQ [first 200]: %.200s", body);
+    }
+    if (!onvif_c_auth_gate(req, body)) {
+        free(body);
+        return ESP_OK;
+    }
+    esp_err_t ret = dispatch_media2_action(req, body);
+    free(body);
+    return ret;
+}
+
 static esp_err_t device_service_handler(httpd_req_t *req)
 {
     char *body = read_body(req);
     if (body) {
         ESP_LOGI(TAG, "DEVICE REQ [first 200]: %.200s", body);
+    }
+    if (!onvif_c_auth_gate(req, body)) {
+        free(body);
+        return ESP_OK;
     }
     esp_err_t ret = dispatch_device_action(req, body);
     free(body);
@@ -282,7 +412,7 @@ static esp_err_t media_service_handler(httpd_req_t *req)
     if (body) {
         ESP_LOGI(TAG, "MEDIA REQ [first 200]: %.200s", body);
     }
-    esp_err_t ret = dispatch_media_action(req, body);
+    esp_err_t ret = onvif_c_auth_gate(req, body) ? dispatch_media_action(req, body) : ESP_OK;
     free(body);
     return ret;
 }
@@ -325,6 +455,12 @@ esp_err_t onvif_c_start(httpd_handle_t httpd, const onvif_c_config_t *cfg)
         return ret;
     }
     ret = register_one(httpd, "/onvif/media_service", media_service_handler);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    /* Media2 minimal face (issue #18): the Profile-T entry path. */
+    ret = register_one(httpd, "/onvif/media2_service", media2_service_handler);
     if (ret != ESP_OK) {
         return ret;
     }

@@ -168,6 +168,8 @@ def check_password_value(value: str) -> bool:
         return True    # 日期形密码（PIT-027 形态），必须在白名单层面禁止
     if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v):
         return False   # 代码标识符 / Kconfig 宏 / 环境变量引用（CONFIG_DEFAULT_AP_PASS 等），非字面量
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(->[A-Za-z_][A-Za-z0-9_]*|\.[A-Za-z_][A-Za-z0-9_]*)*", v):
+        return False   # 成员访问表达式（cfg->auth_password / x.password）：运行期动态取值，非字面量（onvif-c #19 wsse 接缝）
     low = v.lower()
     if any(m in low for m in PLACEHOLDER_MARKERS):
         return False

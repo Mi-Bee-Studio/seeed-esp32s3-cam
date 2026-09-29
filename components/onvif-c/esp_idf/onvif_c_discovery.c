@@ -47,6 +47,28 @@ static TaskHandle_t s_disc_task = NULL;
 /*  Discovery task                                                     */
 /* ------------------------------------------------------------------ */
 
+#if ONVIF_C_HAVE_WDT
+static bool s_disc_wdt_watched = false; /* task subscribed to the TWDT */
+#endif
+
+/* Sleep `ms` in <=1s slices, feeding the task watchdog between slices.
+ * A wdt-watched task must never block in one long vTaskDelay: a 10s retry
+ * sleep against a 10s TWDT timeout is guaranteed starvation (seen live as
+ * the "No IP yet" loop during the 2026-09-28 unit-2 crash storm). */
+static void onvif_disc_sleep_ms(int ms)
+{
+    while (ms > 0) {
+        int chunk = ms > 1000 ? 1000 : ms;
+        vTaskDelay(pdMS_TO_TICKS(chunk));
+        ms -= chunk;
+#if ONVIF_C_HAVE_WDT
+        if (s_disc_wdt_watched) {
+            esp_task_wdt_reset();
+        }
+#endif
+    }
+}
+
 static void onvif_c_discovery_task(void *arg)
 {
     (void)arg;
@@ -57,10 +79,9 @@ static void onvif_c_discovery_task(void *arg)
     ESP_LOGI(TAG, "Device UUID: %s", device_uuid);
 
 #if ONVIF_C_HAVE_WDT
-    bool wdt_watched = false;
     if (cfg->wdt_watch_discovery) {
         if (esp_task_wdt_add(NULL) == ESP_OK) {
-            wdt_watched = true;
+            s_disc_wdt_watched = true;
             ESP_LOGI(TAG, "Discovery task subscribed to the task watchdog");
         } else {
             ESP_LOGW(TAG, "Task watchdog subscribe failed (CONFIG_ESP_TASK_WDT?)");
@@ -86,7 +107,7 @@ static void onvif_c_discovery_task(void *arg)
         }
 
 #if ONVIF_C_HAVE_WDT
-        if (wdt_watched) {
+        if (s_disc_wdt_watched) {
             esp_task_wdt_reset();
         }
 #endif
@@ -99,7 +120,7 @@ static void onvif_c_discovery_task(void *arg)
         sock = socket(AF_INET, SOCK_DGRAM, 0);
         if (sock < 0) {
             ESP_LOGW(TAG, "Failed to create socket, retrying in 10s");
-            vTaskDelay(pdMS_TO_TICKS(10000));
+            onvif_disc_sleep_ms(10000);
             continue;
         }
 
@@ -116,7 +137,7 @@ static void onvif_c_discovery_task(void *arg)
             ESP_LOGW(TAG, "Failed to bind port %d, retrying in 10s", ONVIF_DISCOVERY_PORT);
             close(sock);
             sock = -1;
-            vTaskDelay(pdMS_TO_TICKS(10000));
+            onvif_disc_sleep_ms(10000);
             continue;
         }
 
@@ -126,7 +147,7 @@ static void onvif_c_discovery_task(void *arg)
             ESP_LOGW(TAG, "No IP yet, retrying in 10s");
             close(sock);
             sock = -1;
-            vTaskDelay(pdMS_TO_TICKS(10000));
+            onvif_disc_sleep_ms(10000);
             continue;
         }
 
@@ -138,7 +159,7 @@ static void onvif_c_discovery_task(void *arg)
             ESP_LOGW(TAG, "Failed to join multicast on %s, retrying in 10s", local_ip);
             close(sock);
             sock = -1;
-            vTaskDelay(pdMS_TO_TICKS(10000));
+            onvif_disc_sleep_ms(10000);
             continue;
         }
         ESP_LOGI(TAG, "Joined multicast %s on %s", ONVIF_MULTICAST_GROUP, local_ip);
@@ -187,7 +208,7 @@ static void onvif_c_discovery_task(void *arg)
             }
 
 #if ONVIF_C_HAVE_WDT
-            if (wdt_watched) {
+            if (s_disc_wdt_watched) {
                 esp_task_wdt_reset();
             }
 #endif
@@ -230,7 +251,9 @@ static void onvif_c_discovery_task(void *arg)
 
             recv_buf[recv_len] = '\0';
 
-            if (!onvif_probe_is_probe(recv_buf)) {
+            bool is_resolve =
+                onvif_probe_is_resolve(recv_buf) && strstr(recv_buf, device_uuid) != NULL;
+            if (!onvif_probe_is_probe(recv_buf) && !is_resolve) {
                 continue;
             }
 
@@ -245,11 +268,15 @@ static void onvif_c_discovery_task(void *arg)
                 strncpy(relates_to, "urn:uuid:unknown", sizeof(relates_to) - 1);
             }
 
-            ESP_LOGI(TAG, "Received Probe from %s, sending ProbeMatches",
+            ESP_LOGI(TAG, "Received Probe/Resolve from %s, sending Matches",
                      inet_ntoa(sender_addr.sin_addr));
 
             char resp_buf[RESP_BUF_SIZE];
-            int  rl = onvif_probe_build_matches(resp_buf, sizeof(resp_buf), relates_to, device_uuid,
+            int  rl =
+                is_resolve
+                    ? onvif_probe_build_resolve_matches(resp_buf, sizeof(resp_buf), relates_to,
+                                                        device_uuid, ip_str, cfg->http_port)
+                    : onvif_probe_build_matches(resp_buf, sizeof(resp_buf), relates_to, device_uuid,
                                                 ip_str, cfg->http_port, onvif_c_cfg_scopes());
 
             if (rl <= 0 || (size_t)rl >= sizeof(resp_buf)) {
@@ -272,7 +299,8 @@ static void onvif_c_discovery_task(void *arg)
     if (sock >= 0)
         close(sock);
 #if ONVIF_C_HAVE_WDT
-    if (wdt_watched) {
+    if (s_disc_wdt_watched) {
+        s_disc_wdt_watched = false;
         esp_task_wdt_delete(NULL);
     }
 #endif
@@ -342,8 +370,37 @@ esp_err_t onvif_c_discovery_start(void)
     return ESP_OK;
 }
 
+/** Announce departure (WS-Discovery Bye) before the responder dies —
+ *  sent from a short-lived socket owned by the stop caller, so it works
+ *  even though the task's socket dies with the task (issue #16). */
+static void send_bye(void)
+{
+    const onvif_c_config_t *cfg = onvif_c_cfg();
+    const char             *ip  = onvif_c_cfg_ip();
+    if (!cfg || !cfg->uuid || strcmp(ip, "0.0.0.0") == 0) {
+        return;
+    }
+    const char *uuid = cfg->uuid();
+
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        return;
+    }
+    char               bye[1536];
+    int                bl = onvif_probe_build_bye(bye, sizeof(bye), uuid);
+    struct sockaddr_in dest;
+    memset(&dest, 0, sizeof(dest));
+    dest.sin_family      = AF_INET;
+    dest.sin_port        = htons(ONVIF_DISCOVERY_PORT);
+    dest.sin_addr.s_addr = inet_addr(ONVIF_MULTICAST_GROUP);
+    sendto(sock, bye, bl > 0 ? bl : 0, 0, (struct sockaddr *)&dest, sizeof(dest));
+    close(sock);
+    ESP_LOGI(TAG, "Bye sent (departure announced)");
+}
+
 esp_err_t onvif_c_discovery_stop(void)
 {
+    send_bye();
     TaskHandle_t task = s_disc_task;
     s_disc_task       = NULL;
     if (task) {
