@@ -33,7 +33,7 @@ extern "C" {
 #endif
 
 /* Bump on API/behavior changes: major*10000 + minor*100 + patch. */
-#define ONVIF_C_VERSION 100
+#define ONVIF_C_VERSION 200
 
 typedef struct {
     /* ---- identity (strings copied by reference; must outlive onvif_c_start) ---- */
@@ -57,6 +57,20 @@ typedef struct {
     const char *(*snapshot_uri)(void);
     /** GetProfiles FrameRateLimit; NULL -> 15. */
     uint8_t (*frame_rate)(void);
+    /** SetSynchronizationPoint hook (Media + Events): the encoder should
+     * emit a keyframe at the next opportunity. NULL = acknowledge only
+     * (issue #14).                                                          */
+    void (*on_keyframe)(void);
+
+    /* ---- authentication (WS-Security UsernameToken, issue #17) ----
+     * auth_password == NULL = feature absent: every request is served
+     * unauthenticated (the historical behavior). When set, every action
+     * except the pre-auth set (GetSystemDateAndTime per the Core spec)
+     * must carry a valid UsernameToken (PasswordDigest; replay-guarded). */
+    const char *(*auth_password)(void);   /* required to enable auth       */
+    const char *auth_username;            /* NULL -> "admin"               */
+    uint16_t    auth_window_secs;         /* Created window; 0 -> 300      */
+    bool        auth_allow_password_text; /* insecure without TLS       */
 
     /* ---- events (Pull-Point MotionAlarm). NULL = feature absent:
      * /onvif/events_service is not registered and its XAddr is not

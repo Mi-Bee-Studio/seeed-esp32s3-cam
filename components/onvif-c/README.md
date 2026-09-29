@@ -17,19 +17,40 @@ English | [中文](README.zh-CN.md)
 
 - **SOAP Device/Media service** — the exact action set NVRs need to discover
   and add a camera: `GetSystemDateAndTime`, `GetDeviceInformation`,
-  `GetCapabilities`, `GetProfiles`, `GetStreamUri`, `GetSnapshotUri`.
+  `GetCapabilities`, `GetServices`, `GetScopes`, `SetSystemDateAndTime`
+  (ack), `SystemReboot` (protocol answer), device `GetServiceCapabilities`,
+  `GetProfiles`, `GetStreamUri`, `GetSnapshotUri`, `GetVideoSources`, the
+  video encoder configuration family (get/get-options/set-ack), guaranteed
+  instance count, `SetSynchronizationPoint` (fires the optional
+  `on_keyframe` seam), and Media `GetServiceCapabilities` with multicast
+  explicitly off.
 - **Pull-Point Events service** — `tns1:VideoSource/MotionAlarm` topic
   (`Source=CSI`, `State`, `Score 0-100`); single subscription, 1 h granted
   TerminationTime, 120 s idle expiry, no long polling (PullMessages returns
   immediately — esp_http_server workers never block).
 - **WS-Discovery responder** — UDP 3702 / multicast 239.255.255.250;
-  answers Probe with unicast ProbeMatches and announces Hello every ~30 s;
-  retries through socket/bind/multicast-membership failures until WiFi is up.
+  answers Probe with unicast ProbeMatches, answers Resolve for its own
+  address with ResolveMatches, announces Hello every ~30 s, and sends a
+  multicast Bye from `onvif_c_stop()` so NVRs drop stale XAddrs
+  immediately.
 - **Optional mDNS** — `_onvif._tcp` advertisement; compiles out cleanly when
   `espressif/mdns` is not in the build.
 - **No XML parser, no dynamic state** — action detection via `strstr()`,
   responses via `snprintf()`; per-request buffers only; the motion producer
   hook is non-blocking and safe from sensor callback context.
+- **Media2 minimal face (ver20, tr2)** — `GetProfiles` (MediaProfile
+  with the ConfigurationSet form), `GetStreamUri` (the plain `Uri`
+  flavor), `SetSynchronizationPoint` (via the `on_keyframe` seam) on
+  `/onvif/media2_service`, advertised in `GetServices` — the Profile-T
+  entry path. Media1 stays the full-coverage surface.
+- **Optional WS-Security UsernameToken** (issue #17) — set
+  `auth_password` in the config and every action except the pre-auth
+  `GetSystemDateAndTime` must carry a valid PasswordDigest token:
+  self-contained SHA-1 + Base64 (no mbedtls), constant-time comparison,
+  Created freshness window, bounded nonce replay cache, HTTP 401 +
+  `NotAuthorized` fault on rejection. `auth_allow_password_text` opts
+  into the plaintext form (insecure without TLS). Absent by default —
+  the open-LAN behavior is unchanged.
 - **One-config integration seam** — everything board-specific (identity, IP,
   stream URI, runtime gates, HTTP port) stays behind `onvif_c_config_t`
   callbacks; nothing is hardcoded.

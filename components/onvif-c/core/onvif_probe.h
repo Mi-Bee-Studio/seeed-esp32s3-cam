@@ -22,7 +22,14 @@ int onvif_probe_build_matches(char *buf, size_t n, const char *relates_to, const
                               const char *ip, unsigned port, const char *scopes);
 
 /** Build a multicast Hello announcement. */
-int onvif_probe_build_hello(char *buf, size_t n, const char *uuid, const char *ip, unsigned port,
-                            const char *scopes);
+/** WS-Discovery Bye — departure announcement (sent from onvif_c_stop). */
+int onvif_probe_build_bye(char *buf, size_t n, const char *uuid);
+/** ResolveMatches — the unicast answer to a Resolve for our address. */
+int onvif_probe_build_resolve_matches(char *buf, size_t n, const char *relates_to, const char *uuid,
+                                      const char *ip, unsigned port);
+/** A WS-Discovery Resolve directed at this device (unicast answer path). */
+bool onvif_probe_is_resolve(const char *body);
+int  onvif_probe_build_hello(char *buf, size_t n, const char *uuid, const char *ip, unsigned port,
+                             const char *scopes);
 
 #endif /* ONVIF_C_PROBE_H */

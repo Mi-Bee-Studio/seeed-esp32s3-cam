@@ -1,6 +1,53 @@
 # Changelog
 
+## [0.2.0] — 2026-09-29
+
+Compatibility: ONVIF_C_VERSION 100 → 200. New capability
+package — Device/Media/Events statics, WS-Discovery Bye/Resolve,
+WS-Security UsernameToken (PasswordDigest) with 401 challenge path,
+Media2 minimal face. No breaking API changes (additions only).
+
 ## [Unreleased]
+
+### Added — Media2 minimal face (issue #18)
+
+- Decision recorded: **minimal subset in** (not Media1-only, not full) —
+  `GetProfiles` / `GetStreamUri` / `SetSynchronizationPoint` under tr2 on
+  `/onvif/media2_service`, advertised via `GetServices`; ~1.6 KB of code
+  by sharing the Media1 profile template. Media1 bytes untouched.
+- GetStreamUri answers the Media2 plain-`Uri` flavor; sync point fires
+  the `on_keyframe` seam.
+
+### Added — optional WS-Security UsernameToken (issue #17)
+
+- `core/onvif_wsse.c`: self-contained SHA-1 + Base64 + the ONVIF digest
+  formula `BASE64(SHA1(B64(nonce) + created + password))` — no mbedtls,
+  ~2.5 KB of code.
+- `onvif_c_config_t.auth_password` enables the gate: every action except
+  pre-auth `GetSystemDateAndTime` requires a valid PasswordDigest token;
+  rejections answer HTTP 401 + a `NotAuthorized` fault.
+- Created freshness window (`auth_window_secs`, default 300 s), bounded
+  16-slot nonce replay cache, constant-time comparisons,
+  `auth_allow_password_text` opt-in (insecure without TLS).
+- Default behavior unchanged: no `auth_password` = open LAN service.
+
+### Added — protocol completion batch (issues #13/#14/#15/#16)
+
+- Device: `GetServices` (Namespace+XAddr per served service, Events
+  gated), `GetScopes` (element form), `SystemReboot` (protocol answer),
+  `SetSystemDateAndTime` (ack), `GetServiceCapabilities`.
+- Media: `GetVideoSources`, `GetVideoEncoderConfiguration(s)`,
+  `GetVideoEncoderConfigurationOptions`, `SetVideoEncoderConfiguration`
+  (ack), `GetGuaranteedNumberOfVideoEncoderInstances` (1),
+  `SetSynchronizationPoint` (fires the new optional `on_keyframe`
+  config seam), `GetServiceCapabilities` (multicast explicitly off —
+  Start/StopMulticastStreaming stay ActionNotSupported by design).
+- Events: `GetEventProperties`, `GetServiceCapabilities`,
+  `SetSynchronizationPoint`. Multi-subscription and bounded long polling
+  remain deliberately out (esp_http_server workers must never block).
+- WS-Discovery: multicast Bye from `onvif_c_stop()` (short-lived socket
+  owned by the stop caller); Resolve/ResolveMatches for our own address.
+- New host goldens pin all new response bytes (ASan-clean).
 
 - **Optional task-watchdog subscription for the WS-Discovery task**
   (`wdt_watch_discovery` config field, default false): the loop paces

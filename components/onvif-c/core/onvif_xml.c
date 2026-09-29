@@ -9,6 +9,7 @@
 #include "onvif_xml.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #define NS_EV  "http://www.onvif.org/ver10/events/wsdl"
 #define NS_WSN "http://docs.oasis-open.org/wsn/b-2"
@@ -322,4 +323,486 @@ int onvif_xml_pull_close(char *buf, size_t n, const char *now, const char *termi
                     "<tev:TerminationTime>%s</tev:TerminationTime>"
                     "</tev:PullMessagesResponse></s:Body></s:Envelope>",
                     now, termination);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Device service completions (issue #13)                             */
+/* ------------------------------------------------------------------ */
+
+int onvif_xml_services(char *buf, size_t n, const char *ip, unsigned port, bool events)
+{
+    int off = snprintf(buf, n,
+                       "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                       "<soap:Envelope"
+                       " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                       " xmlns:tt=\"http://www.onvif.org/ver10/schema\""
+                       " xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\">"
+                       "<soap:Body>"
+                       "<tds:GetServicesResponse>"
+                       "<tds:Service>"
+                       "<tds:Namespace>http://www.onvif.org/ver10/device/wsdl</tds:Namespace>"
+                       "<tds:XAddr>http://%s:%u/onvif/device_service</tds:XAddr>"
+                       "<tds:Version><tt:Major>2</tt:Major><tt:Minor>5</tt:Minor></tds:Version>"
+                       "</tds:Service>"
+                       "<tds:Service>"
+                       "<tds:Namespace>http://www.onvif.org/ver10/media/wsdl</tds:Namespace>"
+                       "<tds:XAddr>http://%s:%u/onvif/media_service</tds:XAddr>"
+                       "<tds:Version><tt:Major>2</tt:Major><tt:Minor>5</tt:Minor></tds:Version>"
+                       "</tds:Service>"
+                       "<tds:Service>"
+                       "<tds:Namespace>http://www.onvif.org/ver20/analytics/wsdl</tds:Namespace>"
+                       "<tds:XAddr>http://%s:%u/onvif/analytics_service</tds:XAddr>"
+                       "<tds:Version><tt:Major>2</tt:Major><tt:Minor>5</tt:Minor></tds:Version>"
+                       "</tds:Service>",
+                       ip, port, ip, port, ip, port);
+    if (off < 0 || (size_t)off >= n) {
+        return off;
+    }
+    if (events) {
+        off += snprintf(buf + off, n - off,
+                        "<tds:Service>"
+                        "<tds:Namespace>http://www.onvif.org/ver10/events/wsdl</tds:Namespace>"
+                        "<tds:XAddr>http://%s:%u/onvif/events_service</tds:XAddr>"
+                        "<tds:Version><tt:Major>2</tt:Major><tt:Minor>5</tt:Minor></tds:Version>"
+                        "</tds:Service>",
+                        ip, port);
+        if (off < 0 || (size_t)off >= n) {
+            return off;
+        }
+    }
+    off += snprintf(buf + off, n - off,
+                    "<tds:Service>"
+                    "<tds:Namespace>http://www.onvif.org/ver20/media/wsdl</tds:Namespace>"
+                    "<tds:XAddr>http://%s:%u/onvif/media2_service</tds:XAddr>"
+                    "<tds:Version><tt:Major>2</tt:Major><tt:Minor>5</tt:Minor></tds:Version>"
+                    "</tds:Service>"
+                    "</tds:GetServicesResponse>"
+                    "</soap:Body>"
+                    "</soap:Envelope>",
+                    ip, port);
+    return off;
+}
+
+int onvif_xml_get_scopes(char *buf, size_t n, const char *scopes)
+{
+    /* Element form per the WSDL (ScopeDef + ScopeItem per entry) — the
+     * attribute form some firmware emits is not schema-valid. */
+    int off = snprintf(buf, n,
+                       "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                       "<soap:Envelope"
+                       " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                       " xmlns:tt=\"http://www.onvif.org/ver10/schema\""
+                       " xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\">"
+                       "<soap:Body>"
+                       "<tds:GetScopesResponse>");
+    if (off < 0 || (size_t)off >= n) {
+        return off;
+    }
+    const char *p = scopes ? scopes : "";
+    while (*p) {
+        while (*p == ' ')
+            p++;
+        const char *end = strchr(p, ' ');
+        size_t      len = end ? (size_t)(end - p) : strlen(p);
+        if (len == 0)
+            break;
+        off += snprintf(buf + off, n - off,
+                        "<tt:Scopes>"
+                        "<tt:ScopeDef>Fixed</tt:ScopeDef>"
+                        "<tt:ScopeItem>%.*s</tt:ScopeItem>"
+                        "</tt:Scopes>",
+                        (int)len, p);
+        if (off < 0 || (size_t)off >= n) {
+            return off;
+        }
+        p += len;
+    }
+    off += snprintf(buf + off, n - off,
+                    "</tds:GetScopesResponse>"
+                    "</soap:Body>"
+                    "</soap:Envelope>");
+    return off;
+}
+
+int onvif_xml_system_reboot(char *buf, size_t n)
+{
+    return snprintf(buf, n,
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                    "<soap:Envelope"
+                    " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                    " xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\">"
+                    "<soap:Body>"
+                    "<tds:SystemRebootResponse>"
+                    "<tds:Message>Device rebooting</tds:Message>"
+                    "</tds:SystemRebootResponse>"
+                    "</soap:Body>"
+                    "</soap:Envelope>");
+}
+
+int onvif_xml_set_system_date_and_time_ack(char *buf, size_t n)
+{
+    return snprintf(buf, n,
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                    "<soap:Envelope"
+                    " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                    " xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\">"
+                    "<soap:Body>"
+                    "<tds:SetSystemDateAndTimeResponse/>"
+                    "</soap:Body>"
+                    "</soap:Envelope>");
+}
+
+int onvif_xml_device_service_capabilities(char *buf, size_t n)
+{
+    return snprintf(buf, n,
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                    "<soap:Envelope"
+                    " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                    " xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\">"
+                    "<soap:Body>"
+                    "<tds:GetServiceCapabilitiesResponse>"
+                    "<tds:Capabilities Network=\"false\" System=\"false\"/>"
+                    "</tds:GetServiceCapabilitiesResponse>"
+                    "</soap:Body>"
+                    "</soap:Envelope>");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Media service completions (issue #14)                              */
+/* ------------------------------------------------------------------ */
+
+int onvif_xml_video_sources(char *buf, size_t n, const char *token, int width, int height,
+                            int frame_rate)
+{
+    return snprintf(
+        buf, n,
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+        "<soap:Envelope"
+        " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+        " xmlns:tt=\"http://www.onvif.org/ver10/schema\""
+        " xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\">"
+        "<soap:Body>"
+        "<trt:GetVideoSourcesResponse>"
+        "<trt:VideoSources token=\"%s\">"
+        "<tt:Framerate>%d</tt:Framerate>"
+        "<tt:Resolution><tt:Width>%d</tt:Width><tt:Height>%d</tt:Height></tt:Resolution>"
+        "</trt:VideoSources>"
+        "</trt:GetVideoSourcesResponse>"
+        "</soap:Body>"
+        "</soap:Envelope>",
+        token, frame_rate, width, height);
+}
+
+static int encoder_configuration_body(char *buf, size_t n, const char *token, int width, int height,
+                                      int frame_rate, int bitrate_kbps)
+{
+    return snprintf(buf, n,
+                    "<trt:VideoEncoderConfiguration token=\"%s\">"
+                    "<tt:Name>VideoEncoder_1</tt:Name>"
+                    "<tt:UseCount>1</tt:UseCount>"
+                    "<tt:Encoding>JPEG</tt:Encoding>"
+                    "<tt:Resolution>"
+                    "<tt:Width>%d</tt:Width>"
+                    "<tt:Height>%d</tt:Height>"
+                    "</tt:Resolution>"
+                    "<tt:Quality>5</tt:Quality>"
+                    "<tt:RateControl>"
+                    "<tt:FrameRateLimit>%d</tt:FrameRateLimit>"
+                    "<tt:EncodingInterval>1</tt:EncodingInterval>"
+                    "<tt:BitrateLimit>%d</tt:BitrateLimit>"
+                    "</tt:RateControl>"
+                    "</trt:VideoEncoderConfiguration>",
+                    token, width, height, frame_rate, bitrate_kbps);
+}
+
+int onvif_xml_video_encoder_configurations(char *buf, size_t n, const char *token, int width,
+                                           int height, int frame_rate, int bitrate_kbps)
+{
+    int off = snprintf(buf, n,
+                       "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                       "<soap:Envelope"
+                       " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                       " xmlns:tt=\"http://www.onvif.org/ver10/schema\""
+                       " xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\">"
+                       "<soap:Body>"
+                       "<trt:GetVideoEncoderConfigurationsResponse>");
+    if (off < 0 || (size_t)off >= n) {
+        return off;
+    }
+    off += encoder_configuration_body(buf + off, n - off, token, width, height, frame_rate,
+                                      bitrate_kbps);
+    if (off < 0 || (size_t)off >= n) {
+        return off;
+    }
+    off += snprintf(buf + off, n - off,
+                    "</trt:GetVideoEncoderConfigurationsResponse>"
+                    "</soap:Body>"
+                    "</soap:Envelope>");
+    return off;
+}
+
+int onvif_xml_video_encoder_configuration(char *buf, size_t n, const char *token, int width,
+                                          int height, int frame_rate, int bitrate_kbps)
+{
+    int off = snprintf(buf, n,
+                       "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                       "<soap:Envelope"
+                       " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                       " xmlns:tt=\"http://www.onvif.org/ver10/schema\""
+                       " xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\">"
+                       "<soap:Body>"
+                       "<trt:GetVideoEncoderConfigurationResponse>");
+    if (off < 0 || (size_t)off >= n) {
+        return off;
+    }
+    off += encoder_configuration_body(buf + off, n - off, token, width, height, frame_rate,
+                                      bitrate_kbps);
+    if (off < 0 || (size_t)off >= n) {
+        return off;
+    }
+    off += snprintf(buf + off, n - off,
+                    "</trt:GetVideoEncoderConfigurationResponse>"
+                    "</soap:Body>"
+                    "</soap:Envelope>");
+    return off;
+}
+
+int onvif_xml_video_encoder_configuration_options(char *buf, size_t n, int width, int height,
+                                                  int frame_rate)
+{
+    return snprintf(buf, n,
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                    "<soap:Envelope"
+                    " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                    " xmlns:tt=\"http://www.onvif.org/ver10/schema\""
+                    " xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\">"
+                    "<soap:Body>"
+                    "<trt:GetVideoEncoderConfigurationOptionsResponse>"
+                    "<trt:Options>"
+                    "<tt:QualityRange><tt:Min>1</tt:Min><tt:Max>10</tt:Max></tt:QualityRange>"
+                    "<tt:JPEG>"
+                    "<tt:ResolutionsAvailable>"
+                    "<tt:Width>%d</tt:Width><tt:Height>%d</tt:Height>"
+                    "</tt:ResolutionsAvailable>"
+                    "<tt:FrameRateRange>"
+                    "<tt:Min>1</tt:Min><tt:Max>%d</tt:Max>"
+                    "</tt:FrameRateRange>"
+                    "<tt:EncodingIntervalRange>"
+                    "<tt:Min>1</tt:Min><tt:Max>1</tt:Max>"
+                    "</tt:EncodingIntervalRange>"
+                    "</tt:JPEG>"
+                    "</trt:Options>"
+                    "</trt:GetVideoEncoderConfigurationOptionsResponse>"
+                    "</soap:Body>"
+                    "</soap:Envelope>",
+                    width, height, frame_rate);
+}
+
+int onvif_xml_set_video_encoder_configuration_ack(char *buf, size_t n)
+{
+    return snprintf(buf, n,
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                    "<soap:Envelope"
+                    " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                    " xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\">"
+                    "<soap:Body>"
+                    "<trt:SetVideoEncoderConfigurationResponse/>"
+                    "</soap:Body>"
+                    "</soap:Envelope>");
+}
+
+int onvif_xml_guaranteed_encoder_instances(char *buf, size_t n)
+{
+    return snprintf(buf, n,
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                    "<soap:Envelope"
+                    " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                    " xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\">"
+                    "<soap:Body>"
+                    "<trt:GetGuaranteedNumberOfVideoEncoderInstancesResponse>"
+                    "<trt:TotalInstances>1</trt:TotalInstances>"
+                    "</trt:GetGuaranteedNumberOfVideoEncoderInstancesResponse>"
+                    "</soap:Body>"
+                    "</soap:Envelope>");
+}
+
+int onvif_xml_set_synchronization_point_ack(char *buf, size_t n)
+{
+    return snprintf(buf, n,
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                    "<soap:Envelope"
+                    " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                    " xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\">"
+                    "<soap:Body>"
+                    "<trt:SetSynchronizationPointResponse/>"
+                    "</soap:Body>"
+                    "</soap:Envelope>");
+}
+
+int onvif_xml_media_service_capabilities(char *buf, size_t n)
+{
+    return snprintf(buf, n,
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                    "<soap:Envelope"
+                    " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                    " xmlns:trt=\"http://www.onvif.org/ver10/media/wsdl\">"
+                    "<soap:Body>"
+                    "<trt:GetServiceCapabilitiesResponse>"
+                    "<trt:Capabilities SnapshotUri=\"true\" RTP_US=\"false\" "
+                    "RTP_Multicast=\"false\" RTP_TCP=\"true\" NonFixedIP=\"false\"/>"
+                    "</trt:GetServiceCapabilitiesResponse>"
+                    "</soap:Body>"
+                    "</soap:Envelope>");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Events service statics (issue #15)                                 */
+/* ------------------------------------------------------------------ */
+
+int onvif_xml_event_properties(char *buf, size_t n)
+{
+    return snprintf(
+        buf, n,
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        "<s:Envelope"
+        " xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\""
+        " xmlns:tev=\"http://www.onvif.org/ver10/events/wsdl\""
+        " xmlns:wsnt=\"http://docs.oasis-open.org/wsn/b-2\">"
+        "<s:Body>"
+        "<tev:GetEventPropertiesResponse>"
+        "<tev:TopicNamespaceLocation>http://www.onvif.org/ver10/topics</tev:TopicNamespaceLocation>"
+        "<wsnt:FixedTopicSet>true</wsnt:FixedTopicSet>"
+        "<tev:TopicExpressionDialect>http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet</"
+        "tev:TopicExpressionDialect>"
+        "<tev:MessageContentFilterDialect>http://www.onvif.org/ver10/tev/messageContentFilter/"
+        "ItemFilter</tev:MessageContentFilterDialect>"
+        "</tev:GetEventPropertiesResponse>"
+        "</s:Body>"
+        "</s:Envelope>");
+}
+
+int onvif_xml_events_service_capabilities(char *buf, size_t n)
+{
+    return snprintf(
+        buf, n,
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        "<s:Envelope"
+        " xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\""
+        " xmlns:tev=\"http://www.onvif.org/ver10/events/wsdl\">"
+        "<s:Body>"
+        "<tev:GetServiceCapabilitiesResponse>"
+        "<tev:Capabilities WSSubscriptionPolicySupport=\"false\" WSPullPointSupport=\"true\" "
+        "WSPausableSubscriptionManagerInterfaceSupport=\"false\"/>"
+        "</tev:GetServiceCapabilitiesResponse>"
+        "</s:Body>"
+        "</s:Envelope>");
+}
+
+int onvif_xml_events_sync_point_ack(char *buf, size_t n)
+{
+    return snprintf(buf, n,
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                    "<s:Envelope"
+                    " xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\""
+                    " xmlns:tev=\"http://www.onvif.org/ver10/events/wsdl\">"
+                    "<s:Body>"
+                    "<tev:SetSynchronizationPointResponse/>"
+                    "</s:Body>"
+                    "</s:Envelope>");
+}
+
+int onvif_xml_fault_not_authorized(char *buf, size_t n)
+{
+    return snprintf(
+        buf, n,
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+        "<soap:Envelope"
+        " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+        " xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\">"
+        "<soap:Body>"
+        "<soap:Fault>"
+        "<soap:Code>"
+        "<soap:Value>soap:Sender</soap:Value>"
+        "<soap:Subcode>"
+        "<soap:Value>tds:NotAuthorized</soap:Value>"
+        "</soap:Subcode>"
+        "</soap:Code>"
+        "<soap:Reason><soap:Text xml:lang=\"en\">Sender not authorized</soap:Text></soap:Reason>"
+        "</soap:Fault>"
+        "</soap:Body>"
+        "</soap:Envelope>");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Media2 service — minimal Profile-T subset (issue #18)              */
+/*  Namespace family switches to tr2 (ver20/media); the Media1 byte    */
+/*  set is untouched.                                                  */
+/* ------------------------------------------------------------------ */
+
+int onvif_xml_media2_profiles(char *buf, size_t n, int frame_rate)
+{
+    return snprintf(buf, n,
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                    "<soap:Envelope"
+                    " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                    " xmlns:tt=\"http://www.onvif.org/ver10/schema\""
+                    " xmlns:tr2=\"http://www.onvif.org/ver20/media/wsdl\">"
+                    "<soap:Body>"
+                    "<tr2:GetProfilesResponse>"
+                    "<tr2:Profiles token=\"MainStream\" fixed=\"true\">"
+                    "<tt:Name>MainStream</tt:Name>"
+                    "<tr2:Configurations>"
+                    "<tr2:VideoSource token=\"VideoSource_1\">"
+                    "<tt:Name>VideoSource_1</tt:Name>"
+                    "<tt:UseCount>1</tt:UseCount>"
+                    "<tt:SourceToken>VideoSource_1</tt:SourceToken>"
+                    "</tr2:VideoSource>"
+                    "<tr2:VideoEncoder token=\"VideoEncoder_1\">"
+                    "<tt:Name>VideoEncoder_1</tt:Name>"
+                    "<tt:UseCount>1</tt:UseCount>"
+                    "<tt:Encoding>JPEG</tt:Encoding>"
+                    "<tt:Resolution>"
+                    "<tt:Width>640</tt:Width>"
+                    "<tt:Height>480</tt:Height>"
+                    "</tt:Resolution>"
+                    "<tt:RateControl>"
+                    "<tt:FrameRateLimit>%d</tt:FrameRateLimit>"
+                    "<tt:BitrateLimit>4096</tt:BitrateLimit>"
+                    "</tt:RateControl>"
+                    "</tr2:VideoEncoder>"
+                    "</tr2:Configurations>"
+                    "</tr2:Profiles>"
+                    "</tr2:GetProfilesResponse>"
+                    "</soap:Body>"
+                    "</soap:Envelope>",
+                    frame_rate);
+}
+
+int onvif_xml_media2_stream_uri(char *buf, size_t n, const char *uri)
+{
+    return snprintf(buf, n,
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                    "<soap:Envelope"
+                    " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                    " xmlns:tr2=\"http://www.onvif.org/ver20/media/wsdl\">"
+                    "<soap:Body>"
+                    "<tr2:GetStreamUriResponse>"
+                    "<tr2:Uri>%s</tr2:Uri>"
+                    "</tr2:GetStreamUriResponse>"
+                    "</soap:Body>"
+                    "</soap:Envelope>",
+                    uri);
+}
+
+int onvif_xml_media2_sync_point_ack(char *buf, size_t n)
+{
+    return snprintf(buf, n,
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                    "<soap:Envelope"
+                    " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                    " xmlns:tr2=\"http://www.onvif.org/ver20/media/wsdl\">"
+                    "<soap:Body>"
+                    "<tr2:SetSynchronizationPointResponse/>"
+                    "</soap:Body>"
+                    "</soap:Envelope>");
 }

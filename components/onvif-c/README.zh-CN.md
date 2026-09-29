@@ -20,13 +20,23 @@ Pull-Point 事件把相机交给 NVR，零第三方依赖，代码占用 ~10 KB�
   （`Source=CSI`、`State`、`Score 0-100`）；单订阅（新顶旧）、授予 1h
   TerminationTime、120s 空闲过期、**无长轮询**（PullMessages 立即返回，
   esp_http_server worker 永不阻塞）。
-- **WS-Discovery 应答器** —— UDP 3702 / 组播 239.255.255.250；对 Probe 单播
-  回 ProbeMatches，每 ~30s 周期性 Hello 广播；socket/bind/组播加入失败自动
-  重试直至 WiFi 就绪。
+- **WS-Discovery 应答器** —— UDP 3702 / 组播 239.255.255.250；Probe 单播
+  ProbeMatches 应答、Resolve（针对自身地址）单播 ResolveMatches 应答、约每 30 秒
+  Hello 通告、`onvif_c_stop()` 时组播 Bye 让 NVR 立即丢弃失效 XAddr。
 - **可选 mDNS** —— `_onvif._tcp` 广告；构建里没有 `espressif/mdns` 时干净
   编译出局。
 - **无 XML 解析器、无动态状态** —— 动作识别 `strstr()`、响应生成
   `snprintf()`；仅每请求缓冲；运动事件生产者钩子非阻塞，传感器回调语境安全。
+- **Media2 最小面（ver20，tr2）**—— `/onvif/media2_service` 上的
+  `GetProfiles`（MediaProfile 的 ConfigurationSet 形态）、`GetStreamUri`
+  （纯 `Uri` 形态）、`SetSynchronizationPoint`（经 `on_keyframe` 接缝），
+  由 `GetServices` 广告——Profile-T 的入口路径。Media1 仍是全覆盖面。
+- **可选 WS-Security UsernameToken**（issue #17）—— 配置 `auth_password`
+  后，除预认证动作 `GetSystemDateAndTime` 外所有请求必须携带有效
+  PasswordDigest 令牌：自带 SHA-1 + Base64（无需 mbedtls）、常数时间比较、
+  Created 时效窗口、有界 Nonce 重放缓存，拒绝时回 HTTP 401 +
+  `NotAuthorized` 故障。`auth_allow_password_text` 可选接受明文形式
+  （无 TLS 时不安全）。默认不启用——开放局域网行为不变。
 - **单一配置接缝** —— 板级差异（身份、IP、流地址、运行时开关、HTTP 端口）
   全部收敛到 `onvif_c_config_t` 回调，零硬编码。
 

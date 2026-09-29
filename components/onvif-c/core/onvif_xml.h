@@ -31,8 +31,47 @@ int onvif_xml_profiles(char *buf, size_t n, int frame_rate);
 int onvif_xml_stream_uri(char *buf, size_t n, const char *uri);
 int onvif_xml_snapshot_uri(char *buf, size_t n, const char *uri);
 
+/** GetServices — list the served services (Device/Media/Analytics,
+ *  + Events when built with events) with Namespace + XAddr. */
+int onvif_xml_services(char *buf, size_t n, const char *ip, unsigned port, bool events);
+/** GetScopes — the resolved discovery scopes as Fixed/ScopeItem pairs. */
+int onvif_xml_get_scopes(char *buf, size_t n, const char *scopes);
+/** SystemReboot — protocol-level answer only (host decides side effects). */
+int onvif_xml_system_reboot(char *buf, size_t n);
+/** SetSystemDateAndTime — accept + acknowledge. */
+int onvif_xml_set_system_date_and_time_ack(char *buf, size_t n);
+/** Device GetServiceCapabilities — nothing optional supported. */
+int onvif_xml_device_service_capabilities(char *buf, size_t n);
+
+/* ---- Media service (issue #14) ---- */
+int onvif_xml_video_sources(char *buf, size_t n, const char *token, int width, int height,
+                            int frame_rate);
+int onvif_xml_video_encoder_configurations(char *buf, size_t n, const char *token, int width,
+                                           int height, int frame_rate, int bitrate_kbps);
+int onvif_xml_video_encoder_configuration(char *buf, size_t n, const char *token, int width,
+                                          int height, int frame_rate, int bitrate_kbps);
+int onvif_xml_video_encoder_configuration_options(char *buf, size_t n, int width, int height,
+                                                  int frame_rate);
+int onvif_xml_set_video_encoder_configuration_ack(char *buf, size_t n);
+int onvif_xml_guaranteed_encoder_instances(char *buf, size_t n);
+int onvif_xml_set_synchronization_point_ack(char *buf, size_t n);
+/** Media GetServiceCapabilities — snapshot yes, multicast explicitly off. */
+int onvif_xml_media_service_capabilities(char *buf, size_t n);
+
+/* ---- Events service statics (issue #15) ---- */
+int onvif_xml_event_properties(char *buf, size_t n);
+int onvif_xml_events_service_capabilities(char *buf, size_t n);
+int onvif_xml_events_sync_point_ack(char *buf, size_t n);
+
+/* ---- Media2 service (ver20, tr2 — minimal Profile-T subset, issue #18) ---- */
+int onvif_xml_media2_profiles(char *buf, size_t n, int frame_rate);
+int onvif_xml_media2_stream_uri(char *buf, size_t n, const char *uri);
+int onvif_xml_media2_sync_point_ack(char *buf, size_t n);
+
 /* ---- Faults ---- */
 int onvif_xml_fault_action_not_supported(char *buf, size_t n);
+/** WS-Security rejection fault (sent with HTTP 401). */
+int onvif_xml_fault_not_authorized(char *buf, size_t n);
 
 /* ---- Events service (Pull-Point) ----
  * Timestamps are pre-formatted ISO-8601 ("YYYY-MM-DDThh:mm:ssZ", 24 bytes). */

@@ -8,6 +8,7 @@
  */
 
 #include "onvif_c_events.h"
+#include "../core/onvif_xml.h"
 #include "onvif_c_port.h"
 #include "../core/onvif_xml.h"
 #include "../core/onvif_events_ring.h"
@@ -18,6 +19,35 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+
+#define EV_RESP_MAX 2048
+
+/** Like SEND_BUILT but inside the dispatch chain: assigns `ret` and
+ *  falls through so the request body still gets freed (ASan-pinned). */
+#define EV_RESP(req, build)                                                                        \
+    do {                                                                                           \
+        char *resp_ = malloc(EV_RESP_MAX);                                                         \
+        if (!resp_) {                                                                              \
+            free(body);                                                                            \
+            return ESP_FAIL;                                                                       \
+        }                                                                                          \
+        int len_ = (build);                                                                        \
+        httpd_resp_set_type(req, "application/soap+xml");                                          \
+        ret = httpd_resp_send(req, resp_, len_ > 0 ? len_ : 0);                                    \
+        free(resp_);                                                                               \
+    } while (0)
+
+#define SEND_BUILT(req, build)                                                                     \
+    do {                                                                                           \
+        char *resp_ = malloc(EV_RESP_MAX);                                                         \
+        if (!resp_)                                                                                \
+            return ESP_FAIL;                                                                       \
+        int len_ = (build);                                                                        \
+        httpd_resp_set_type(req, "application/soap+xml");                                          \
+        httpd_resp_send(req, resp_, len_ > 0 ? len_ : 0);                                          \
+        free(resp_);                                                                               \
+        return ESP_OK;                                                                             \
+    } while (0)
 
 static const char *TAG = "onvif_c_ev";
 
@@ -239,6 +269,10 @@ static esp_err_t events_service_handler(httpd_req_t *req)
 {
     char     *body = ev_read_body(req);
     esp_err_t ret;
+    if (body && !onvif_c_auth_gate(req, body)) {
+        free(body);
+        return ESP_OK;
+    }
     if (!body) {
         return ev_fault(req, "ter:ActionNotSupported", "empty/oversized body");
     }
@@ -250,6 +284,16 @@ static esp_err_t events_service_handler(httpd_req_t *req)
         ret = handle_renew(req);
     } else if (strstr(body, "Unsubscribe")) {
         ret = handle_unsubscribe(req);
+    } else if (strstr(body, "GetEventProperties")) {
+        EV_RESP(req, onvif_xml_event_properties(resp_, EV_RESP_MAX));
+    } else if (strstr(body, "GetServiceCapabilities")) {
+        EV_RESP(req, onvif_xml_events_service_capabilities(resp_, EV_RESP_MAX));
+    } else if (strstr(body, "SetSynchronizationPoint")) {
+        const onvif_c_config_t *cfg_ = onvif_c_cfg();
+        if (cfg_ && cfg_->on_keyframe) {
+            cfg_->on_keyframe();
+        }
+        EV_RESP(req, onvif_xml_events_sync_point_ack(resp_, EV_RESP_MAX));
     } else {
         ESP_LOGW(TAG, "Unsupported events action");
         ret = ev_fault(req, "ter:ActionNotSupported", "Action not supported");
