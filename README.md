@@ -83,6 +83,43 @@ idf.py -p COM3 flash monitor
 - TF card (FAT32, Class 10+)
 - USB-C cable for power & flashing
 
+### Board Overview
+
+| Item | Value |
+|------|-------|
+| Module | XIAO ESP32-S3 Sense — ESP32-S3-WROOM-1-N8R8, Xtensa LX7 dual-core @ 240 MHz |
+| Flash | 8 MB (embedded) |
+| PSRAM | 8 MB Octal (embedded) — camera frame buffers, `fb_count=2` |
+| Wireless | 2.4 GHz WiFi b/g/n + BLE 5 |
+| USB | Native USB Type-C (USB-Serial-JTAG — console + flashing, no bridge chip) |
+| Camera | Onboard OV2640 (the driver auto-detects whichever sensor is wired, e.g. OV5640 — read it from the boot log or `/api/status`) |
+| Microphone | MEMS PDM: DATA=GPIO41, CLK=GPIO42 |
+| TF card | 1-line SDMMC: CLK=GPIO7, CMD=GPIO10 (**shared with camera XCLK**), D0=GPIO8 |
+| Onboard LED | User LED GPIO21, active-low |
+| Buttons | BOOT=GPIO0 (hold 5 s = factory reset), RESET |
+| Dimensions | 21 × 17.5 mm core; Sense camera board stacks via a B2B connector |
+
+### Pinout Diagram (USB-C pointing up, front/component-side view)
+
+```
+      ┌───────────────────────────────────────────────┐
+      │ Sense expansion board (stacked over the core) │
+      │   OV2640 camera · MEMS PDM mic · TF card slot │
+      └───────────────────────┬───────────────────────┘
+                              │ B2B board-to-board connector
+  Camera (DVP) → XCLK=IO10 · SIOD=IO40 · SIOC=IO39 · VSYNC=IO38
+                 HREF=IO47 · PCLK=IO13 · D0–D7=IO18/17/16/15/14/12/11/48
+  Mic (PDM)    → DATA=IO41 · CLK=IO42
+  TF (1-line SDMMC) → CLK=IO7 · CMD=IO10 (shared with camera XCLK) · D0=IO8
+                 ┌─ USB-C ─┐
+                 │  XIAO   │
+                 │ ESP32-S3│   LED=IO21 (active-low) · BOOT=IO0 (hold 5 s
+                 │  N8R8   │   = factory reset)
+                 └─────────┘
+  Edge pads: 5V/GND/3V3 + D0–D10 (= GPIO1–6, 43, 44, 7, 8, 9) — physical
+  pad order per the Seeed wiki pinout diagram.
+```
+
 👉 [Pin definitions & hardware details](docs/en/hardware.md)
 
 ---
@@ -171,6 +208,21 @@ main/  —  27 C modules + main.c + cJSON (flat layout)
 - `main/web_server.c` — the complete HTTP surface in one `s_uris[]` route table at the top of the file (reading map in the file header)
 - `docs/api-contract.md` · `docs/config-contract.md` · `docs/at-command.md` — versioned behavior contracts shared across the MiBee Cam family
 - `docs/PITFALLS.md` — the family incident library behind every defensive workaround in this codebase (sanitized public edition)
+
+---
+
+## Firmware Baseline Norms
+
+Two baselines are mandatory fleet-wide for every MiBee firmware repo:
+
+1. **Watchdog: mandatory.** ✅ This firmware: ESP-IDF task watchdog (TWDT 10 s,
+   panic on timeout, idle-task checking on both cores) with per-task
+   registration and feeding.
+2. **Web/API firmware upgrade (OTA): mandatory where the hardware allows.**
+   ✅ This firmware: dual OTA slots + the `/api/ota` family
+   (`/api/ota/upload`, `/api/ota/info`, `/api/ota/spiffs`) plus `esp_https_ota`
+   pull-style updates; wired flashing (serialtap/esptool) remains the recovery
+   path, not a substitute.
 
 ---
 
