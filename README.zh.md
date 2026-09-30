@@ -108,7 +108,7 @@ idf.py -p COM3 flash monitor
       └───────────────────┬─────────────────────┘
                           │ B2B 板对板连接器
   相机(DVP) → XCLK=IO10 · SIOD=IO40 · SIOC=IO39 · VSYNC=IO38
-              HREF=IO47 · PCLK=IO13 · D0–D7=IO18/17/16/15/14/12/11/48
+              HREF=IO47 · PCLK=IO13 · D0–D7=IO15/17/18/16/14/12/11/48
   麦克风(PDM) → DATA=IO41 · CLK=IO42
   TF(1线SDMMC) → CLK=IO7 · CMD=IO10（与相机 XCLK 复用）· D0=IO8
                  ┌─ USB-C ─┐

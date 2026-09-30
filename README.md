@@ -108,7 +108,7 @@ idf.py -p COM3 flash monitor
       └───────────────────────┬───────────────────────┘
                               │ B2B board-to-board connector
   Camera (DVP) → XCLK=IO10 · SIOD=IO40 · SIOC=IO39 · VSYNC=IO38
-                 HREF=IO47 · PCLK=IO13 · D0–D7=IO18/17/16/15/14/12/11/48
+                 HREF=IO47 · PCLK=IO13 · D0–D7=IO15/17/18/16/14/12/11/48
   Mic (PDM)    → DATA=IO41 · CLK=IO42
   TF (1-line SDMMC) → CLK=IO7 · CMD=IO10 (shared with camera XCLK) · D0=IO8
                  ┌─ USB-C ─┐
