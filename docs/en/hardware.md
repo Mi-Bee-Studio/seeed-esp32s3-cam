@@ -46,10 +46,10 @@ This project uses Octal PSRAM mode (8-line), initialized at boot (`CONFIG_SPIRAM
 | XCLK | 10 | Main clock output (16 MHz) |
 | SIOD (SDA) | 40 | SCCB data line (I²C) |
 | SIOC (SCL) | 39 | SCCB clock line (I²C) |
-| D0 | 18 | Data bit 0 |
+| D0 | 15 | Data bit 0 |
 | D1 | 17 | Data bit 1 |
-| D2 | 16 | Data bit 2 |
-| D3 | 15 | Data bit 3 |
+| D2 | 18 | Data bit 2 |
+| D3 | 16 | Data bit 3 |
 | D4 | 14 | Data bit 4 |
 | D5 | 12 | Data bit 5 |
 | D6 | 11 | Data bit 6 |

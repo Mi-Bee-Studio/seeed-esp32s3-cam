@@ -83,6 +83,43 @@ idf.py -p COM3 flash monitor
 - TF 卡（FAT32，Class 10+）
 - USB-C 数据线（供电 + 烧录）
 
+### 板子概要
+
+| 项目 | 值 |
+|------|-----|
+| 模组 | XIAO ESP32-S3 Sense —— ESP32-S3-WROOM-1-N8R8，Xtensa LX7 双核 240MHz |
+| Flash | 8MB（芯片内封装） |
+| PSRAM | 8MB Octal（芯片内封装）—— 相机帧缓冲所在地，`fb_count=2` |
+| 无线 | 2.4GHz WiFi b/g/n + BLE 5 |
+| USB | 原生 USB Type-C（USB-Serial-JTAG：控制台/烧录同一口，无桥芯片） |
+| 相机 | 板载 OV2640（驱动自动识别实际焊接的传感器，如 OV5640——以上电日志或 `/api/status` 为准） |
+| 麦克风 | MEMS PDM：DATA=GPIO41、CLK=GPIO42 |
+| TF 卡 | 1 线 SDMMC：CLK=GPIO7、CMD=GPIO10（**与相机 XCLK 复用**）、D0=GPIO8 |
+| 板载 LED | 用户 LED GPIO21，低电平有效 |
+| 按键 | BOOT=GPIO0（按住 5s = 恢复出厂）、RESET |
+| 尺寸 | 核心板 21 × 17.5 mm；Sense 相机扩展板经 B2B 连接器叠装 |
+
+### 引脚位置图（USB-C 朝上，正面/元件面视角）
+
+```
+      ┌─────────────────────────────────────────┐
+      │ Sense 扩展板（叠在核心板上）              │
+      │   OV2640 相机 · MEMS PDM 麦克风 · TF 卡槽 │
+      └───────────────────┬─────────────────────┘
+                          │ B2B 板对板连接器
+  相机(DVP) → XCLK=IO10 · SIOD=IO40 · SIOC=IO39 · VSYNC=IO38
+              HREF=IO47 · PCLK=IO13 · D0–D7=IO15/17/18/16/14/12/11/48
+  麦克风(PDM) → DATA=IO41 · CLK=IO42
+  TF(1线SDMMC) → CLK=IO7 · CMD=IO10（与相机 XCLK 复用）· D0=IO8
+                 ┌─ USB-C ─┐
+                 │  XIAO   │
+                 │ ESP32-S3│   LED=IO21（低有效）· BOOT=IO0（按住 5s
+                 │  N8R8   │   = 恢复出厂）
+                 └─────────┘
+  边缘焊盘：5V/GND/3V3 + D0–D10（= GPIO1–6、43、44、7、8、9）——
+  物理排布以 Seeed wiki 引脚图为准。
+```
+
 👉 [引脚定义与硬件详情](docs/zh/hardware.md)
 
 ---
@@ -171,6 +208,19 @@ main/  —  27 个 C 模块 + main.c + cJSON（平面布局）
 - `main/web_server.c` — 全部 HTTP 端点集中在文件顶部的 `s_uris[]` 路由表（文件头有阅读地图）
 - `docs/api-contract.md` · `docs/config-contract.md` · `docs/at-command.md` — MiBee Cam 家族统一的行为契约（带版本号）
 - `docs/PITFALLS.md` — 家族坑库（公开脱敏版）：代码里每处防御性写法的"为什么"，症状→根因→已验证修复
+
+---
+
+## 固件基线规范
+
+两条基线对所有 MiBee 固件仓强制执行：
+
+1. **看门狗：必须启用。** ✅ 本固件：ESP-IDF 任务看门狗（TWDT 10s、超时
+   panic、双核 idle 任务均纳入检查），各任务注册并按周期喂狗；
+2. **Web/API 固件升级（OTA）：硬件允许则必须提供。** ✅ 本固件：OTA 双槽 +
+   `/api/ota` 系列端点（`/api/ota/upload`、`/api/ota/info`、`/api/ota/spiffs`），
+   另支持 `esp_https_ota` 拉取式升级；有线烧录（serialtap/esptool）只是
+   兜底恢复手段，不能替代 OTA。
 
 ---
 
