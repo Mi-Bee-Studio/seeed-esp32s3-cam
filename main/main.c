@@ -46,6 +46,10 @@
 #include <stdio.h>
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_chip_info.h"
+#include "esp_flash.h"
+#include "esp_psram.h"
+#include "esp_camera.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "nvs_flash.h"
@@ -537,6 +541,31 @@ void app_main(void)
     if (s_camera_ok) {
         camera_set_flip(cfg->cam_vflip, cfg->cam_hmirror);
         camera_set_day_night(cfg->day_night_mode);
+    }
+
+    /* SELFTEST 自检行（工作区 AGENTS.md"固件自检行"规范）：一行可 grep
+     * 的开机体检证据，serialtap 按前缀聚合做台架异常发现（板间横向对比：
+     * PSRAM 没起来、传感器换了、flash 缩水一眼可见）。wifi 部分由
+     * wifi_start_sta 在连接前快扫后补一行 SELFTEST: wifi ...。 */
+    {
+        esp_chip_info_t ci;
+        esp_chip_info(&ci);
+        uint32_t flsz = 0;
+        esp_flash_get_size(NULL, &flsz);   /* v6：NULL=默认主 flash */
+        size_t psz = esp_psram_get_size();
+        sensor_t *s = esp_camera_sensor_get();
+        char sensor[32] = "none";
+        if (s && s->id.PID) {
+            snprintf(sensor, sizeof(sensor), "0x%04X", s->id.PID);
+        }
+        char psram_str[12];
+        if (psz) snprintf(psram_str, sizeof(psram_str), "%uMB", (unsigned)(psz >> 20));
+        else     strlcpy(psram_str, "none", sizeof(psram_str));
+        ESP_LOGI(TAG, "SELFTEST: board=seeed-esp32s3-cam fw=v0.1 chip=%s rev=v%d.%d"
+                      " cores=%u flash=%uMB psram=%s sensor=%s heap=%uKB",
+                 CONFIG_IDF_TARGET, ci.revision / 100, ci.revision % 100, ci.cores,
+                 (unsigned)(flsz >> 20), psram_str, sensor,
+                 (unsigned)(esp_get_free_heap_size() >> 10));
     }
 
     /* ---- 6. SD card storage (SPI mode: CS=21, SCK=7, MOSI=9, MISO=8) --- */
