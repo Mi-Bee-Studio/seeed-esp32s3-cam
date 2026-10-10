@@ -408,6 +408,56 @@ esp_err_t wifi_start_sta(void)
         ESP_LOGW(TAG, "Failed to set WiFi TX power: %s", esp_err_to_name(pwr_err));
     }
 
+    /* SELFTEST 自检行（wifi 部分，工作区 AGENTS.md"固件自检行"规范）：
+     * 连接前快扫一次：最强 5 个 BSS + 配置网 RSSI。serialtap 按
+     * "SELFTEST:" 前缀聚合做台架异常发现（空口全聋/信号弱/板间对比）。
+     * 设备日志含真实 SSID（本地日志不入仓，仓库侧脱敏规范不变）。 */
+    {
+        wifi_scan_config_t sc = { .show_hidden = false };
+        if (esp_wifi_scan_start(&sc, true) == ESP_OK) {
+            uint16_t n = 0;
+            esp_wifi_scan_get_ap_num(&n);
+            wifi_ap_record_t *recs = malloc(sizeof(wifi_ap_record_t) * (n ? n : 1));
+            if (recs && esp_wifi_scan_get_ap_records(&n, recs) == ESP_OK) {
+                char top_str[240] = "-";
+                size_t off = 0;
+                int top = n < 5 ? n : 5;
+                for (int i = 0; i < top; i++) {
+                    char item[56];
+                    int wl = snprintf(item, sizeof(item), "%s%ddBm ch%u %.24s",
+                                      off ? "; " : "", recs[i].rssi,
+                                      (unsigned)recs[i].primary,
+                                      (const char *)recs[i].ssid);
+                    if (wl < 0 || off + (size_t)wl + 1 > sizeof(top_str)) break;
+                    memcpy(top_str + off, item, (size_t)wl + 1);
+                    off += (size_t)wl;
+                }
+                char ours_str[100] = "-";
+                if (config->wifi_ssid[0] || config->wifi_ssid_2[0]) {
+                    ours_str[0] = '\0';
+                    for (int c = 0; c < 2; c++) {
+                        const char *ssid = c ? config->wifi_ssid_2 : config->wifi_ssid;
+                        if (!ssid[0]) continue;
+                        int8_t best = -128;
+                        for (uint16_t i = 0; i < n; i++) {
+                            if (strcmp((const char *)recs[i].ssid, ssid) == 0 &&
+                                recs[i].rssi > best) {
+                                best = recs[i].rssi;
+                            }
+                        }
+                        char item[52];
+                        snprintf(item, sizeof(item), "%s%.24s=%ddBm",
+                                 ours_str[0] ? "," : "", ssid, best);
+                        strlcat(ours_str, item, sizeof(ours_str));
+                    }
+                }
+                ESP_LOGI(TAG, "SELFTEST: wifi aps=%u top=\"%s\" ours=\"%s\"",
+                         (unsigned)n, top_str, ours_str);
+            }
+            free(recs);
+        }
+    }
+
     s_state = WIFI_STATE_STA_CONNECTING;
     strlcpy(s_current_ssid, config->wifi_ssid, sizeof(s_current_ssid));
     ws_broadcast("wifi_state_changed", "{\"state\":\"connecting\"}");
