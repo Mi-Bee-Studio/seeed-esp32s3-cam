@@ -124,3 +124,7 @@ $null
 
 # SPA gzip build inputs (PIT-038, tools/compress_ui.py)
 main/web_ui/*.gz
+
+# 串口采集器在仓根运行的产物（overnight_log.py 默认文件名，勿入库）
+overnight_serial.log
+overnight_reboots.log

@@ -29,6 +29,9 @@
  */
 esp_err_t time_sync_init(void);
 
+/** 用最新 ntp_server1/2 配置重启 SNTP（issue #43）。 */
+esp_err_t time_sync_restart(void);
+
 /** @brief 检查时间是否已通过 NTP 或手动设置成功同步 */
 bool time_is_synced(void);
 

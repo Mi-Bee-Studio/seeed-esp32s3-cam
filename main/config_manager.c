@@ -64,6 +64,8 @@ KEY_ASSERT("wifi_ssid_2");
 KEY_ASSERT("wifi_pass_2");
 KEY_ASSERT("ap_fallback");
 KEY_ASSERT("timezone");
+KEY_ASSERT("ntp_server1");
+KEY_ASSERT("ntp_server2");
 KEY_ASSERT("cam_framesize");
 KEY_ASSERT("cam_fps");
 KEY_ASSERT("cam_quality");
@@ -176,6 +178,8 @@ static void apply_defaults(cam_config_t *cfg)
     cfg->wifi_pass_2[0] = '\0';
     cfg->allow_ap_fallback = false;      /* 板级覆盖（§5）：保留现行为，永不退 AP */
     strlcpy(cfg->timezone, "CST-8", sizeof(cfg->timezone));
+    cfg->ntp_server1[0] = '\0';   /* 契约 v2.1：空 = 内置公网池 */
+    cfg->ntp_server2[0] = '\0';
     /* 板级覆盖（§5，OV5640 热调优 PIT-016）：SVGA / fps12 / q18 */
     cfg->cam_framesize = CAMERA_RES_SVGA;
     cfg->cam_fps = 12;
@@ -272,6 +276,8 @@ static void load_legacy_namespace(nvs_handle_t h, cam_config_t *cfg)
     if (rd_u8(h, "allow_ap_fallback", &u8v)) cfg->allow_ap_fallback = u8v != 0;
     rd_str(h, "device_name", cfg->device_name, sizeof(cfg->device_name));
     rd_str(h, "timezone", cfg->timezone, sizeof(cfg->timezone));
+    rd_str(h, "ntp_server1", cfg->ntp_server1, sizeof(cfg->ntp_server1));
+    rd_str(h, "ntp_server2", cfg->ntp_server2, sizeof(cfg->ntp_server2));
 
     /* ---- 相机（v3 改名回退：resolution/jpeg_quality/vflip/hmirror） ---- */
     if (rd_u8(h, "cam_framesize", &u8v) || rd_u8(h, "resolution", &u8v)) {
@@ -384,6 +390,8 @@ static void load_keys_from_nvs(nvs_handle_t h, cam_config_t *cfg)
     rd_str(h, "wifi_pass_2", cfg->wifi_pass_2, sizeof(cfg->wifi_pass_2));
     rd_u8(h, "ap_fallback", (uint8_t *)&cfg->allow_ap_fallback);
     rd_str(h, "timezone", cfg->timezone, sizeof(cfg->timezone));
+    rd_str(h, "ntp_server1", cfg->ntp_server1, sizeof(cfg->ntp_server1));
+    rd_str(h, "ntp_server2", cfg->ntp_server2, sizeof(cfg->ntp_server2));
     rd_u8(h, "cam_framesize", &cfg->cam_framesize);
     rd_u8(h, "cam_fps", &cfg->cam_fps);
     rd_u8(h, "cam_quality", &cfg->cam_quality);
@@ -455,6 +463,8 @@ static void write_keys_to_nvs(nvs_handle_t h, const cam_config_t *cfg)
     wr_str(h, "wifi_pass_2", cfg->wifi_pass_2);
     wr_u8(h, "ap_fallback", cfg->allow_ap_fallback ? 1 : 0);
     wr_str(h, "timezone", cfg->timezone);
+    wr_str(h, "ntp_server1", cfg->ntp_server1);
+    wr_str(h, "ntp_server2", cfg->ntp_server2);
     wr_u8(h, "cam_framesize", cfg->cam_framesize);
     wr_u8(h, "cam_fps", cfg->cam_fps);
     wr_u8(h, "cam_quality", cfg->cam_quality);
@@ -1117,6 +1127,20 @@ bool config_validate(const cam_config_t *cfg)
 }
 
 /** @brief 将当前配置保存到 NVS 闪存持久化 */
+const char *config_get_timezone(void)     { return s_config.timezone; }
+const char *config_get_ntp_server1(void)  { return s_config.ntp_server1; }
+const char *config_get_ntp_server2(void)  { return s_config.ntp_server2; }
+
+esp_err_t config_set_ntp_servers(const char *s1, const char *s2)
+{
+    config_lock();
+    strlcpy(s_config.ntp_server1, s1 ? s1 : "", sizeof(s_config.ntp_server1));
+    strlcpy(s_config.ntp_server2, s2 ? s2 : "", sizeof(s_config.ntp_server2));
+    config_unlock();
+    ESP_LOGI(TAG, "NTP servers set: [%s] [%s]", s_config.ntp_server1, s_config.ntp_server2);
+    return config_save();
+}
+
 esp_err_t config_save(void)
 {
     /* Apply optimal timelapse parameters before persisting */
@@ -1201,6 +1225,8 @@ cJSON *config_get_json(void)
     cJSON_AddBoolToObject(root, "allow_ap_fallback", cfg->allow_ap_fallback);
     cJSON_AddStringToObject(root, "device_name", cfg->device_name);
     cJSON_AddStringToObject(root, "timezone", cfg->timezone);
+    cJSON_AddStringToObject(root, "ntp_server1", cfg->ntp_server1);
+    cJSON_AddStringToObject(root, "ntp_server2", cfg->ntp_server2);
 
     /* 相机（含微调组） */
     cJSON_AddNumberToObject(root, "cam_framesize", (double)cfg->cam_framesize);

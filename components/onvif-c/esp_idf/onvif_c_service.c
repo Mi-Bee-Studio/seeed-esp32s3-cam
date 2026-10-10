@@ -8,6 +8,7 @@
 #include "onvif_c_port.h"
 #include "onvif_c_events.h"
 #include "../core/onvif_xml.h"
+#include "../core/onvif_time.h"
 #include "../core/onvif_wsse.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -143,7 +144,50 @@ static esp_err_t handle_get_system_date_and_time(httpd_req_t *req)
     time_t    now = time(NULL);
     struct tm utc_tm;
     gmtime_r(&now, &utc_tm);
-    SEND_BUILT(req, onvif_xml_system_date_and_time(resp_, ONVIF_C_RESP_MAX, &utc_tm));
+    bool ntp_active = s_cfg.time_ntp_active && s_cfg.time_ntp_active();
+    SEND_BUILT(req, onvif_xml_system_date_and_time(resp_, ONVIF_C_RESP_MAX, &utc_tm, ntp_active,
+                                                   s_cfg.time_tz ? s_cfg.time_tz() : NULL));
+}
+
+/** SetSystemDateAndTime (time-configuration seam): apply-or-fault — the
+ *  historical silent-ack misled NVR integrators (issue #43-class). */
+static esp_err_t handle_set_system_date_and_time(httpd_req_t *req, const char *body)
+{
+    if (!s_cfg.time_apply) {
+        SEND_BUILT(req, onvif_xml_fault_action_not_supported(resp_, ONVIF_C_RESP_MAX));
+    }
+    onvif_c_time_req_t tr;
+    if (!onvif_time_parse_set_request(body, &tr)) {
+        SEND_BUILT(req, onvif_xml_fault_invalid(resp_, ONVIF_C_RESP_MAX, "ter:InvalidArgVal",
+                                                "malformed UTCDateTime"));
+    }
+    esp_err_t err = s_cfg.time_apply(&tr);
+    if (err != ESP_OK) {
+        char why[96];
+        snprintf(why, sizeof(why), "time apply failed: %s", esp_err_to_name(err));
+        SEND_BUILT(req, onvif_xml_fault_invalid(resp_, ONVIF_C_RESP_MAX, "ter:InvalidArgVal", why));
+    }
+    SEND_BUILT(req, onvif_xml_set_system_date_and_time_ack(resp_, ONVIF_C_RESP_MAX));
+}
+
+/** SetNTP (time-configuration seam): server list replace-or-fault. */
+static esp_err_t handle_set_ntp(httpd_req_t *req, const char *body)
+{
+    if (!s_cfg.ntp_set) {
+        SEND_BUILT(req, onvif_xml_fault_action_not_supported(resp_, ONVIF_C_RESP_MAX));
+    }
+    char        srv[8][ONVIF_TIME_HOST_MAX];
+    const char *ptr[8];
+    int         n = onvif_time_parse_set_ntp(body, srv, 8);
+    for (int i = 0; i < n; i++)
+        ptr[i] = srv[i];
+    esp_err_t err = s_cfg.ntp_set(ptr, (size_t)n);
+    if (err != ESP_OK) {
+        char why[96];
+        snprintf(why, sizeof(why), "ntp apply failed: %s", esp_err_to_name(err));
+        SEND_BUILT(req, onvif_xml_fault_invalid(resp_, ONVIF_C_RESP_MAX, "ter:InvalidArgVal", why));
+    }
+    SEND_BUILT(req, onvif_xml_set_ntp_response(resp_, ONVIF_C_RESP_MAX));
 }
 
 static esp_err_t handle_get_device_information(httpd_req_t *req)
@@ -250,8 +294,11 @@ static esp_err_t dispatch_device_action(httpd_req_t *req, const char *body)
     if (strstr(body, "SystemReboot")) {
         SEND_BUILT(req, onvif_xml_system_reboot(resp_, ONVIF_C_RESP_MAX));
     }
+    if (strstr(body, "SetNTP")) {
+        return handle_set_ntp(req, body);
+    }
     if (strstr(body, "SetSystemDateAndTime")) {
-        SEND_BUILT(req, onvif_xml_set_system_date_and_time_ack(resp_, ONVIF_C_RESP_MAX));
+        return handle_set_system_date_and_time(req, body);
     }
     if (strstr(body, "GetServiceCapabilities")) {
         SEND_BUILT(req, onvif_xml_device_service_capabilities(resp_, ONVIF_C_RESP_MAX));

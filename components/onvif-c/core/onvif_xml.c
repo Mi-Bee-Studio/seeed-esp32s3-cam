@@ -20,7 +20,8 @@
 /*  Device service                                                     */
 /* ------------------------------------------------------------------ */
 
-int onvif_xml_system_date_and_time(char *buf, size_t n, const struct tm *utc)
+int onvif_xml_system_date_and_time(char *buf, size_t n, const struct tm *utc, bool ntp_active,
+                                   const char *tz)
 {
     return snprintf(buf, n,
                     "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
@@ -31,10 +32,10 @@ int onvif_xml_system_date_and_time(char *buf, size_t n, const struct tm *utc)
                     "<soap:Body>"
                     "<tds:GetSystemDateAndTimeResponse>"
                     "<tds:SystemDateAndTime>"
-                    "<tt:DateTimeType>NTP</tt:DateTimeType>"
+                    "<tt:DateTimeType>%s</tt:DateTimeType>"
                     "<tt:DaylightSavings>false</tt:DaylightSavings>"
                     "<tt:TimeZone>"
-                    "<tt:TZ>UTC</tt:TZ>"
+                    "<tt:TZ>%s</tt:TZ>"
                     "</tt:TimeZone>"
                     "<tt:UTCDateTime>"
                     "<tt:Time>"
@@ -52,8 +53,8 @@ int onvif_xml_system_date_and_time(char *buf, size_t n, const struct tm *utc)
                     "</tds:GetSystemDateAndTimeResponse>"
                     "</soap:Body>"
                     "</soap:Envelope>",
-                    utc->tm_hour, utc->tm_min, utc->tm_sec, utc->tm_year + 1900, utc->tm_mon + 1,
-                    utc->tm_mday);
+                    ntp_active ? "NTP" : "MANUAL", (tz && tz[0]) ? tz : "UTC", utc->tm_hour,
+                    utc->tm_min, utc->tm_sec, utc->tm_year + 1900, utc->tm_mon + 1, utc->tm_mday);
 }
 
 int onvif_xml_device_information(char *buf, size_t n, const char *manufacturer, const char *model,
@@ -227,6 +228,43 @@ int onvif_xml_fault_action_not_supported(char *buf, size_t n)
                     "<soap:Text xml:lang=\"en\">Action not supported</soap:Text>"
                     "</soap:Reason>"
                     "</soap:Fault>"
+                    "</soap:Body>"
+                    "</soap:Envelope>");
+}
+
+int onvif_xml_fault_invalid(char *buf, size_t n, const char *subcode, const char *reason)
+{
+    return snprintf(buf, n,
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                    "<soap:Envelope"
+                    " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                    " xmlns:ter=\"http://www.onvif.org/ver10/error\">"
+                    "<soap:Body>"
+                    "<soap:Fault>"
+                    "<soap:Code>"
+                    "<soap:Value>soap:Sender</soap:Value>"
+                    "<soap:Subcode>"
+                    "<soap:Value>%s</soap:Value>"
+                    "</soap:Subcode>"
+                    "</soap:Code>"
+                    "<soap:Reason>"
+                    "<soap:Text xml:lang=\"en\">%s</soap:Text>"
+                    "</soap:Reason>"
+                    "</soap:Fault>"
+                    "</soap:Body>"
+                    "</soap:Envelope>",
+                    subcode ? subcode : "ter:InvalidArgVal", reason ? reason : "invalid request");
+}
+
+int onvif_xml_set_ntp_response(char *buf, size_t n)
+{
+    return snprintf(buf, n,
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+                    "<soap:Envelope"
+                    " xmlns:soap=\"http://www.w3.org/2003/05/soap-envelope\""
+                    " xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\">"
+                    "<soap:Body>"
+                    "<tds:SetNTPResponse/>"
                     "</soap:Body>"
                     "</soap:Envelope>");
 }

@@ -20,7 +20,11 @@
 #include <time.h>
 
 /* ---- Device service ---- */
-int onvif_xml_system_date_and_time(char *buf, size_t n, const struct tm *utc);
+/** @param ntp_active true -> DateTimeType NTP; false -> MANUAL (honest mode,
+ *  issue #43-class: never claim NTP without a management seam).
+ *  @param tz POSIX TZ text or NULL/"" -> "UTC". */
+int onvif_xml_system_date_and_time(char *buf, size_t n, const struct tm *utc, bool ntp_active,
+                                   const char *tz);
 int onvif_xml_device_information(char *buf, size_t n, const char *manufacturer, const char *model,
                                  const char *firmware, const char *serial, const char *hardware_id);
 /** @param events advertise the Events service XAddr (only when built with events). */
@@ -38,8 +42,14 @@ int onvif_xml_services(char *buf, size_t n, const char *ip, unsigned port, bool 
 int onvif_xml_get_scopes(char *buf, size_t n, const char *scopes);
 /** SystemReboot — protocol-level answer only (host decides side effects). */
 int onvif_xml_system_reboot(char *buf, size_t n);
-/** SetSystemDateAndTime — accept + acknowledge. */
+/** SetSystemDateAndTime — accept + acknowledge (sent only after the board
+ *  seam actually applied the request). */
 int onvif_xml_set_system_date_and_time_ack(char *buf, size_t n);
+/** SetNTP — accept + acknowledge (sent only after the board seam applied). */
+int onvif_xml_set_ntp_response(char *buf, size_t n);
+/** Sender fault with a specific subcode + reason text (parse failures,
+ *  seam rejections). Subcode examples: "ter:InvalidArgVal". */
+int onvif_xml_fault_invalid(char *buf, size_t n, const char *subcode, const char *reason);
 /** Device GetServiceCapabilities — nothing optional supported. */
 int onvif_xml_device_service_capabilities(char *buf, size_t n);
 

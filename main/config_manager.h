@@ -51,6 +51,8 @@ typedef struct {
     char device_name[32];
     // 设备名称（家族默认 MiBeeCam）
     char timezone[48];
+    char ntp_server1[64];   /* 契约 v2.1：SNTP 源 1，空 = 内置公网池 */
+    char ntp_server2[64];   /* 契约 v2.1：SNTP 源 2，空 = 内置公网池 */
     // 时区设置，POSIX格式（如 CST-8、UTC0、EST5EDT）
     uint8_t cam_framesize;  // framesize_t 刻度：10=VGA,11=SVGA,12=XGA,13=HD,14=SXGA,15=UXGA
     uint8_t cam_fps;        // 1-30（板级覆盖默认 12）
@@ -132,6 +134,12 @@ void config_unlock(void);
 
 /** @brief 线程安全复制当前配置到 caller 提供的缓冲区 */
 esp_err_t config_get_copy(cam_config_t *out);
+
+/** 契约 v2.1：SNTP 源（空串 = 清回内置公网池）。 */
+const char *config_get_ntp_server1(void);
+const char *config_get_ntp_server2(void);
+esp_err_t config_set_ntp_servers(const char *s1, const char *s2);
+const char *config_get_timezone(void);
 /** @brief 验证配置结构体所有字段是否在合法范围内 */
 bool config_validate(const cam_config_t *cfg);
 /** @brief 根据拍摄间隔和录制模式计算最优片段时长和帧率，覆盖 fps 和 segment_sec 字段 */

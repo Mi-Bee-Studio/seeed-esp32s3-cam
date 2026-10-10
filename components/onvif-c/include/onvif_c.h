@@ -26,6 +26,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "../core/onvif_time.h" /* onvif_c_time_req_t (time-configuration seam) */
 #include "esp_http_server.h"
 
 #ifdef __cplusplus
@@ -76,6 +77,26 @@ typedef struct {
      * /onvif/events_service is not registered and its XAddr is not
      * advertised in GetCapabilities.                                    */
     bool (*events_enabled)(void); /* runtime gate; false = drop motion events */
+
+    /* ---- time configuration (SetSystemDateAndTime / SetNTP) ----
+     * All four NULL = feature absent: SetSystemDateAndTime / SetNTP answer
+     * ter:ActionNotSupported, and GetSystemDateAndTime reports MANUAL with
+     * TZ "UTC" (never claim NTP without a management seam — an NVR that
+     * cannot correct the clock must be told the truth, issue #43-class). */
+    /** True when wall time is actually NTP-maintained right now — drives the
+     *  GetSystemDateAndTime DateTimeType. */
+    bool (*time_ntp_active)(void);
+    /** Current POSIX TZ string for GetSystemDateAndTime; NULL/"" -> "UTC". */
+    const char *(*time_tz)(void);
+    /** Apply SetSystemDateAndTime: ntp_mode -> prefer the NTP source;
+     *  has_utc -> set the wall clock to utc_epoch; has_tz -> set timezone.
+     *  Non-ESP_OK return -> Sender fault carrying esp_err_to_name text.
+     *  NULL = unsupported. */
+    esp_err_t (*time_apply)(const onvif_c_time_req_t *req);
+    /** Apply SetNTP: replace the NTP server list with the n given address
+     *  strings (request order); n == 0 -> stop using NTP. Non-ESP_OK ->
+     *  Sender fault. NULL = unsupported (the historical default). */
+    esp_err_t (*ntp_set)(const char *const *servers, size_t n);
 
     /* ---- discovery / mDNS ---- */
     uint16_t http_port; /* 0 -> 80. Used in XAddrs/URIs.           */
