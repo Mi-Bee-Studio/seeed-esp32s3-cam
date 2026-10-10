@@ -1,0 +1,12 @@
+#!/bin/sh
+# Repo hygiene + style + host tests before every commit.
+ROOT="$(git rev-parse --show-toplevel)"
+"$ROOT/tools/check-repo-hygiene.sh" || exit 1
+if command -v clang-format >/dev/null 2>&1; then
+    "$ROOT/tools/check_style.sh" || exit 1
+else
+    echo "clang-format missing — style gate skipped locally (CI enforces it)"
+fi
+"$ROOT/tests/run.sh" >/dev/null 2>&1 || {
+    echo "host tests failed — run tests/run.sh"; exit 1; }
+exit 0

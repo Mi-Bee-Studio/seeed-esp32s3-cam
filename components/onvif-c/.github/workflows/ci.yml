@@ -1,0 +1,83 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: tools/check-repo-hygiene.sh
+
+  style:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pipx install clang-format==22.1.8
+      - run: tools/check_style.sh
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # builds both host suites with gcc --coverage; fails under 80%
+      - run: tests/coverage.sh 80
+
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # the stub harness drives the real port layer, so ASan/UBSan cover the
+      # shipped esp_idf/ code — length-arithmetic regressions trap here
+      - run: sudo apt-get update && sudo apt-get install -y clang
+      - run: CC=clang EXTRA_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" tests/run.sh
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+
+  golden:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - run: tests/run.sh
+        env:
+          CC: ${{ matrix.cc }}
+
+  idf-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        idf: ['espressif/idf:v6.0', 'espressif/idf:v5.5']
+    container: ${{ matrix.idf }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build component in a throwaway project
+        shell: bash
+        run: |
+          set -x
+          # no pipe: export.sh must run in THIS shell so PATH sticks
+          . "$IDF_PATH/export.sh" > /tmp/idf_export.log 2>&1 || {
+              cat /tmp/idf_export.log; exit 1; }
+          # EXTRA_COMPONENT_DIRS must name a dir CONTAINING the component dir,
+          # and be set before project().
+          mkdir -p /tmp/comps /tmp/probe/main
+          cp -r "$GITHUB_WORKSPACE" /tmp/comps/onvif-c
+          cd /tmp/probe
+          printf '%s\n' \
+            'cmake_minimum_required(VERSION 3.16)' \
+            'include($ENV{IDF_PATH}/tools/cmake/project.cmake)' \
+            'set(EXTRA_COMPONENT_DIRS "/tmp/comps")' \
+            'project(onvif_c_probe)' > CMakeLists.txt
+          echo 'int app_main(void){return 0;}' > main/main.c
+          echo 'idf_component_register(SRCS "main.c" INCLUDE_DIRS "." REQUIRES onvif-c)' > main/CMakeLists.txt
+          idf.py set-target esp32s3 2>&1 | tail -5
+          idf.py build 2>&1 | tail -3

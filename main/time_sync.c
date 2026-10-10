@@ -49,9 +49,17 @@ esp_err_t time_sync_init(void)
 
     esp_sntp_stop();  /* idempotent */
 
+    /* 契约 v2.1：SNTP 源可配（ONVIF SetNTP）；空键回落内置公网池 */
+    const char *s1 = config_get_ntp_server1();
+    const char *s2 = config_get_ntp_server2();
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    esp_sntp_setservername(0, "cn.pool.ntp.org");
-    esp_sntp_setservername(1, "ntp.aliyun.com");
+    if (s1[0]) {
+        esp_sntp_setservername(0, s1);
+        if (s2[0]) esp_sntp_setservername(1, s2);
+    } else {
+        esp_sntp_setservername(0, "cn.pool.ntp.org");
+        esp_sntp_setservername(1, "ntp.aliyun.com");
+    }
     esp_sntp_init();
 
     ESP_LOGI(TAG, "SNTP started, waiting for sync...");
@@ -168,4 +176,10 @@ void time_sync_apply_timezone(const char *tz)
     setenv("TZ", tz, 1);
     tzset();
     ESP_LOGI(TAG, "Timezone set to: %s", tz);
+}
+
+esp_err_t time_sync_restart(void)
+{
+    s_synced = false;   /* issue #43：配置源变更后重启 SNTP */
+    return time_sync_init();
 }

@@ -19,11 +19,17 @@ SELF=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$SELF/.." && pwd)
 FAMILY_ROOT=${MIBEE_FAMILY_ROOT:-$(cd "$REPO/.." && pwd)}
 
-# 家族仓识别标志：持有 docs/api-contract.md 的兄弟目录
-REPOS=()
+# 家族仓识别标志：持有 docs/api-contract.md 的兄弟目录。
+# 布局适配（v4，2026-10-09）：n16r8 主板仓改造（#45）后共享面在 cam/ 子目录，
+# 其余仓保持根布局——REPOS 存仓根，BASES 存共享面前缀（同索引对齐）。
+REPOS=(); BASES=()
 for d in "$FAMILY_ROOT"/*/; do
   d="${d%/}"
-  [ -f "$d/docs/api-contract.md" ] && REPOS+=("$d")
+  if [ -f "$d/docs/api-contract.md" ]; then
+    REPOS+=("$d"); BASES+=("$d")
+  elif [ -f "$d/cam/docs/api-contract.md" ]; then
+    REPOS+=("$d"); BASES+=("$d/cam")
+  fi
 done
 if [ "${#REPOS[@]}" -lt 2 ]; then
   echo "✗ 只发现 ${#REPOS[@]} 个家族仓（$FAMILY_ROOT 下），预期 4 个；用 MIBEE_FAMILY_ROOT 指定家族根"
@@ -64,8 +70,10 @@ fail=0
 # ---- A. 单文件 md5 一致 ----
 for f in "${SHARED_FILES[@]}"; do
   ref=""; ref_repo=""; bad=""
-  for r in "${REPOS[@]}"; do
-    p="$r/$f"
+  for i in "${!REPOS[@]}"; do
+    r="${REPOS[$i]}"
+    p="${BASES[$i]}/$f"
+    [ -f "$p" ] || p="$r/$f"   # 仓级文件（LICENSE/CI/钩子）恒在仓根
     if [ ! -f "$p" ]; then
       bad="$bad 缺失:$(basename "$r")"
       continue
@@ -88,8 +96,9 @@ done
 # ---- B. vendored 组件整树一致（espectre + onvif-c）----
 for comp in espectre onvif-c; do
   ref=""; ref_repo=""; bad=""
-  for r in "${REPOS[@]}"; do
-    d="$r/components/$comp"
+  for i in "${!REPOS[@]}"; do
+    r="${REPOS[$i]}"
+    d="${BASES[$i]}/components/$comp"
     if [ ! -d "$d" ]; then
       bad="$bad 缺失:$(basename "$r")"
       continue
@@ -112,9 +121,10 @@ done
 # ---- C. 双板件：onvif_events 探针（契约 v1.5 能力位，仅 CSI 板持有）----
 for f in tools/onvif_events_probe.py; do
   ref=""; owners=""; diverged=0
-  for r in "${REPOS[@]}"; do
-    [ -f "$r/$f" ] || continue
-    h=$(md5sum "$r/$f" | cut -d' ' -f1)
+  for i in "${!REPOS[@]}"; do
+    r="${REPOS[$i]}"
+    [ -f "${BASES[$i]}/$f" ] || continue
+    h=$(md5sum "${BASES[$i]}/$f" | cut -d' ' -f1)
     if [ -z "$ref" ]; then
       ref="$h"
     elif [ "$h" != "$ref" ]; then

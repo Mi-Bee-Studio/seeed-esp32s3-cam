@@ -11,6 +11,7 @@
 idf_component_register(
     SRCS
         "core/onvif_xml.c"
+        "core/onvif_time.c"
         "core/onvif_wsse.c"
         "core/onvif_probe.c"
         "core/onvif_events_ring.c"

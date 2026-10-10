@@ -9,6 +9,23 @@ Media2 minimal face. No breaking API changes (additions only).
 
 ## [Unreleased]
 
+### Added — time configuration seam: SetSystemDateAndTime / SetNTP (issue #43-class)
+
+- End the silent-ack era: `SetSystemDateAndTime` and `SetNTP` are now
+  **apply-or-fault**. With no integration seam configured they answer
+  `ter:ActionNotSupported` (previously SetSystemDateAndTime acknowledged
+  without doing anything, which misled NVR integrators).
+- New optional config callbacks (all NULL = feature absent):
+  `time_ntp_active()` — drives an honest `GetSystemDateAndTime`
+  `DateTimeType` (NTP only when actually maintained; the hardcoded NTP
+  report is gone, default is now MANUAL); `time_tz()` — real TZ text
+  (default "UTC"); `time_apply(req)` — apply manual time / mode switch /
+  timezone, non-ESP_OK becomes a Sender fault carrying the error name;
+  `ntp_set(servers, n)` — replace the NTP server list (n == 0 stops NTP).
+- `core/onvif_time.c`: prefix-agnostic request parsing (local-name
+  discipline, host-testable) with days-from-civil epoch conversion;
+  UTCDateTime present-but-malformed answers `ter:InvalidArgVal`.
+
 ### Added — Media2 minimal face (issue #18)
 
 - Decision recorded: **minimal subset in** (not Media1-only, not full) —
