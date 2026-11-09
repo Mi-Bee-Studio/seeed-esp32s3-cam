@@ -2,6 +2,8 @@
 
 #include <thread>
 
+#include "esp_heap_caps.h"
+
 using namespace espp;
 
 namespace {
@@ -464,6 +466,24 @@ bool RtspServer::accept_task_function(std::mutex &m, std::condition_variable &cv
       logger_.warn("Rejecting connection: {} sessions already active (max {})",
                    current, max_sessions_);
       // control_socket is a local unique_ptr; dropping it closes the connection.
+      return false;
+    }
+  }
+
+  // MiBee Cam patch (PIT-025 port, exceptions-disabled variant, 2026-11-09):
+  // session creation spawns a control task; on spawn failure std::thread
+  // throws std::system_error — and with CONFIG_COMPILER_CXX_EXCEPTIONS off
+  // (this board) the exception stub aborts the whole firmware. n16r8 guards
+  // with try/catch because it builds with exceptions enabled; that path is
+  // dead code here, so pre-check the internal heap instead: rejecting one
+  // connection always beats rebooting the board (observed: RTSP watcher
+  // reconnect + transient heap exhaustion → abort → rst:0xc).
+  {
+    const size_t kRtspHeapFloor = 12 * 1024;
+    size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    if (free_internal < kRtspHeapFloor) {
+      logger_.error("Rejecting RTSP connection: internal heap {} B < floor {} B",
+                    free_internal, kRtspHeapFloor);
       return false;
     }
   }
