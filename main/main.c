@@ -74,7 +74,7 @@
 #include "at_command.h"
 #include "csi_motion.h"
 #include "day_night.h"  /* day_night_mode=2 自动模式采样 */
-#include "flash_led.h"  /* IR 补光灯 GPIO4（契约 v1.11 /api/led） */
+#include "flash_led.h"  /* IR 补光灯 GPIO5（契约 v1.11 /api/led） */
 #include "wifi_channel_health.h"
 #include "mjpeg_streamer.h"
 #include "nas_uploader.h"
@@ -544,9 +544,10 @@ void app_main(void)
         camera_set_day_night(cfg->day_night_mode);
     }
 
-    /* 第5a步：IR 补光灯（GPIO4，LEDC）——初始化即占住引脚防悬空发虚亮；
-     * 起步熄灭，day_night mode=2 判暗确认后点亮，手动控制走 POST /api/led */
-    flash_led_init();
+    /* 第5a步：IR 补光灯（config 键 ir_gpio，默认 GPIO5=丝印 D4，LEDC）——
+     * 初始化即占住引脚防悬空发虚亮；起步熄灭，day_night mode=2 判暗确认后
+     * 点亮，手动控制走 POST /api/led，换脚走 POST /api/camera 的 ir_gpio */
+    flash_led_set_gpio(cfg->ir_gpio);
 
     /* SELFTEST 自检行（工作区 AGENTS.md"固件自检行"规范）：一行可 grep
      * 的开机体检证据，serialtap 按前缀聚合做台架异常发现（板间横向对比：

@@ -32,6 +32,7 @@
 
 #include "config_manager.h"
 #include "camera_driver.h"
+#include "flash_led.h"     /* 契约 v2.2：ir_gpio 白名单校验（flash_led_gpio_allowed） */
 
 #include <string.h>
 #include <stdio.h>
@@ -76,6 +77,7 @@ KEY_ASSERT("cam_contrast");
 KEY_ASSERT("cam_saturation");
 KEY_ASSERT("cam_sharpness");
 KEY_ASSERT("day_night");
+KEY_ASSERT("ir_gpio");
 KEY_ASSERT("onvif_enable");
 KEY_ASSERT("onvif_events");
 KEY_ASSERT("csi_enabled");
@@ -191,6 +193,7 @@ static void apply_defaults(cam_config_t *cfg)
     cfg->cam_saturation = 0;
     cfg->cam_sharpness = 0;
     cfg->day_night_mode = 0;
+    cfg->ir_gpio = 5;                     /* 契约 v2.2：IR 补光脚，白名单 1/2/4/5/6（默认 5=丝印 D4） */
     cfg->onvif_enable = 1;               /* 契约核心字段；本板历史始终开启 */
     cfg->onvif_events = 0;               /* 契约 v1.5：默认关（MotionAlarm 生成开关） */
     cfg->csi_enabled = 1;                /* 契约 v1.7：CSI 调参键族默认值 */
@@ -402,6 +405,7 @@ static void load_keys_from_nvs(nvs_handle_t h, cam_config_t *cfg)
     rd_i8(h, "cam_saturation", &cfg->cam_saturation);
     rd_i8(h, "cam_sharpness", &cfg->cam_sharpness);
     rd_u8(h, "day_night", &cfg->day_night_mode);
+    rd_u8(h, "ir_gpio", &cfg->ir_gpio);
     rd_u8(h, "onvif_enable", &cfg->onvif_enable);
     rd_u8(h, "onvif_events", &cfg->onvif_events);
     rd_u8(h, "csi_enabled", &cfg->csi_enabled);
@@ -475,6 +479,7 @@ static void write_keys_to_nvs(nvs_handle_t h, const cam_config_t *cfg)
     wr_i8(h, "cam_saturation", cfg->cam_saturation);
     wr_i8(h, "cam_sharpness", cfg->cam_sharpness);
     wr_u8(h, "day_night", cfg->day_night_mode);
+    wr_u8(h, "ir_gpio", cfg->ir_gpio);
     wr_u8(h, "onvif_enable", cfg->onvif_enable);
     wr_u8(h, "onvif_events", cfg->onvif_events);
     wr_u8(h, "csi_enabled", cfg->csi_enabled);
@@ -932,6 +937,10 @@ esp_err_t config_init(void)
         ESP_LOGW(TAG, "day_night_mode=%d out of range, resetting to 0", s_config.day_night_mode);
         s_config.day_night_mode = 0;
     }
+    if (!flash_led_gpio_allowed(s_config.ir_gpio)) {
+        ESP_LOGW(TAG, "ir_gpio=%d not in whitelist, resetting to 5", s_config.ir_gpio);
+        s_config.ir_gpio = 5;
+    }
     if (s_config.timelapse_enabled && s_config.timelapse_interval_s == 0) {
         s_config.timelapse_interval_s = 30;
     }
@@ -1008,6 +1017,10 @@ bool config_validate(const cam_config_t *cfg)
     }
     if (cfg->day_night_mode > 2) {
         ESP_LOGW(TAG, "validate: day_night_mode=%d out of 0-2", cfg->day_night_mode);
+        return false;
+    }
+    if (!flash_led_gpio_allowed(cfg->ir_gpio)) {
+        ESP_LOGW(TAG, "validate: ir_gpio=%d not in whitelist {1,2,4,5,6}", cfg->ir_gpio);
         return false;
     }
     if (cfg->onvif_enable > 1) {
@@ -1239,6 +1252,7 @@ cJSON *config_get_json(void)
     cJSON_AddNumberToObject(root, "cam_saturation", (double)cfg->cam_saturation);
     cJSON_AddNumberToObject(root, "cam_sharpness", (double)cfg->cam_sharpness);
     cJSON_AddNumberToObject(root, "day_night_mode", (double)cfg->day_night_mode);
+    cJSON_AddNumberToObject(root, "ir_gpio", (double)cfg->ir_gpio);
     cJSON_AddNumberToObject(root, "onvif_enable", (double)cfg->onvif_enable);
     cJSON_AddNumberToObject(root, "onvif_events", (double)cfg->onvif_events);
     /* CSI 调参键族（契约 v1.7 §3.2） */

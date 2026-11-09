@@ -1,4 +1,4 @@
-# MiBee Cam 家族配置契约（v2.1，2026-10-09）
+# MiBee Cam 家族配置契约（v2.2，2026-11-09）
 
 > **定位**：四仓（ai-thinker / esp32s3-n16r8 / luatos / seeed）配置子系统的统一契约：
 > 持久化格式、字段名与取值域、校验矩阵、默认值、迁移策略、SD 卡 provisioning 格式。
@@ -64,6 +64,7 @@
 | 组 | 能力 | 字段（JSON 名；NVS 键不同时括注） |
 |---|---|---|
 | 画质微调 | 板支持 | cam_brightness / cam_contrast / cam_saturation / cam_sharpness（i8 -2..2）、day_night_mode（u8 0-2；**2=自动已实现（seeed，v1.3）**：10s 周期 1/8 缩放解码缓存帧测平均 luma，迟滞 <40 暗/>65 亮 + 连续 2 次确认切 grayscale 黑白；传感器支持度运行时探测，不支持降级恒彩色并在 /api/camera 上报） |
+| IR 补光 | flash_led（api-contract v1.11 /api/led） | ir_gpio（u8 ∈{1,2,4,5,6} 默认 5=丝印 D4；**仅 seeed**——IR 补光灯驱动脚。白名单=XIAO 边缘排针空闲脚（1=D0/2=D1/4=D3/5=D4/6=D5），排除相机/SD/麦克风/UART0/USB/flash/PSRAM/strapping 脚（误配撞车甚至砖化）。**热生效**：停旧脚 PWM→复位浮空→新脚接管并恢复亮度；POST /api/camera 写入，白名单外 400；NVS 载入白名单外回默认 5。day_night_mode=2 判暗联动点亮/判亮熄灭见 api-contract v1.11） |
 | SD 运维 | sd | sd_log_enabled、cleanup_low_pct（1-99）、cleanup_high_pct（`cleanup_high`；5-80 且 ≥low+5；语义=空闲百分比，api-contract §11.6） |
 | ONVIF 运动报警 | onvif_events（v1.5，api-contract §3/§13） | onvif_events：u8 {0,1}，默认 0（仅 seeed/n16r8）；true = CSI 运动生成 MotionAlarm（订阅服务常在） |
 | CSI 感知调参 | csi_*（v1.2，api-contract §15） | `csi_enabled`：u8 {0,1} 默认 1（暂停感知不动 WiFi）；`csi_threshold`：float，0=自动（校准+settle）或 0.05-1.0=手动锁定（同时禁用 settle 单边下调，PIT-041 根治开关）；`csi_on_hits`/`csi_off_hits`：u8 1-20 默认 4/3；`csi_profile`：u8 {0,1} 默认 0（0=Lightweight 1=High-Accuracy 热切换）；`csi_auto_heal`：u8 {0,1} 默认 1。NVS 键：csi_enabled/csi_threshold(千分刻度 u16 0-1000)/csi_on_hits/csi_off_hits/csi_profile/csi_auto_heal。CSI-off 板（ai/luatos 生产形态）接受存储但运行时无效果 |
@@ -86,7 +87,9 @@ cam_fps 1-30 · cam_quality 10-63（v2.0 补：下限随目标档位收紧，板
 cam_framesize ∈ 板 supported_resolutions ·
 cleanup_low_pct 1-99 且 cleanup_high_pct ≥low+5 且 ≤80 ·
 segment_sec 5-3600 · motion_sensitivity 0-100 · motion_cooldown_s 1-300 ·
-timelapse_interval_s 1-255 · xclk_freq_mhz ∈{10,16,20} · wifi_roam_rssi 0 或
+timelapse_interval_s 1-255 · xclk_freq_mhz ∈{10,16,20} · ir_gpio ∈{1,2,4,5,6}
+（XIAO 空闲脚白名单，仅 seeed；白名单外三方一致拒绝——相机/SD/PSRAM/strapping
+脚误配会撞车甚至砖化） · wifi_roam_rssi 0 或
 -90..-50 · timezone 长度 1-64（非空时）· ntp_server1/2 长度 0-63（写入侧拒绝空白字符开头；空=回落内置池）· webdav_base_path 拒绝 `..` ·
 wm_pos 0-3 · wm_quality 60-95 · wm_text ≤32 字节 · wm_time_fmt ≤24 字节 ·
 所有字符串字段先验长度截断拒绝（不静默截断凭据）。
@@ -171,6 +174,13 @@ wm_pos 0-3 · wm_quality 60-95 · wm_text ≤32 字节 · wm_time_fmt ≤24 字�
   `SetSystemDateAndTime` 静默 ack 废止、`GetSystemDateAndTime` 模式如实
   （SNTP 真同步过才报 NTP）。语义见 api-contract（配置 API 即时生效，
   ONVIF 面由组件契约描述）。
+
+- **v2.2（2026-11-09）**：§3.2 新增能力门控字段 `ir_gpio`（u8 ∈{1,2,4,5,6}
+  默认 5=丝印 D4，仅 seeed）——IR 补光灯驱动脚，Web 相机页下拉可配、
+  **热生效**（停旧脚 PWM→复位浮空→新脚接管并恢复亮度）。可选键、缺键即
+  默认 ⇒ 无需 bump schema_ver、无需迁移。配套 api-contract v1.11
+  （/api/led + flash_led 能力位）；白名单定档理由与 D3/D4 丝印坑见
+  PITFALLS PIT-061。
 
 ## 9. SD 卡 provisioning 统一格式
 

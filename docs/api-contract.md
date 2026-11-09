@@ -34,9 +34,9 @@
 > "1.10"。
 
 > **v1.11 变更（2026-11-09）**：seeed 补齐 `GET/POST /api/led`（`flash_led`
-> 能力位 false→true）——GPIO4 外接 IR 补光灯（2×灯珠经 220Ω，LEDC PWM）。
+> 能力位 false→true）——GPIO5 外接 IR 补光灯（2×灯珠经 220Ω，LEDC PWM）。
 > 板级扩展语义：`day_night_mode==2` 时自动引擎每采样周期（10s）重申 LED
-> （判暗=亮、判亮=灭；IR 激活期间亮阈值 110 防回授自锁振荡），手动
+> （判暗=亮、判亮=灭；IR 激活期间亮阈值 160 防回授自锁振荡（实测回授 31→124）），手动
 > `/api/led` 该模式下存活 ≤1 周期；mode 0/1 时 LED 完全手动（volatile，
 > 重启=灭）。`api_version` 报 "1.11"。
 

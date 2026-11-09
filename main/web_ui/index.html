@@ -172,6 +172,17 @@
               <button value="2" data-i18n="camera.day_night.auto">Auto</button>
             </div>
           </div>
+          <!-- 契约 v2.2：IR 补光脚（仅 seeed 返回 ir_gpio 字段的板显示；丝印名标注防 D3/D4 混淆） -->
+          <div class="field" id="row-cam-ir-gpio" hidden>
+            <div class="field-label" data-i18n="camera.ir_gpio">IR LED GPIO</div>
+            <select id="cam-ir-gpio">
+              <option value="1">GPIO1 (D0)</option>
+              <option value="2">GPIO2 (D1)</option>
+              <option value="4">GPIO4 (D3)</option>
+              <option value="5">GPIO5 (D4)</option>
+              <option value="6">GPIO6 (D5)</option>
+            </select>
+          </div>
           <div class="field" id="row-cam-hmirror" hidden>
             <div class="field-label" data-i18n="camera.hmirror">Mirror</div>
             <div class="toggle" id="cam-hmirror" role="switch" aria-checked="false" tabindex="0"></div>

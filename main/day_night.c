@@ -26,7 +26,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "frame_broadcaster.h"
-#include "flash_led.h"     /* IR 补光联动（2026-11-09，GPIO4） */
+#include "flash_led.h"     /* IR 补光联动（2026-11-09，GPIO5） */
 #include "jpeg_decoder.h"
 #include <string.h>
 
@@ -38,8 +38,12 @@ static const char *TAG = "day_night";
 #define DN_DARK_LUMA         40
 #define DN_BRIGHT_LUMA       65
 /* IR 补光激活期间的亮阈值：点亮后画面回授会顶过常规 65（判暗→IR 亮→
- * luma 升→判亮→IR 灭→luma 降→自锁振荡），抬到只有真环境光才能越过的档 */
-#define DN_IR_BRIGHT_LUMA    110
+ * luma 升→判亮→IR 灭→luma 降→自锁振荡）。实测（2026-11-09，本板 OV5640 +
+ * 2×940nm 并联各串 220Ω ≈18mA）：暗场景 31 → IR 点亮 124，故 110 不够、
+ * 定 160——IR 回授过不了这档，真白天环境光轻松越过。
+ * 已知边界：极近反光面把 IR 回授顶到 >160 的场景会锁在黑白+IR（画面可用，
+ * 手动 day_night_mode=0 可退出）。 */
+#define DN_IR_BRIGHT_LUMA    160
 #define DN_CONFIRM_SAMPLES   2
 
 /* 1/8 解码输出缓冲上限：UXGA(1600x1200)/8 = 200x150x3 = 90KB */
