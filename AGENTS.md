@@ -148,7 +148,7 @@ This board returns the following from `GET /api/capabilities`:
 | audio | ✅ |
 | ota | ✅ |
 | mic | ✅ |
-| flash_led | ✅（2026-11-09 起：IR 补光灯，GPIO 可配 `ir_gpio`） |
+| flash_led | ✅（2026-11-09 起：IR 补光灯，`ir_gpio`/`ir_brightness` 可配） |
 | recording | ✅ |
 | timelapse | ✅（录像 3 模式含 continuous/timelapse/dynamic，见 video_recorder.c） |
 | onvif | ✅ |
@@ -625,11 +625,18 @@ WS 为主通道、HTTP 兼作 WS 断连回退，两路并存后到者覆盖。�
   124（暗基准 27-31），常规亮阈值 65/110 都会被顶穿 → IR 激活期间判亮阈值
   `DN_IR_BRIGHT_LUMA=160`。已知边界：极近反光面回授 >160 场景锁黑白
   （day_night_mode=0 手动退出）。
-- **ir_gpio 可配**（契约 **config v2.2**）：白名单 **{1,2,4,5,6}**（XIAO
-  边缘排针空闲脚；排除相机/SD/麦克风/UART0/USB/flash/PSRAM/strapping 脚，
-  误配撞车甚至砖化）。`POST /api/camera {"ir_gpio":n}` 热生效 + NVS 持久；
-  SPA 相机页下拉（选项带丝印名 GPIO5 (D4) 等；键缺省的板自动隐藏——三姐妹
-  仓 SPA 已 md5 同步）。
+- **ir_gpio 可配**（契约 **config v2.2**，v2.3 扩白名单 **1-6**=XIAO D0-D5）：
+  GPIO3（D2）为 strapping（LED 常亮时复位只翻 JTAG 源、不改启动模式，
+  owner 2026-11-09 拍板接受注脚入列）；仍排除相机/SD/麦克风/UART0/USB/
+  flash/PSRAM 脚（误配撞车甚至砖化）。`POST /api/camera {"ir_gpio":n}` 热生效
+  + NVS 持久；SPA 相机页下拉（选项带丝印名；键缺省的板自动隐藏——三姐妹仓
+  SPA 已 md5 同步）。
+- **ir_brightness 点灯档位**（契约 **v2.3**，1-100 默认 100）：day_night 自动
+  模式每周期按此档重申（不再恒 100）；POST 时灯亮着当场调光；SPA 相机页
+  滑杆。**两套控制面分工**：共享 LED 页（flash deck，flash_led:true 后本板
+  显形）= 运行时 /api/led 手动覆盖（mode 2 下 ≤10s 被引擎按 ir_brightness
+  档位改回）；相机页滑杆 = 持久档位。实测 40% 档 luma 124→87（画面仍足量）、
+  重启持久、0 值 400。
 - **实测（.133，OV5640）**：A/B mean 17.8→115.5（**6.5×**）、JPEG +33%；
   自动模式 hold BW 稳定零振荡；ir_gpio 4↔5 热切换灯灭/复亮实证、重启持久
   实证、白名单外 400 实证。

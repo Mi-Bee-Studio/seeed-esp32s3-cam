@@ -43,9 +43,11 @@ void flash_led_set_gpio(int gpio);
 /** 当前驱动脚号 */
 int flash_led_get_gpio(void);
 
-/** 允许的 IR 脚白名单：XIAO 边缘排针空闲脚（GPIO 1/2/4/5/6）。
- *  排除：GPIO3=strapping、7/8/9/21=SD、43/44=UART0、10-18/38-40/47/48=相机、
- *  41/42=麦克风、19/20=USB、26-37=flash/Octal PSRAM——误配会撞车甚至砖化 */
+/** 允许的 IR 脚白名单：XIAO 边缘排针空闲脚（GPIO 1/2/3/4/5/6，即 D0-D5）。
+ *  GPIO3（D2）为 strapping 脚（启动采样 JTAG 源选择）——LED 常亮时复位只会
+ *  翻转 JTAG 源、不改启动模式，owner 2026-11-09 接受该注脚后入列。
+ *  排除：7/8/9/21=SD、43/44=UART0、10-18/38-40/47/48=相机、41/42=麦克风、
+ *  19/20=USB、26-37=flash/Octal PSRAM——误配会撞车甚至砖化 */
 bool flash_led_gpio_allowed(int gpio);
 
 /** 设置亮度 0-100（0=灭；钳制越界值） */

@@ -178,10 +178,19 @@
             <select id="cam-ir-gpio">
               <option value="1">GPIO1 (D0)</option>
               <option value="2">GPIO2 (D1)</option>
+              <option value="3">GPIO3 (D2)</option>
               <option value="4">GPIO4 (D3)</option>
               <option value="5">GPIO5 (D4)</option>
               <option value="6">GPIO6 (D5)</option>
             </select>
+          </div>
+          <!-- 契约 v2.3：IR 点灯档位（自动模式按此重申，持久；仅 seeed 返回该键的板显示） -->
+          <div class="field stack" id="row-cam-ir-brightness" hidden>
+            <div class="field-label" data-i18n="camera.ir_brightness">IR Brightness</div>
+            <div class="slider-row">
+              <input type="range" id="cam-ir-brightness" min="1" max="100" value="100">
+              <span class="slider-val" id="cam-ir-brightness-val">100</span>
+            </div>
           </div>
           <div class="field" id="row-cam-hmirror" hidden>
             <div class="field-label" data-i18n="camera.hmirror">Mirror</div>

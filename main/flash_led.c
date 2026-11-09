@@ -36,8 +36,8 @@ static int  s_brightness  = 0;    /* 0-100（0=灭） */
 
 bool flash_led_gpio_allowed(int gpio)
 {
-    /* XIAO 边缘排针空闲脚（排除理由见 flash_led.h） */
-    return gpio == 1 || gpio == 2 || gpio == 4 || gpio == 5 || gpio == 6;
+    /* XIAO 边缘排针空闲脚 D0-D5（GPIO3 strapping 注脚见 flash_led.h） */
+    return gpio >= 1 && gpio <= 6;
 }
 
 static void apply_duty(int duty)
