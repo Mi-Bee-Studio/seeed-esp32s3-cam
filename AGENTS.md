@@ -639,7 +639,7 @@ WS 为主通道、HTTP 兼作 WS 断连回退，两路并存后到者覆盖。�
 - **PIT-025 移植（exceptions-off 变体）**：vendored `espp__rtsp` 会话创建
   在内部堆紧张时 `std::thread` 抛 system_error → 本仓 CXX 异常关闭，异常桩
   直接 abort 整机（13:45 实捕：RTSP 观看者重连触发 rst:0xc；n16r8 的
-  try/catch 在本仓是死代码）。修复=会话创建前内部堆预检 `<12KB 拒连`。
+  try/catch 在本仓是死代码）。修复=会话创建前内部堆双指标预检（总量 ≥20KB 且最大连续块 ≥10KB 才放行；首版仅总量 12KB 被碎片化击穿后加严）。
   家族教训：vendored 组件的坑修复不会自动传播；exceptions 开/关改变修复形态。
 
 **web_server.c 结构陷阱（本次实踩）**：相机字段在 config 处理器（~451-760，

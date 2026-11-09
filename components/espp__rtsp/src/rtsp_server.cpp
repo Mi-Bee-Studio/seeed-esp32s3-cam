@@ -479,11 +479,16 @@ bool RtspServer::accept_task_function(std::mutex &m, std::condition_variable &cv
   // connection always beats rebooting the board (observed: RTSP watcher
   // reconnect + transient heap exhaustion → abort → rst:0xc).
   {
-    const size_t kRtspHeapFloor = 12 * 1024;
-    size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-    if (free_internal < kRtspHeapFloor) {
-      logger_.error("Rejecting RTSP connection: internal heap {} B < floor {} B",
-                    free_internal, kRtspHeapFloor);
+    /* 双指标预检：总量 + 最大连续块。首版仅查总量 12KB 被现场击穿
+     * （2026-11-09 14:29：检查通过后 8KB 控制任务栈仍创建失败——碎片化，
+     * 总量够但无连续大块）。会话需 control 8KB + session 8KB 栈 + 桩开销。 */
+    const size_t kHeapFloorTotal = 20 * 1024;
+    const size_t kHeapFloorBlock = 10 * 1024;
+    size_t free_total = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    size_t free_block = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    if (free_total < kHeapFloorTotal || free_block < kHeapFloorBlock) {
+      logger_.error("Rejecting RTSP connection: internal heap total={}B block={}B < floors {}/{}B",
+                    free_total, free_block, kHeapFloorTotal, kHeapFloorBlock);
       return false;
     }
   }
