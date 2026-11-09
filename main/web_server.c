@@ -59,6 +59,7 @@
 #include "watermark.h"
 #include "day_night.h"    /* /api/camera 的 day_night 状态对象 */  /* 契约 v1.3：照片水印（issue #11，编译门 MIBEE_WATERMARK） */  /* 契约 v1.6：/api/status 的 csi 快照字段（编译关闭时恒缺省） */
 #include "wifi_channel_health.h"  /* 契约 v1.7 ①b：信道健康快照 */
+#include "flash_led.h"    /* 契约 v1.11：/api/led + day_night mode=2 的 IR 补光联动（GPIO5） */
 
 #include "ota_updater.h"
 #include "audio_broadcaster.h"
@@ -111,6 +112,8 @@ static esp_err_t api_files_delete_handler(httpd_req_t *req);
 static esp_err_t api_files_batch_handler(httpd_req_t *req);
 static esp_err_t api_download_handler(httpd_req_t *req);
 static esp_err_t api_scan_handler(httpd_req_t *req);
+static esp_err_t api_led_handler(httpd_req_t *req);
+static esp_err_t api_led_get_handler(httpd_req_t *req);
 static esp_err_t api_time_handler(httpd_req_t *req);
 static esp_err_t api_record_handler(httpd_req_t *req);
 static esp_err_t api_record_get_handler(httpd_req_t *req);
@@ -153,6 +156,8 @@ static const uri_entry_t s_uris[] = {
     { "/metrics",      HTTP_GET,    metrics_handler           },
     { "/api/audio",   HTTP_GET,    api_audio_stream_handler  },
     { "/api/capture", HTTP_GET,    api_capture_handler       },
+    { "/api/led",     HTTP_POST,   api_led_handler           },  /* 契约 v1.11 */
+    { "/api/led",     HTTP_GET,    api_led_get_handler       },  /* 契约 v1.11 */
     /* CORS preflight — wildcard */
     { "/*",            HTTP_OPTIONS, options_handler           },
     /* Static files — catch-all (lowest priority) */
@@ -411,14 +416,14 @@ static esp_err_t api_capabilities_handler(httpd_req_t *req)
     cJSON *data = cJSON_CreateObject();
 
     /* 契约 v1.1：12 个布尔能力位 + api_version/wifi_scan（见 docs/api-contract.md） */
-    cJSON_AddStringToObject(data, "api_version", "1.10");
+    cJSON_AddStringToObject(data, "api_version", "1.11");
     cJSON_AddBoolToObject(data, "wifi_scan", true);
     cJSON_AddBoolToObject(data, "ai", false);           /* On-device AI detection */
     cJSON_AddBoolToObject(data, "sd", storage_is_available());  /* SD card storage */
     cJSON_AddBoolToObject(data, "audio", true);         /* Audio streaming/recording */
     cJSON_AddBoolToObject(data, "ota", true);           /* Over-the-air firmware update */
     cJSON_AddBoolToObject(data, "mic", true);           /* Microphone present */
-    cJSON_AddBoolToObject(data, "flash_led", false);   /* Flash LED controllable */
+    cJSON_AddBoolToObject(data, "flash_led", true);    /* 契约 v1.11：GPIO5 IR 补光灯（2026-11-09 接线） */
     cJSON_AddBoolToObject(data, "recording", true);    /* Video recording to storage */
     cJSON_AddBoolToObject(data, "timelapse", true);    /* Timelapse recording modes (config: timelapse_mode) */
     cJSON_AddBoolToObject(data, "onvif", true);        /* ONVIF SOAP service */
@@ -468,6 +473,7 @@ static esp_err_t api_config_get_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(data, "cam_saturation", (double)cfg->cam_saturation);
     cJSON_AddNumberToObject(data, "cam_sharpness", (double)cfg->cam_sharpness);
     cJSON_AddNumberToObject(data, "day_night_mode", (double)cfg->day_night_mode);
+    cJSON_AddNumberToObject(data, "ir_gpio", (double)cfg->ir_gpio);   /* 契约 v2.2：IR 脚（Web 相机页可配） */
     cJSON_AddNumberToObject(data, "onvif_enable", (double)cfg->onvif_enable);
     cJSON_AddBoolToObject(data, "onvif_events", cfg->onvif_events != 0);   /* 契约 v1.5 */
     /* CSI 调参键族（契约 v1.7；CSI-off 板亦有默认值，SPA 据此隐藏/显示） */
@@ -1376,6 +1382,55 @@ static esp_err_t api_scan_handler(httpd_req_t *req)
 }
 
 /* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/*  POST /api/led — {"brightness":0-100}（契约 v1.11 §3）               */
+/*                                                                    */
+/* day_night_mode==2 时自动引擎每采样周期重申 LED（判暗=亮/判亮=灭），  */
+/* 手动值存活 ≤1 周期；mode 0/1 时 LED 完全手动（volatile，重启=灭）。 */
+/* ------------------------------------------------------------------ */
+
+static esp_err_t api_led_handler(httpd_req_t *req)
+{
+    set_cors_headers(req);
+
+    char *body = read_body(req, 128);
+    if (!body) return json_error(req, "Empty body", HTTPD_400_BAD_REQUEST);
+
+    cJSON *json = cJSON_Parse(body);
+    free(body);
+    if (!json) return json_error(req, "Invalid JSON", HTTPD_400_BAD_REQUEST);
+
+    cJSON *bri = cJSON_GetObjectItem(json, "brightness");
+    if (!bri || !cJSON_IsNumber(bri)) {
+        cJSON_Delete(json);
+        return json_error(req, "Missing 'brightness'", HTTPD_400_BAD_REQUEST);
+    }
+    int b = bri->valueint;
+    cJSON_Delete(json);
+    if (b < 0 || b > 100) {
+        return json_error(req, "brightness must be 0-100", HTTPD_400_BAD_REQUEST);
+    }
+
+    flash_led_set_brightness(b);
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddNumberToObject(data, "brightness", flash_led_get_brightness());
+    cJSON_AddBoolToObject(data, "on", flash_led_is_on());
+    return json_ok(req, data);
+}
+
+/*  GET /api/led — 读回亮度/状态                                       */
+
+static esp_err_t api_led_get_handler(httpd_req_t *req)
+{
+    set_cors_headers(req);
+
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddNumberToObject(data, "brightness", flash_led_get_brightness());
+    cJSON_AddBoolToObject(data, "on", flash_led_is_on());
+    return json_ok(req, data);
+}
+
+/* ------------------------------------------------------------------ */
 /*  POST /api/time                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -2066,6 +2121,7 @@ static cJSON *camera_state_json(void)
     cJSON_AddBoolToObject(data, "cam_vflip", cfg->cam_vflip);
     cJSON_AddBoolToObject(data, "cam_hmirror", cfg->cam_hmirror);
     cJSON_AddNumberToObject(data, "day_night_mode", cfg->day_night_mode);
+    cJSON_AddNumberToObject(data, "ir_gpio", (double)cfg->ir_gpio);   /* 契约 v2.2：IR 脚（Web 相机页可配，热生效） */
 #if CONFIG_MIBEE_DAY_NIGHT_AUTO
     {   /* 契约 v1.8：自动日夜切换状态（day_night_mode=2 时由采样任务驱动） */
         day_night_state_t dn;
@@ -2148,13 +2204,22 @@ static esp_err_t api_camera_post_handler(httpd_req_t *req)
         }
         cfg->day_night_mode = (uint8_t)val;
     }
+    if ((item = cJSON_GetObjectItem(json, "ir_gpio"))) {   /* 契约 v2.2：白名单外 400 */
+        int val = item->valueint;
+        if (!flash_led_gpio_allowed(val)) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid ir_gpio (must be 1/2/4/5/6)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->ir_gpio = (uint8_t)val;
+    }
 
     /* 未知键回显（契约 v1.9 §5，issue n16r8#27 家族部分）：静默 ok:true
      * 曾让 "quality" 这类裸键的拼写错误排障半天——现在点名 WARN +
      * 响应带 ignored 键集（本 handler 实际消费的键即已知集） */
     static const char *known_keys[] = {
         "cam_framesize", "cam_quality", "cam_vflip", "cam_hmirror",
-        "day_night_mode",
+        "day_night_mode", "ir_gpio",
     };
     cJSON *ignored = cJSON_CreateArray();
     for (cJSON *child = json->child; child; child = child->next) {
@@ -2177,6 +2242,7 @@ static esp_err_t api_camera_post_handler(httpd_req_t *req)
     /* 立即生效：翻转/镜像/日夜模式/画质（OV5640 set_quality 单寄存器写，安全） */
     camera_set_flip(cfg->cam_vflip, cfg->cam_hmirror);
     camera_set_day_night(cfg->day_night_mode);
+    flash_led_set_gpio(cfg->ir_gpio);   /* 契约 v2.2：IR 脚热切换（同脚幂等） */
     if (quality_changed) {
         camera_set_quality(cfg->cam_quality);
     }

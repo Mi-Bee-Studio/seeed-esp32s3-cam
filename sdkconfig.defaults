@@ -134,3 +134,8 @@ CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 # admitted 只有 ~7-10pps，时间栅格 pps 必须匹配链路供给——100/20pps 都过不了
 # 检测器 70% 槽占用下限，校准永不完成。换不拥塞的网/信道可回调（上限 500）。
 CONFIG_ESPECTRE_CSI_TARGET_PPS=10
+
+# espp/logger >=新版：动态 set_tag()（espp__rtsp 每会话 tag "RtspSession <id>"）需此开
+# 关，否则编译期 static_assert（依赖 lock 未入库，CI 全新解析 registry 会拉到新版；
+# 本地 managed_components 旧缓存无此符号——忽略未知符号仅告警，两边都过）
+CONFIG_ESPP_LOGGER_MUTABLE_TAG=y

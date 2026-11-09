@@ -148,7 +148,7 @@ This board returns the following from `GET /api/capabilities`:
 | audio | ✅ |
 | ota | ✅ |
 | mic | ✅ |
-| flash_led | ❌ |
+| flash_led | ✅（2026-11-09 起：IR 补光灯，GPIO 可配 `ir_gpio`） |
 | recording | ✅ |
 | timelapse | ✅（录像 3 模式含 continuous/timelapse/dynamic，见 video_recorder.c） |
 | onvif | ✅ |
@@ -607,3 +607,43 @@ WS 广播同点）。`GetCapabilities`/`GetServices` 已广告 events_service XA
 ~1Hz 写）。动机：n16r8 CSI 常开但无 WS 服务，SPA 胶囊此前无数据通道；本板
 WS 为主通道、HTTP 兼作 WS 断连回退，两路并存后到者覆盖。本实现四仓 web_server
 源码对齐（ai/luatos stub 恒缺省）。
+
+## 2026-11-09：IR 补光灯（夜视）——/api/led 契约 v1.11 + ir_gpio 可配（v2.2）+ PIT-025 移植
+
+**硬件**：丝印 **D4（=GPIO5**，注意 XIAO 丝印 Dn ≠ GPIOn，D3 才是 GPIO4——
+"接 IO4"的直觉会错一针，PITFALLS PIT-061）外接 2×940nm 灯珠，并联各串
+220Ω（每路 ~9mA）。940nm 可穿本板 OV5640（实测无有效 IR-cut）。
+
+**实现**（commit feat/ir-led-gpio4 分支）：
+- `main/flash_led.c/h`：LEDC PWM（**TIMER_1/CH_1**——TIMER_0/CH_0 被 camera
+  XCLK 占用）；brightness 0-100 线性占空比；`flash_led_set_gpio()` 热换脚
+  （停 PWM→旧脚 gpio_reset_pin 浮空→新脚接管恢复亮度）。
+- `GET/POST /api/led` + capabilities `flash_led:true`（契约 **api v1.11**，
+  四仓文档+api_version 同步）。
+- day_night mode=2 联动：每采样周期重申（判暗=亮/判亮=灭）；mode 0/1 归
+  /api/led 手动（volatile，重启=灭）。**防回授振荡**：IR 点亮把 luma 顶到
+  124（暗基准 27-31），常规亮阈值 65/110 都会被顶穿 → IR 激活期间判亮阈值
+  `DN_IR_BRIGHT_LUMA=160`。已知边界：极近反光面回授 >160 场景锁黑白
+  （day_night_mode=0 手动退出）。
+- **ir_gpio 可配**（契约 **config v2.2**）：白名单 **{1,2,4,5,6}**（XIAO
+  边缘排针空闲脚；排除相机/SD/麦克风/UART0/USB/flash/PSRAM/strapping 脚，
+  误配撞车甚至砖化）。`POST /api/camera {"ir_gpio":n}` 热生效 + NVS 持久；
+  SPA 相机页下拉（选项带丝印名 GPIO5 (D4) 等；键缺省的板自动隐藏——三姐妹
+  仓 SPA 已 md5 同步）。
+- **实测（.133，OV5640）**：A/B mean 17.8→115.5（**6.5×**）、JPEG +33%；
+  自动模式 hold BW 稳定零振荡；ir_gpio 4↔5 热切换灯灭/复亮实证、重启持久
+  实证、白名单外 400 实证。
+- **夜间画面偏色（用户观察）**：暗光+IR 彩色模式=粉红（940nm 主要被红通道
+  感知，AWB 无法在近单色光下收敛）——mode=2 判暗切 grayscale 即愈；
+  偶发全白=灯切换瞬间 AEC 收敛冲击/近距反光饱和（非故障）。
+- **PIT-025 移植（exceptions-off 变体）**：vendored `espp__rtsp` 会话创建
+  在内部堆紧张时 `std::thread` 抛 system_error → 本仓 CXX 异常关闭，异常桩
+  直接 abort 整机（13:45 实捕：RTSP 观看者重连触发 rst:0xc；n16r8 的
+  try/catch 在本仓是死代码）。修复=会话创建前内部堆双指标预检（总量 ≥20KB 且最大连续块 ≥10KB 才放行；首版仅总量 12KB 被碎片化击穿后加严）。
+  家族教训：vendored 组件的坑修复不会自动传播；exceptions 开/关改变修复形态。
+
+**web_server.c 结构陷阱（本次实踩）**：相机字段在 config 处理器（~451-760，
+含 day_night_mode/ir_gpio 等的静默赋值风格）**和**真 camera 处理器
+（~2153+，known_keys[] 白名单 + 显式 400 + ignored 回显）**两处都有**——
+给 /api/camera 加字段必须改 2153+ 那份，改到 config 份上功能静默不生效
+（本次 ir_gpio 首版即中招：POST 被 ignored 吞掉）。
