@@ -205,10 +205,11 @@ static void dn_task(void *arg)
                      s_dn.effective == DN_EFFECT_BW ? "BW" : "color");
         }
 
-        /* 自动模式拥有 IR 补光：每周期重申——判暗亮灯、判亮熄灯（手动
-         * /api/led 本模式下存活 ≤1 周期）。传感器不支持 grayscale 时
-         * effective 恒 COLOR → 补光保持灭（与特效同降级）。 */
-        flash_led_set_brightness(s_dn.effective == DN_EFFECT_BW ? 100 : 0);
+        /* 自动模式拥有 IR 补光：每周期重申——判暗按配置档位（ir_brightness，
+         * 契约 v2.3）亮灯、判亮熄灯（手动 /api/led 本模式下存活 ≤1 周期）。
+         * 传感器不支持 grayscale 时 effective 恒 COLOR → 补光保持灭（同降级）。 */
+        flash_led_set_brightness(
+            s_dn.effective == DN_EFFECT_BW ? config_get()->ir_brightness : 0);
     }
 }
 

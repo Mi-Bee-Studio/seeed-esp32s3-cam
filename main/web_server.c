@@ -2122,6 +2122,7 @@ static cJSON *camera_state_json(void)
     cJSON_AddBoolToObject(data, "cam_hmirror", cfg->cam_hmirror);
     cJSON_AddNumberToObject(data, "day_night_mode", cfg->day_night_mode);
     cJSON_AddNumberToObject(data, "ir_gpio", (double)cfg->ir_gpio);   /* 契约 v2.2：IR 脚（Web 相机页可配，热生效） */
+    cJSON_AddNumberToObject(data, "ir_brightness", (double)cfg->ir_brightness); /* 契约 v2.3：IR 点灯档位（自动模式按此重申） */
 #if CONFIG_MIBEE_DAY_NIGHT_AUTO
     {   /* 契约 v1.8：自动日夜切换状态（day_night_mode=2 时由采样任务驱动） */
         day_night_state_t dn;
@@ -2209,9 +2210,18 @@ static esp_err_t api_camera_post_handler(httpd_req_t *req)
         if (!flash_led_gpio_allowed(val)) {
             cJSON_Delete(json);
             config_unlock();
-            return json_error(req, "Invalid ir_gpio (must be 1/2/4/5/6)", HTTPD_400_BAD_REQUEST);
+            return json_error(req, "Invalid ir_gpio (must be 1-6)", HTTPD_400_BAD_REQUEST);
         }
         cfg->ir_gpio = (uint8_t)val;
+    }
+    if ((item = cJSON_GetObjectItem(json, "ir_brightness"))) {   /* 契约 v2.3：点灯档位 */
+        int val = item->valueint;
+        if (val < 1 || val > 100) {
+            cJSON_Delete(json);
+            config_unlock();
+            return json_error(req, "Invalid ir_brightness (must be 1-100)", HTTPD_400_BAD_REQUEST);
+        }
+        cfg->ir_brightness = (uint8_t)val;
     }
 
     /* 未知键回显（契约 v1.9 §5，issue n16r8#27 家族部分）：静默 ok:true
@@ -2219,7 +2229,7 @@ static esp_err_t api_camera_post_handler(httpd_req_t *req)
      * 响应带 ignored 键集（本 handler 实际消费的键即已知集） */
     static const char *known_keys[] = {
         "cam_framesize", "cam_quality", "cam_vflip", "cam_hmirror",
-        "day_night_mode", "ir_gpio",
+        "day_night_mode", "ir_gpio", "ir_brightness",
     };
     cJSON *ignored = cJSON_CreateArray();
     for (cJSON *child = json->child; child; child = child->next) {
@@ -2243,6 +2253,9 @@ static esp_err_t api_camera_post_handler(httpd_req_t *req)
     camera_set_flip(cfg->cam_vflip, cfg->cam_hmirror);
     camera_set_day_night(cfg->day_night_mode);
     flash_led_set_gpio(cfg->ir_gpio);   /* 契约 v2.2：IR 脚热切换（同脚幂等） */
+    /* 契约 v2.3：档位立即生效（灯亮着则当场调光；自动模式引擎 ≤10s 内
+     * 也会按新档位重申——白天/灯灭时无可见动作，下次点灯即用新档） */
+    if (flash_led_is_on()) flash_led_set_brightness(cfg->ir_brightness);
     if (quality_changed) {
         camera_set_quality(cfg->cam_quality);
     }

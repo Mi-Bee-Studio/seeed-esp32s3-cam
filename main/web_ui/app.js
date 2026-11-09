@@ -570,6 +570,13 @@ async function loadCamera() {
     }
     /* 契约 v2.2：IR 补光脚（键缺省的板隐藏——同 onvif_events 门控模式） */
     if (d.ir_gpio !== undefined) { $('row-cam-ir-gpio').hidden = false; $('cam-ir-gpio').value = String(d.ir_gpio); }
+    /* 契约 v2.3：IR 点灯档位（自动模式档位，持久） */
+    if (d.ir_brightness !== undefined) {
+        $('row-cam-ir-brightness').hidden = false;
+        $('cam-ir-brightness').value = d.ir_brightness;
+        $('cam-ir-brightness-val').textContent = d.ir_brightness;
+        paintSlider($('cam-ir-brightness'));
+    }
     if (d.cam_hmirror !== undefined) { $('row-cam-hmirror').hidden = false; setToggle('cam-hmirror', d.cam_hmirror); }
     if (d.cam_vflip !== undefined) { $('row-cam-vflip').hidden = false; setToggle('cam-vflip', d.cam_vflip); }
 
@@ -587,6 +594,7 @@ const saveCamera = debounce(async () => {
     if (!$('row-cam-sharpness').hidden) payload.cam_sharpness = parseInt($('cam-sharpness').value);
     if (!$('row-cam-day-night').hidden) payload.day_night_mode = parseInt($('cam-day-night').querySelector('.active').value);
     if (!$('row-cam-ir-gpio').hidden) payload.ir_gpio = parseInt($('cam-ir-gpio').value);
+    if (!$('row-cam-ir-brightness').hidden) payload.ir_brightness = parseInt($('cam-ir-brightness').value);
     if (!$('row-cam-hmirror').hidden) payload.cam_hmirror = $('cam-hmirror').classList.contains('active');
     if (!$('row-cam-vflip').hidden) payload.cam_vflip = $('cam-vflip').classList.contains('active');
     try {
@@ -1437,7 +1445,7 @@ const bootSPA = async () => {
     });
 
     /* sliders */
-    ['cam-quality', 'cam-brightness', 'cam-contrast', 'cam-saturation', 'cam-sharpness', 'led-brightness']
+    ['cam-quality', 'cam-brightness', 'cam-contrast', 'cam-saturation', 'cam-sharpness', 'cam-ir-brightness', 'led-brightness']
         .forEach(id => {
             const input = $(id);
             if (!input) return;
