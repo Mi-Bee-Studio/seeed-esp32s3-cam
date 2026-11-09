@@ -319,16 +319,11 @@ Authentication: None (contract v1.9 — device-level passwords removed family-wi
 
 ## 8. Web UI
 
-6 HTML pages, flashed to SPIFFS partition, served by wildcard GET handler:
+SPA four-file bundle, flashed to SPIFFS partition, served by wildcard GET handler:
 
-| Page | File | Function |
-|------|------|----------|
-| Home | `index.html` | Status overview |
-| Config | `config.html` | WiFi / NAS / camera parameter configuration (accordion layout) |
-| Files | `files.html` | Recording file browsing, downloading, batch operations with collapsible date groups |
-| Preview | `preview.html` | MJPEG real-time stream preview with fullscreen and screenshot buttons |
-| OTA | `ota.html` | Firmware update interface with URL input and progress display |
-| Setup | `setup.html` | First-time WiFi configuration wizard for new devices |
+| File | Function |
+|------|----------|
+| `index.html` + `app.js` + `style.css` + `i18n.js` | "Honey" single-page app: video stage + status chips + capability-gated tabs (Camera/Light/Storage/WiFi/Streams/System), zh/en bilingual (tab tour & screenshots in the User Guide) |
 
 **Prometheus Integration**: `/metrics` endpoint provides 15+ system metrics in text exposition format.
 

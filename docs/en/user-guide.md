@@ -24,39 +24,104 @@ The device has a built-in HTTP server providing Web management interface and RES
 
 None. Device-level passwords were removed family-wide (contract v1.9, 2026-09-18) — the web UI and all API endpoints are open on the trusted LAN. The security boundary is the router's WPA2 passphrase; the AP-mode hotspot password above is unchanged.
 
-### Page Description
+### Interface Layout
 
-| Page | Function |
-|------|----------|
-| index | Status overview (recording status, WiFi, storage, camera model, uptime) |
-| config | Configuration management (all parameters including WiFi, recording, NAS upload) |
-| preview | Real-time video preview (MJPEG stream in browser) |
-| files | Recording file management (browse, download, delete) |
-| ota | Firmware update page (upload new firmware via web UI) |
-| setup | First-time WiFi setup wizard (auto-shown on first boot) |
-### Dashboard Page
+The web UI is a single-page application (SPA, "Honey" amber theme, light/dark), composed of three parts:
 
-![Dashboard](../images/index-dashboard.png)
+- **Top status bar**: device name, SSID, camera model, resolution, IP; theme and zh/en language toggles on the right (auto-follows browser language, preference kept in localStorage)
+- **Video stage**: live MJPEG view + snapshot/listen/record/fullscreen controls; status chips below (signal, memory, temperature, SD headroom, uptime) pushed every second over WebSocket
+- **Feature tabs**: shown/hidden by capability bits — boards without the matching hardware/feature hide the tab automatically
 
-The dashboard shows real-time device status: recording state, current file, WiFi connection, SD card usage, camera model, chip temperature, and uptime. Uses WebSocket for live data push — no page refresh needed.
+| Tab | Function |
+|-----|----------|
+| Camera | Resolution, JPEG quality, day/night mode, **IR LED GPIO / IR brightness**, mirror/flip |
+| Light | LED runtime brightness (0 = off, 100 = max; manual override) |
+| Storage | SD card file manager (type filter, batch select, wipe, format) |
+| WiFi | Primary/backup WiFi, device name, timezone |
+| Streams | MJPEG/RTSP URLs, ONVIF discovery & motion alarm, CSI tuning, watermark |
+| System | Firmware info, OTA update (app + UI uploads), reboot, factory reset |
 
-### Configuration Page
+### Camera Tab
 
-![Configuration](../images/config-page.png)
+![Camera tab](../images/ui-camera.png)
 
-All device parameters can be modified here: WiFi credentials, video resolution/FPS/quality, recording segment duration, WebDAV/HTTP(S) upload settings, and camera flip/mirror.
+- **Resolution**: the dropdown lists only frames allowed by the three-layer cap (sensor ∩ board ∩ memory); switching saves and reboots
+- **JPEG quality**: slider bounds are declared by firmware (10-63), out-of-range values are clamped
+- **Day/Night**: Color / B&W / **Auto** — in auto mode the firmware samples average frame luma every 10 s (hysteresis + 2-sample confirmation); darkness switches to B&W and lights the IR illuminator, brightness returns to color and switches it off (see [Night Vision & IR Illuminator](#night-vision--ir-illuminator))
+- **IR LED GPIO**: illuminator driver pin, whitelist 1-6 (XIAO silk D0-D5, options annotated with silk names to prevent mix-ups); hot-applied, no reboot needed
+- **IR Brightness (auto level)**: persistent 1-100 level — every auto-mode light-on uses this level; changing it while the lamp is lit re-dims immediately
+- **Mirror / Flip**: applied immediately
 
-### File Manager Page
+### Light Tab
 
-![File Manager](../images/files-page.png)
+![Light tab](../images/ui-flash.png)
 
-Browse recordings organized by date. Features collapsible date groups, batch selection, folder-level download/delete, and persistent authentication.
+Runtime LED control (0-100), applied as you drag. **Division of labor with the Camera tab's "IR brightness"**: this tab = a one-shot runtime override (in auto mode it survives ≤10 s before the auto engine re-asserts the configured level); the camera-tab slider = the persistent level used by auto-mode light-on. In manual modes (Color or B&W) this tab takes over completely.
 
-### Preview Page
+### Storage Tab
 
-![Video Preview](../images/preview-page.png)
+![Storage tab](../images/ui-storage.png)
 
-Real-time MJPEG video stream viewable directly in the browser. Supports up to 2 simultaneous viewers.
+SD card file manager: all/photo/recording type filters, batch select & delete, wipe-by-type, SD format (double confirm). Circular storage: old recordings are auto-cleaned below 20% free.
+
+### WiFi Tab
+
+![WiFi tab](../images/ui-network.png)
+
+Primary/backup dual WiFi (auto-switch to backup when the primary is unreachable), device name, POSIX timezone. WiFi changes take effect after a reboot; leaving a password blank keeps the current one.
+
+### Streams Tab
+
+![Streams tab](../images/ui-streaming.png)
+
+- **MJPEG (browser)**: `http://<device-ip>:81/stream`, up to 2 concurrent viewers
+- **RTSP (VLC/NVR)**: `rtsp://<device-ip>:554/stream`, no authentication since v1.9
+- **ONVIF discovery**: WS-Discovery — Synology/Milestone NVRs can find the camera automatically
+- **ONVIF motion alarm**: CSI motion events delivered via Pull-Point subscription for NVR-triggered recording
+- **CSI sensing**: runtime tuning of the WiFi-CSI motion detector (threshold, debounce, profile, self-heal)
+- **Watermark**: custom text + timestamp burned into photos and recordings (position/quality adjustable)
+
+### System Tab
+
+![System tab](../images/ui-system.png)
+
+Firmware version, uptime, memory and temperature; **firmware update** accepts both the app image and the UI asset bundle (SPIFFS) — after OTA the device reboots and self-tests with automatic rollback; reboot and factory reset (double confirm).
+
+## Night Vision & IR Illuminator
+
+This board supports an external 940nm IR illuminator (GPIO-driven, factory default GPIO5 = silk D4) that together with the auto day/night mode provides zero-light night vision.
+
+### How automatic night vision works
+
+With `day_night_mode=2` (auto) the firmware runs a closed loop:
+
+1. Every 10 s it samples the average luma of the live stream (1/8-scale decode, zero-copy)
+2. Luma < 40 (2 consecutive confirmations) → night: picture switches to B&W, IR lamp lights at the configured level
+3. Luma recovers > 160 (an elevated threshold applies while the lamp is lit, preventing the "lamp on → picture brightens → false day → lamp off" feedback oscillation) → day: lamp off, back to color
+
+### Measured effect (same dark scene)
+
+| IR lamp | Mean luma | Note |
+|---------|-----------|------|
+| Off | 17.8 (near black) | unusable in zero light |
+| On (100% level) | 115.5 (**6.5×**) | B&W image, details discernible |
+
+![IR off](../images/night-ir-off.jpg)
+![IR on](../images/night-ir-on.jpg)
+
+> Images are mosaic-redacted; only luminance information is preserved.
+
+### Known image phenomena
+
+- **Pink cast in color mode at night**: 940nm IR light is sensed mostly through the sensor's red channel; the auto white balance cannot converge under near-monochrome light — this is physics. Auto mode switching to B&W in the dark removes it, which is why surveillance cameras use B&W at night
+- **Occasional white/black flash at lamp switching**: auto exposure (AEC) needs several frames to re-converge; the overshoot at switch instants is normal
+- **Very close reflective surfaces**: if IR feedback pushes luma above 160 (e.g. lens against a white wall), the picture locks in B&W + illuminator — switch to "Color" manually to exit
+
+### Wiring & LED selection
+
+- Driver pin whitelist **GPIO1-6** (XIAO silk D0-D5); GPIO3 (D2) is a strapping pin — with the lamp lit, a reset only affects the JTAG source selection, not the boot mode
+- Current-limiting resistors are mandatory: for two 940nm LEDs wire them **in parallel, each with its own 220Ω** (~9 mA per branch); avoid wiring multiple LEDs in series behind one resistor (under-current, won't light)
+- Wavelength choice: 940nm is fully invisible but weaker on the sensor; 850nm is 3-5× stronger but shows a faint red glow
 
 ## Configuration Management
 
@@ -100,22 +165,26 @@ curl -X POST http://192.168.4.1/api/config \
 
 #### Upload Method Configuration
 
-| `upload_method` | uint8 | `0` | Upload method: 0=Disabled, 1=WebDAV, 2=HTTP(S) |
-| `upload_base_path` | string | `"/MiBee Cam"` | Upload base path |
-| `webdav_url` | string | `""` | WebDAV server URL |
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `webdav_enabled` | bool | `false` | Enable NAS upload |
+| `webdav_url` | string | `""` | WebDAV server URL (an `https://` prefix switches to HTTP(S)) |
 | `webdav_user` | string | `""` | WebDAV username |
 | `webdav_pass` | string | `""` | WebDAV password (returns `****` on GET) |
-| `webdav_enabled` | bool | `false` | Enable WebDAV upload |
-| `http_upload_url` | string | `""` | HTTP(S) upload full URL |
-| `http_upload_user` | string | `""` | HTTP(S) username |
-| `http_upload_pass` | string | `""` | HTTP(S) password (returns `****` on GET) |
-| `http_upload_skip_cert_verify` | bool | `false` | Skip HTTPS certificate verification |
+| `webdav_base_path` | string | `""` | Upload base path (rejects `..`) |
 
 #### Camera Configuration
 
-| Parameter | Type | Default | Description |
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `cam_framesize` | uint8 | `13` (HD) | Resolution (family scale 10=VGA … 15=UXGA, ≤ three-layer cap) |
+| `cam_fps` | uint8 | `12` | Frame rate 1-30 |
+| `cam_quality` | uint8 | `18` | JPEG quality 10-63 (lower = sharper) |
 | `vflip` | bool | `false` | Vertical flip |
 | `hmirror` | bool | `false` | Horizontal mirror |
+| `day_night_mode` | uint8 | `0` | 0=Color, 1=B&W, 2=Auto (luma sampling + IR lamp coupling) |
+| `ir_gpio` | uint8 | `5` | IR illuminator driver pin (whitelist 1-6, hot-applied) |
+| `ir_brightness` | uint8 | `100` | IR lamp level 1-100 (re-asserted by auto mode) |
 #### Video Configuration
 
 | Parameter | Type | Default | Description |
