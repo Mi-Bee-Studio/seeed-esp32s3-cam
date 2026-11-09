@@ -48,20 +48,36 @@ Most ESP32 camera projects stop at "it streams video." MiBee Cam goes **all the 
 
 ## Web Interface
 
-![Dashboard](docs/images/index-dashboard.png)
-*Dashboard — Real-time status, recording controls, system health at a glance*
+Single-page application ("Honey" amber theme, light/dark, zh/en bilingual). Feature tabs appear according to the board's capability bits.
 
-| Page | What it does |
-|------|-------------|
-| **Dashboard** (`/`) | Recording status, WiFi info, storage usage, chip temperature, firmware version |
-| **Config** (`/config.html`) | All settings: WiFi, video, recording modes, NAS, webhooks, motion detection |
-| **Files** (`/files.html`) | Browse, download, batch-delete recordings by date group |
-| **Preview** (`/preview.html`) | Live MJPEG stream with fullscreen & screenshot |
-| **OTA** (`/ota.html`) | Firmware update: URL trigger, binary upload, or SPIFFS web UI upload |
-| **Setup** (`/setup.html`) | First-time WiFi configuration wizard |
+![Camera tab](docs/images/ui-camera.png)
+*Camera tab — live view, status chips, resolution/quality/day-night/IR GPIO & brightness*
 
-![File Manager](docs/images/files-page.png)
-![Configuration](docs/images/config-page.png)
+| Tab | What it does |
+|-----|-------------|
+| **Camera** | Resolution, JPEG quality, day/night mode (Color/B&W/Auto), IR LED GPIO & brightness, mirror/flip |
+| **Light** | Runtime LED brightness (manual override; the auto engine re-asserts the configured level) |
+| **Storage** | SD file manager: type filter, batch delete, wipe, format |
+| **WiFi** | Primary/backup dual WiFi, device name, timezone |
+| **Streams** | MJPEG/RTSP URLs, ONVIF discovery & motion alarm, CSI sensing tuning, watermark |
+| **System** | Firmware info, OTA update (app + UI), reboot, factory reset |
+
+![Streams tab](docs/images/ui-streaming.png)
+*Streams tab — MJPEG/RTSP/ONVIF/CSI sensing/watermark*
+
+### Night vision (external 940nm IR lamp, same scene measured)
+
+| IR lamp | Mean luma |
+|---------|-----------|
+| Off | 17.8 (near black) |
+| On | 115.5 (**6.5×**) |
+
+<p>
+  <img src="docs/images/night-ir-off.jpg" width="49%" alt="IR off" title="IR lamp off (near black)">
+  <img src="docs/images/night-ir-on.jpg" width="49%" alt="IR on" title="IR lamp on (B&W night vision)">
+</p>
+
+> Images are mosaic-redacted; only luminance is preserved. Auto mode (day_night_mode=2) lights the lamp in darkness, switches it off at dawn, with a feedback-oscillation guard. See the [user guide](docs/en/user-guide.md#night-vision--ir-illuminator).
 
 ---
 

@@ -25,7 +25,7 @@ testing; read it from the boot log or `GET /api/status` (`camera` field).
 ```
 ./
 ├── main/            # All firmware code (flat layout, 27 C modules)
-│   └── web_ui/      # 6 HTML pages embedded into SPIFFS partition
+│   └── web_ui/      # SPA four-file bundle (index/app/i18n/style) embedded into SPIFFS
 ├── docs/            # Dual-language docs (en/ + zh/)
 ├── partitions.csv   # Custom partition table (dual OTA + SPIFFS)
 ├── sdkconfig.defaults  # All hardware pin mappings, PSRAM, watchdog config
@@ -654,3 +654,15 @@ WS 为主通道、HTTP 兼作 WS 断连回退，两路并存后到者覆盖。�
 （~2153+，known_keys[] 白名单 + 显式 400 + ignored 回显）**两处都有**——
 给 /api/camera 加字段必须改 2153+ 那份，改到 config 份上功能静默不生效
 （本次 ir_gpio 首版即中招：POST 被 ignored 吞掉）。
+
+**文档截图工作流（2026-11-09 定型）**：给 UI 文档配图不要直连设备拍——小型
+httpd（max_open_sockets=8）扛不住浏览器反复会话（本次实锤：多会话+MJPEG 长连接
+把插座池打满 → httpd 自愈探针重启 → 触发一次 recording_task 相机捕获路径的
+LoadProhibited 启动循环，最终靠 NVS 擦除+AT+RESTORE 回 AP 模式脱险，根因疑似
+相机模组/排线热劣化，待 owner 受控复现）。正道：本地 `python3 -m http.server`
+式代理出仓库 SPA 文件 + /api 反代或 mock 演示数据（脱敏从构造上成立：IP/SSID
+用演示值），`agent-browser`（headless Chromium）截 `--full` 全页图；live MJPEG
+绝不能挂 CSS blur（软渲染合成器会饿死）——视频区换 `/api/capture` 单帧再模糊。
+真机实拍帧（夜视对比等）必须全图马赛克后才能入册（PITFALLS PIT-061 截图泄密
+教训的延伸）。agent-browser 注入 JS 用 eval 时注意：MutationObserver 回调里改
+DOM 必须防重入，否则无限循环卡死页面。

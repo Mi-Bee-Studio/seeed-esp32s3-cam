@@ -279,16 +279,11 @@ RTSP Server (端口 554) ← frame_broadcaster + audio_broadcaster
 
 ## 8. Web UI
 
-6 个 HTML 页面，烧录到 SPIFFS 分区，由通配符 GET 处理程序服务：
+SPA 四文件，烧录到 SPIFFS 分区，由通配符 GET 处理程序服务：
 
-| 页面 | 文件 | 功能 |
-|------|------|------|
-| 首页 | `index.html` | 状态概览 |
-| 配置 | `config.html` | WiFi / NAS / 摄像头参数配置（手风琴布局） |
-| 文件 | `files.html` | 录像文件浏览、下载、批量操作，可折叠日期分组 |
-| 预览 | `preview.html` | MJPEG 实时流预览，支持全屏和截图 |
-| OTA | `ota.html` | 固件更新界面，URL 输入和进度显示 |
-| 设置 | `setup.html` | 首次 WiFi 配置向导 |
+| 文件 | 功能 |
+|------|------|
+| `index.html` + `app.js` + `style.css` + `i18n.js` | "Honey" 单页应用：视频舞台 + 状态芯片 + 能力位动态分页（摄像头/闪光灯/存储/WiFi/推流/系统），中英双语（"Web 管理界面"章节与各分页截图见《使用手册》） |
 
 **Prometheus 集成**：`/metrics` 端点以文本格式提供 15+ 项系统指标。
 
