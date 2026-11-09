@@ -26,6 +26,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "frame_broadcaster.h"
+#include "flash_led.h"     /* IR 补光联动（2026-11-09，GPIO4） */
 #include "jpeg_decoder.h"
 #include <string.h>
 
@@ -36,6 +37,9 @@ static const char *TAG = "day_night";
 #define DN_SAMPLE_PERIOD_S   10
 #define DN_DARK_LUMA         40
 #define DN_BRIGHT_LUMA       65
+/* IR 补光激活期间的亮阈值：点亮后画面回授会顶过常规 65（判暗→IR 亮→
+ * luma 升→判亮→IR 灭→luma 降→自锁振荡），抬到只有真环境光才能越过的档 */
+#define DN_IR_BRIGHT_LUMA    110
 #define DN_CONFIRM_SAMPLES   2
 
 /* 1/8 解码输出缓冲上限：UXGA(1600x1200)/8 = 200x150x3 = 90KB */
@@ -154,6 +158,7 @@ static void dn_task(void *arg)
              * 实测曾硬编码彩色覆盖过用户的 mode=1） */
             if (s_dn.applied_by_auto) {
                 camera_set_day_night(cfg->day_night_mode);
+                flash_led_off();   /* 自动引擎释放 IR 补光（mode 0/1 = /api/led 手动接管） */
                 s_dn.applied_by_auto = false;
                 s_dn.effective = (cfg->day_night_mode == 1) ? DN_EFFECT_BW
                                                             : DN_EFFECT_COLOR;
@@ -171,10 +176,11 @@ static void dn_task(void *arg)
         s_dn.luma = luma;
         s_dn.samples++;
 
-        /* 迟滞 + 确认计数：暗向累计 -N、亮向累计 +N 才切换 */
+        /* 迟滞 + 确认计数：暗向累计 -N、亮向累计 +N 才切换（IR 激活时亮阈值抬档防回授） */
+        const int bright_thr = flash_led_is_on() ? DN_IR_BRIGHT_LUMA : DN_BRIGHT_LUMA;
         if (luma < DN_DARK_LUMA) {
             s_dn.confirm_cnt = (s_dn.confirm_cnt > 0) ? -1 : s_dn.confirm_cnt - 1;
-        } else if (luma > DN_BRIGHT_LUMA) {
+        } else if (luma > bright_thr) {
             s_dn.confirm_cnt = (s_dn.confirm_cnt < 0) ? 1 : s_dn.confirm_cnt + 1;
         } else {
             s_dn.confirm_cnt = 0;      /* 死带内保持 */
@@ -194,6 +200,11 @@ static void dn_task(void *arg)
             ESP_LOGI(TAG, "luma=%d hold %s", luma,
                      s_dn.effective == DN_EFFECT_BW ? "BW" : "color");
         }
+
+        /* 自动模式拥有 IR 补光：每周期重申——判暗亮灯、判亮熄灯（手动
+         * /api/led 本模式下存活 ≤1 周期）。传感器不支持 grayscale 时
+         * effective 恒 COLOR → 补光保持灭（与特效同降级）。 */
+        flash_led_set_brightness(s_dn.effective == DN_EFFECT_BW ? 100 : 0);
     }
 }
 

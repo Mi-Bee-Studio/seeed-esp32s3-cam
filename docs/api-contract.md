@@ -1,4 +1,4 @@
-# MiBee Cam 家族 API 契约 v1.10
+# MiBee Cam 家族 API 契约 v1.11
 
 > 适用四仓：`ai-thinker-esp32-cam` · `esp32s3-n16r8-cam` · `luatos-esp32s3-a10-camera` · `seeed-esp32s3-cam`
 >
@@ -32,6 +32,13 @@
 > 诊断，宽松计数非精确）；能力本体是 ESP-IDF TWDT（`CONFIG_ESP_TASK_WDT`，
 > 四仓 PANIC 全开：卡死任务停喂即复位并吐 backtrace）。`api_version` 报
 > "1.10"。
+
+> **v1.11 变更（2026-11-09）**：seeed 补齐 `GET/POST /api/led`（`flash_led`
+> 能力位 false→true）——GPIO4 外接 IR 补光灯（2×灯珠经 220Ω，LEDC PWM）。
+> 板级扩展语义：`day_night_mode==2` 时自动引擎每采样周期（10s）重申 LED
+> （判暗=亮、判亮=灭；IR 激活期间亮阈值 110 防回授自锁振荡），手动
+> `/api/led` 该模式下存活 ≤1 周期；mode 0/1 时 LED 完全手动（volatile，
+> 重启=灭）。`api_version` 报 "1.11"。
 
 > **v1.9 变更（2026-09-18）**：**设备级密码整体移除**——Web 管理密码
 > （`X-Password`/`web_password`/`SET_PASSWORD_FIRST`/`GET /api/auth`）与
@@ -78,8 +85,8 @@
 
 | 端点 | 统一语义 | ai | n16r8 | luatos | seeed |
 |---|---|---|---|---|---|
-| `POST /api/led` `{"brightness":0-100}` | 亮度语义；简单 GPIO 板 0=灭/＞0=亮 | ✅(兼容 `?action=`) | ✅ | — | — |
-| `GET /api/led` | 读回亮度/状态 | ✅ | ✅ | — | — |
+| `POST /api/led` `{"brightness":0-100}` | 亮度语义；简单 GPIO 板 0=灭/＞0=亮 | ✅(兼容 `?action=`) | ✅ | — | ✅(v1.11) |
+| `GET /api/led` | 读回亮度/状态 | ✅ | ✅ | — | ✅(v1.11) |
 | `POST /api/ai` + `GET /api/ai/status` | `{face,motion,qr}` 开关；检测结果 | — | ✅ | — | — |
 | `POST /api/record?action=start\|stop` + `GET /api/record` | 录像控制/状态 | ✅ | — | — | ✅(v1.1 补 GET) |
 | `/api/files` GET/DELETE(+`type=`) · `POST /api/files/batch` · `/api/download` · `POST /api/format` | SD 文件管理（v1.2 见 §11） | ✅ | — | — | ✅ |
