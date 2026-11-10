@@ -46,6 +46,7 @@
 #include <stdio.h>
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "esp_chip_info.h"
 #include "esp_flash.h"
 #include "esp_psram.h"
@@ -75,6 +76,7 @@
 #include "csi_motion.h"
 #include "day_night.h"  /* day_night_mode=2 自动模式采样 */
 #include "flash_led.h"  /* IR 补光灯 GPIO5（契约 v1.11 /api/led） */
+#include "crash_breaker.h" /* PIT-062 自愈：崩溃断路器 + 安全捕获档 */
 #include "wifi_channel_health.h"
 #include "mjpeg_streamer.h"
 #include "nas_uploader.h"
@@ -401,6 +403,10 @@ static void health_monitor_task(void *arg)
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(60000));
 
+        /* 崩溃断路器恢复巡检：安全档 + 单次开机干净运行 30 分钟 → 还原用户
+         * 捕获配置并重启（PIT-062 自愈闭环出口） */
+        crash_breaker_recovery_poll((uint32_t)(esp_timer_get_time() / 1000000ULL));
+
         uint32_t free_heap = esp_get_free_heap_size();
         uint32_t free_psram = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
         /* Largest contiguous free block: catches fragmentation that total-free
@@ -513,6 +519,12 @@ void app_main(void)
     config_init();
     cam_config_t *cfg = config_get();
 
+    /* ---- 2a. Crash breaker（PIT-062 自愈）---------------------------- */
+    /* 第2a步：异常复位计数与安全捕获档判定（连续 panic ≥3 次时本开机强制
+     * SVGA/彩色/IR熄，用户配置备份进 NVS；30 分钟干净运行后自动还原）。
+     * 必须在 camera_init 之前执行，越界者详情见 PITFALLS PIT-062。 */
+    bool limp_mode = crash_breaker_check_and_arm();
+
     /* ---- 3. Status LED ----------------------------------------------- */
     /* 第3步：初始化状态LED，显示启动中状态 */
     led_init();
@@ -588,10 +600,22 @@ void app_main(void)
     /* 第7步：从SD卡的wifi.txt/nas.txt文件读取配置，覆盖NVS中的值 */
     config_load_from_sd();
     cfg = config_get();
+    crash_breaker_reassert();   /* 安全档期间 SD 覆盖不得改写捕获字段 */
 
     /* ---- 8. WiFi ----------------------------------------------------- */
     /* 第8步：初始化WiFi，根据配置启动AP热点或STA客户端模式 */
-    wifi_init();
+    if (crash_breaker_limp_active() && !crash_breaker_lan_try_active()) {
+        /* PIT-062 自愈安全态：跳过 STA 入网，仅保 AP 热点生命线（整夜实证
+         * 唯一稳定态）。NVS 凭据不动，SSID 仅在内存态清空并随即还原。 */
+        char ssid_keep[sizeof(cfg->wifi_ssid)];
+        memcpy(ssid_keep, cfg->wifi_ssid, sizeof(ssid_keep));
+        ESP_LOGW(TAG, "SELF-HEAL: limp — AP-only lifeline this boot (STA deferred, NVS creds kept)");
+        memset(cfg->wifi_ssid, 0, sizeof(cfg->wifi_ssid));
+        wifi_init();
+        memcpy(cfg->wifi_ssid, ssid_keep, sizeof(cfg->wifi_ssid));
+    } else {
+        wifi_init();
+    }
 
     /* ---- 8a. OTA self-test validation (commit or rollback) -------- */
     if (ota_pending) {
