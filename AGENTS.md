@@ -666,3 +666,21 @@ LoadProhibited 启动循环，最终靠 NVS 擦除+AT+RESTORE 回 AP 模式脱�
 真机实拍帧（夜视对比等）必须全图马赛克后才能入册（PITFALLS PIT-061 截图泄密
 教训的延伸）。agent-browser 注入 JS 用 eval 时注意：MutationObserver 回调里改
 DOM 必须防重入，否则无限循环卡死页面。
+
+## 2026-11-11：PIT-062 结案——排线接触不良（插拔修复）+ crash_breaker 常驻兜底
+
+**结案**：owner 物理拔插（09:15）后，满压力组合（HD+自动夜视+IR 100%+LAN+
+RTSP 客户端）连续 **3h54m 零崩溃**，且是在 **80.5-82.5°C 历史最高温区间**
+跑出来的——修复前同负载 11-15 分钟必崩（67-69°C）。芯片温度假设被
+1929 采样相关性分析双向否定（更热反而稳定）。IR/档位被 overnight 实证排除
+（IR 灭+SVGA 的 LAN-try 照崩）。定性：**相机排线/连接器接触不良，劣化数日，
+插拔复位**。**观察哨**：若数周后同签名复发（开机 ~13s 即崩、
+`camera_capture → xTimerStart` 同址 backtrace），优先检查连接器氧化/应力，
+勿走软件回归排查。
+
+**crash_breaker 三态阶梯保留为常驻兜底**（PR#37）：SAFE（AP-only 生命线，
+连续 panic≥3 触发）/ LAN-try（SAFE 干净 60min 后每小时回归）/ RESTORE
+（LAN-try 干净 30min 还原用户配置）。部署注意：**serialtap USB 刷写必须
+双槽同写（@0x10000 + @0x1e0000）**——otadata 指向哪槽就写哪槽之外的槽 =
+新固件静默休眠（2026-11-10 实锤：单槽刷写"成功"但板子跑旧 app，误导排查
+一整晚）。USB 刷写时 Web OTA 槽位翻转照常工作，不受影响。
