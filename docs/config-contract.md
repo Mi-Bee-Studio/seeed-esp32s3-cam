@@ -1,4 +1,4 @@
-# MiBee Cam 家族配置契约（v2.3，2026-11-09）
+# MiBee Cam 家族配置契约（v2.4，2026-11-13）
 
 > **定位**：四仓（ai-thinker / esp32s3-n16r8 / luatos / seeed）配置子系统的统一契约：
 > 持久化格式、字段名与取值域、校验矩阵、默认值、迁移策略、SD 卡 provisioning 格式。
@@ -138,7 +138,7 @@ wm_pos 0-3 · wm_quality 60-95 · wm_text ≤32 字节 · wm_time_fmt ≤24 字�
 |---|---|---|
 | ai-thinker | flash_threshold | 侦测联动闪光灯阈值 |
 | luatos | server_url（**改为可选**，修复旧版非空校验 bug）、mdns_hostname | 遗留上传目标 / mDNS 主机名 |
-| seeed | （无） | |
+| seeed | log_upload_url（str≤256）、log_upload_en（bool） | PIT-062 远程诊断：日志/诊断报告 HTTP POST 上传端点（开机报告 + 断路器状态迁移 + `POST /api/logs/upload` 手动触发；JSON 含复位原因/断路器计数/NVS 状态日志/RAM 日志环尾）。NVS 键 `log_url`/`log_en`；URL 变更时 en 自动清零防误触发 |
 
 ## 8. 变更记录
 
@@ -176,6 +176,10 @@ wm_pos 0-3 · wm_quality 60-95 · wm_text ≤32 字节 · wm_time_fmt ≤24 字�
   （SNTP 真同步过才报 NTP）。语义见 api-contract（配置 API 即时生效，
   ONVIF 面由组件契约描述）。
 
+- **v2.4（2026-11-13）**：§7 板级扩展登记（仅 seeed）：`log_upload_url`（str≤256）
+  + `log_upload_en`（bool）——远程日志诊断上传端点（PIT-062 配套：生产部署后串口
+  不可达，崩溃取证只能远程）。可选键、缺键即默认（空/关）⇒ 无需 bump
+  schema_ver、无需迁移。
 - **v2.3（2026-11-09）**：IR 补光两键扩展（仅 seeed）：① 白名单
   {1,2,4,5,6}→**1-6**（GPIO3=D2 入列——strapping 仅影响 JTAG 源选择，
   owner 拍板接受注脚）；② 新增 `ir_brightness`（u8 1-100 默认 100）——

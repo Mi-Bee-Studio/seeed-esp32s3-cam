@@ -1,4 +1,4 @@
-# MiBee Cam 家族 API 契约 v1.11
+# MiBee Cam 家族 API 契约 v1.12
 
 > 适用四仓：`ai-thinker-esp32-cam` · `esp32s3-n16r8-cam` · `luatos-esp32s3-a10-camera` · `seeed-esp32s3-cam`
 >
@@ -33,6 +33,7 @@
 > 四仓 PANIC 全开：卡死任务停喂即复位并吐 backtrace）。`api_version` 报
 > "1.10"。
 
+> **v1.12 变更（2026-11-13）**：seeed 板级扩展端点（PIT-062 远程诊断）：`GET /api/logs`（RAM 日志环尾 + 断路器状态，query `?tail_bytes=N` ≤96KB）与 `POST /api/logs/upload`（手动触发日志上报到设备配置的 log_upload_url）。其他板恒缺省（能力未声明即 404）。
 > **v1.11 变更（2026-11-09）**：seeed 补齐 `GET/POST /api/led`（`flash_led`
 > 能力位 false→true）——GPIO5 外接 IR 补光灯（2×灯珠经 220Ω，LEDC PWM）。
 > 板级扩展语义：`day_night_mode==2` 时自动引擎每采样周期（10s）重申 LED
@@ -87,6 +88,8 @@
 |---|---|---|---|---|---|
 | `POST /api/led` `{"brightness":0-100}` | 亮度语义；简单 GPIO 板 0=灭/＞0=亮 | ✅(兼容 `?action=`) | ✅ | — | ✅(v1.11) |
 | `GET /api/led` | 读回亮度/状态 | ✅ | ✅ | — | ✅(v1.11) |
+| `GET /api/logs`（板级扩展，PIT-062） | RAM 日志环尾（`?tail_bytes=N` ≤96KB）+ 断路器状态（limp/try_lan/panic_cnt） | — | — | — | ✅(v1.12) |
+| `POST /api/logs/upload`（板级扩展） | 手动触发日志上报到设备配置的 log_upload_url | — | — | — | ✅(v1.12) |
 | `POST /api/ai` + `GET /api/ai/status` | `{face,motion,qr}` 开关；检测结果 | — | ✅ | — | — |
 | `POST /api/record?action=start\|stop` + `GET /api/record` | 录像控制/状态 | ✅ | — | — | ✅(v1.1 补 GET) |
 | `/api/files` GET/DELETE(+`type=`) · `POST /api/files/batch` · `/api/download` · `POST /api/format` | SD 文件管理（v1.2 见 §11） | ✅ | — | — | ✅ |
