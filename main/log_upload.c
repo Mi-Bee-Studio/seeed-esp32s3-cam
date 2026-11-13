@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 static const char *TAG = "log_up";
 
@@ -151,6 +152,52 @@ void log_upload_journal_tick(float chip_temp)
 
 static volatile bool s_upload_busy = false;
 
+/* JSON 字符串转义追加：剥离 ANSI 色码（ESP 控制台色码污染检索），
+ * 转义引号/反斜杠/控制字符。返回写入长度。 */
+static size_t vl_escape_append(char *dst, size_t cap, const char *src, size_t srclen)
+{
+    size_t o = 0;
+    int ansi = 0;
+    for (size_t i = 0; i < srclen && o + 7 < cap; i++) {
+        unsigned char c = (unsigned char)src[i];
+        if (ansi) {                       /* ESC [ ... 参数/终结字母 */
+            if (c >= 0x40 && c <= 0x7e) ansi = 0;
+            continue;
+        }
+        if (c == 0x1b) { ansi = 1; continue; }
+        if (c == '"' || c == '\\') { dst[o++] = '\\'; dst[o++] = (char)c; }
+        else if (c == '\n') { dst[o++] = '\\'; dst[o++] = 'n'; }
+        else if (c == '\r') { }
+        else if (c == '\t') { dst[o++] = ' '; }
+        else if (c < 0x20) { }
+        else dst[o++] = (char)c;
+    }
+    dst[o] = '\0';
+    return o;
+}
+
+/* 追加一行 VictoriaLogs jsonline：{"device":..,"fw":..,"kind":..,"_msg":".."} */
+static size_t vl_append_line(char *body, size_t cap, size_t blen,
+                             const char *fw, const char *kind,
+                             const char *msg, size_t msg_len)
+{
+    static const char *pre = "{\"device\":\"mibee-cam\",\"fw\":\"";
+    static const char *mid = "\",\"kind\":\"";
+    static const char *msgf = "\",\"_msg\":\"";
+    size_t need = strlen(pre) + strlen(fw) * 2 + strlen(mid) + strlen(kind) +
+                  strlen(msgf) + msg_len * 2 + 8;
+    if (blen + need >= cap) return blen;   /* 容量不足：放弃该行（诊断截断可接受） */
+    size_t o = blen;
+    o += (size_t)snprintf(body + o, cap - o, "%s", pre);
+    o += vl_escape_append(body + o, cap - o, fw, strlen(fw));
+    o += (size_t)snprintf(body + o, cap - o, "%s", mid);
+    o += vl_escape_append(body + o, cap - o, kind, strlen(kind));
+    o += (size_t)snprintf(body + o, cap - o, "%s", msgf);
+    o += vl_escape_append(body + o, cap - o, msg, msg_len);
+    o += (size_t)snprintf(body + o, cap - o, "\"}\n");
+    return o;
+}
+
 static void upload_task(void *arg)
 {
     char *event = (char *)arg;   /* NULL = boot report；否则事件名 */
@@ -215,99 +262,94 @@ static void upload_task(void *arg)
         }
     }
 
-    /* NVS 状态日志按时间序拼接（%.*s 精度限界，避免 truncation 警告） */
-    char journal[1600] = "";
-    if (h) {
-        uint8_t jn = 0;
-        nvs_get_u8(h, JOURNAL_CNT, &jn);
-        uint8_t base = (uint8_t)(jn > JOURNAL_MAX ? jn - JOURNAL_MAX : 0);
-        size_t off = 0;
-        for (uint8_t i = base; i < jn && off < sizeof(journal) - 40; i++) {
-            char key[8];
-            snprintf(key, sizeof(key), JOURNAL_KEYP, (unsigned)(i % JOURNAL_MAX));
-            size_t rl = 0;
-            nvs_get_str(h, key, NULL, &rl);
-            if (rl == 0) continue;
-            char *rec = (char *)malloc(rl);
-            if (!rec) continue;
-            if (nvs_get_str(h, key, rec, &rl) == ESP_OK) {
-                size_t room = sizeof(journal) - off - 2;
-                if (rl > room) rl = room;
-                if (rl > 0) {
-                    if (off) { journal[off++] = ','; room--; }
-                    if (rl > room) rl = room;
-                    memcpy(journal + off, rec, rl);
-                    off += rl;
-                    journal[off] = '\0';
-                }
-            }
-            free(rec);
-        }
+    /* VictoriaLogs jsonline（NDJSON）组装：
+     * 行 1 = 诊断报告（结构化字段）；行 2.. = NVS 状态日志逐条；之后 = 日志环逐行 */
+    const char *fwv = esp_app_get_description()->version;
+    time_t now_t = time(NULL);
+    char time_iso[32] = "";
+    struct tm tmv;
+    if (localtime_r(&now_t, &tmv) && tmv.tm_year > 120) {
+        strftime(time_iso, sizeof(time_iso), "%Y-%m-%dT%H:%M:%S%z", &tmv);
     }
 
-    /* 报告组装：head_pre + journal + head_post + tail（分段 memcpy，
-     * 不用 %s 插大参数——-Wformat-truncation 会拦 head 小缓冲） */
-    char head_pre[384];
-    snprintf(head_pre, sizeof(head_pre),
-        "{\"fw\":\"%s\",\"rst\":%d,\"panic_cnt\":%u,\"limp\":%u,\"try_lan\":%u,"
-        "\"uptime_s\":%.0f,\"heap\":%u,\"fs\":%u,\"q\":%u,\"dn\":%u,"
-        "\"ir_gpio\":%u,\"ir_br\":%u,\"event\":\"%s\",\"journal\":[",
-        esp_app_get_description()->version, (int)rr, cnt, limp, try_lan,
+    char rep[320];
+    int rep_n = snprintf(rep, sizeof(rep),
+        "event=%s rst=%d panic_cnt=%u limp=%u try_lan=%u uptime_s=%.0f "
+        "heap=%u fs=%u q=%u dn=%u ir_gpio=%u ir_br=%u",
+        event ? event : "boot", (int)rr, cnt, limp, try_lan,
         (double)(esp_timer_get_time() / 1000000LL),
         (unsigned)esp_get_free_heap_size(),
         cfg->cam_framesize, cfg->cam_quality, cfg->day_night_mode,
-        cfg->ir_gpio, cfg->ir_brightness,
-        event ? event : "boot");
-    const char *head_post = "],\"log_tail\":\"";
-    size_t journal_len = strlen(journal);
-    if (journal_len > 1200) journal_len = 1200;   /* 诊断截断上限 */
+        cfg->ir_gpio, cfg->ir_brightness);
 
-    size_t pre_len = strlen(head_pre);
-    size_t post_len = strlen(head_post);
-    size_t body_len = pre_len + journal_len + post_len +
-                      (tail ? tail_len * 6 : 0) + 16;  /* 保守 6x 转义上界 */
-    char *body = (char *)malloc(body_len);
+    size_t body_cap = 4096 + tail_len * 3 + 512;
+    char *body = (char *)malloc(body_cap);
     size_t blen = 0;
     if (body) {
-        memcpy(body, head_pre, pre_len); blen = pre_len;
-        memcpy(body + blen, journal, journal_len); blen += journal_len;
-        memcpy(body + blen, head_post, post_len); blen += post_len;
-        if (tail) {
-            for (size_t i = 0; i < tail_len && blen < body_len - 8; i++) {
-                char c = tail[i];
-                if (c == '"' || c == '\\') { body[blen++] = '\\'; }
-                if (c == '\n') { body[blen++] = '\\'; body[blen++] = 'n'; }
-                else if (c == '\r') { }
-                else if (c == '\t') { body[blen++] = ' '; }
-                else if ((unsigned char)c < 0x20) { }
-                else { body[blen++] = c; }
-                (void)c;
+        /* 行 1：诊断报告（结构化字段 + _msg 摘要） */
+        blen += (size_t)snprintf(body + blen, body_cap - blen,
+            "{\"_time\":\"%s\",\"_msg\":\"%.*s\",\"device\":\"mibee-cam\","
+            "\"fw\":\"%s\",\"rst\":%d,\"panic_cnt\":%u,\"limp\":%u,"
+            "\"try_lan\":%u,\"fs\":%u,\"q\":%u,\"dn\":%u,"
+            "\"ir_gpio\":%u,\"ir_br\":%u}\n",
+            time_iso, rep_n > 0 ? rep_n : 0, rep,
+            fwv, (int)rr, cnt, limp, try_lan,
+            cfg->cam_framesize, cfg->cam_quality, cfg->day_night_mode,
+            cfg->ir_gpio, cfg->ir_brightness);
+
+        /* 行 2..：NVS 状态日志逐条 */
+        if (h) {
+            uint8_t jn = 0;
+            nvs_get_u8(h, JOURNAL_CNT, &jn);
+            uint8_t base = (uint8_t)(jn > JOURNAL_MAX ? jn - JOURNAL_MAX : 0);
+            for (uint8_t i = base; i < jn && blen < body_cap - 256; i++) {
+                char key[8];
+                snprintf(key, sizeof(key), JOURNAL_KEYP, (unsigned)(i % JOURNAL_MAX));
+                size_t rl = 0;
+                nvs_get_str(h, key, NULL, &rl);
+                if (rl == 0) continue;
+                char *rec = (char *)malloc(rl);
+                if (!rec) continue;
+                if (nvs_get_str(h, key, rec, &rl) == ESP_OK) {
+                    blen = vl_append_line(body, body_cap, blen, fwv,
+                                          "journal", rec, rl);
+                }
+                free(rec);
             }
         }
-        body[blen++] = '"';
-        body[blen++] = '}';
-        body[blen] = '\0';
+
+        /* 行 ..：RAM 日志环逐行（剥离 ANSI 色码由转义器完成） */
+        if (tail) {
+            size_t line_start = 0;
+            for (size_t i = 0; i < tail_len && blen < body_cap - 256; i++) {
+                if (tail[i] == '\n' || i == tail_len - 1) {
+                    size_t ll = i - line_start + (tail[i] == '\n' ? 0 : 1);
+                    if (ll > 2) {
+                        blen = vl_append_line(body, body_cap, blen, fwv,
+                                              "log", tail + line_start, ll);
+                    }
+                    line_start = i + 1;
+                }
+            }
+        }
     }
 
+    /* POST NDJSON 到 VictoriaLogs /insert/jsonline */
     esp_http_client_config_t hc = {
         .url = cfg->log_upload_url,
         .method = HTTP_METHOD_POST,
         .timeout_ms = 15000,
     };
     esp_http_client_handle_t cli = esp_http_client_init(&hc);
-    bool ok = false;
     if (cli) {
         esp_http_client_set_header(cli, "Content-Type", "application/json");
-        esp_http_client_set_header(cli, "X-MiBee-Device", "mibee-cam");
         esp_err_t err = esp_http_client_open(cli, (int)blen);
         if (err == ESP_OK) {
             if (body) esp_http_client_write(cli, body, blen);
-            int status = esp_http_client_fetch_headers(cli);
-            status = esp_http_client_is_chunked_response(cli) ? status : status;
+            esp_http_client_fetch_headers(cli);
             esp_http_client_close(cli);
-            ok = (status >= 0);
-            ESP_LOGI(TAG, "uploaded %uB to log endpoint (status=%d, event=%s)",
-                     (unsigned)blen, status, event ? event : "boot");
+            ESP_LOGI(TAG, "uploaded %uB jsonline to %s (event=%s)",
+                     (unsigned)blen, cfg->log_upload_url, event ? event : "boot");
         } else {
             ESP_LOGW(TAG, "upload open failed: %s", esp_err_to_name(err));
         }
