@@ -245,26 +245,33 @@ static void upload_task(void *arg)
         }
     }
 
-    char head[768];
-    snprintf(head, sizeof(head),
+    /* 报告组装：head_pre + journal + head_post + tail（分段 memcpy，
+     * 不用 %s 插大参数——-Wformat-truncation 会拦 head 小缓冲） */
+    char head_pre[384];
+    snprintf(head_pre, sizeof(head_pre),
         "{\"fw\":\"%s\",\"rst\":%d,\"panic_cnt\":%u,\"limp\":%u,\"try_lan\":%u,"
         "\"uptime_s\":%.0f,\"heap\":%u,\"fs\":%u,\"q\":%u,\"dn\":%u,"
-        "\"ir_gpio\":%u,\"ir_br\":%u,\"event\":\"%s\",\"journal\":[%s],"
-        "\"log_tail\":\"",
+        "\"ir_gpio\":%u,\"ir_br\":%u,\"event\":\"%s\",\"journal\":[",
         esp_app_get_description()->version, (int)rr, cnt, limp, try_lan,
         (double)(esp_timer_get_time() / 1000000LL),
         (unsigned)esp_get_free_heap_size(),
         cfg->cam_framesize, cfg->cam_quality, cfg->day_night_mode,
         cfg->ir_gpio, cfg->ir_brightness,
-        event ? event : "boot", journal);
+        event ? event : "boot");
+    const char *head_post = "],\"log_tail\":\"";
+    size_t journal_len = strlen(journal);
+    if (journal_len > 1200) journal_len = 1200;   /* 诊断截断上限 */
 
-    size_t head_len = strlen(head);
-    size_t body_len = head_len + (tail ? tail_len * 6 : 0) + 16;  /* 保守 6x 转义上界 */
+    size_t pre_len = strlen(head_pre);
+    size_t post_len = strlen(head_post);
+    size_t body_len = pre_len + journal_len + post_len +
+                      (tail ? tail_len * 6 : 0) + 16;  /* 保守 6x 转义上界 */
     char *body = (char *)malloc(body_len);
     size_t blen = 0;
     if (body) {
-        memcpy(body, head, head_len);
-        blen = head_len;
+        memcpy(body, head_pre, pre_len); blen = pre_len;
+        memcpy(body + blen, journal, journal_len); blen += journal_len;
+        memcpy(body + blen, head_post, post_len); blen += post_len;
         if (tail) {
             for (size_t i = 0; i < tail_len && blen < body_len - 8; i++) {
                 char c = tail[i];
