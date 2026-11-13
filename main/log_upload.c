@@ -215,7 +215,7 @@ static void upload_task(void *arg)
         }
     }
 
-    /* NVS 状态日志按时间序拼接 */
+    /* NVS 状态日志按时间序拼接（%.*s 精度限界，避免 truncation 警告） */
     char journal[1600] = "";
     if (h) {
         uint8_t jn = 0;
@@ -227,12 +227,16 @@ static void upload_task(void *arg)
             snprintf(key, sizeof(key), JOURNAL_KEYP, (unsigned)(i % JOURNAL_MAX));
             size_t rl = 0;
             nvs_get_str(h, key, NULL, &rl);
-            if (rl == 0 || rl > sizeof(journal) - off - 2) continue;
+            if (rl == 0) continue;
             char *rec = (char *)malloc(rl);
             if (!rec) continue;
             if (nvs_get_str(h, key, rec, &rl) == ESP_OK) {
-                off += snprintf(journal + off, sizeof(journal) - off,
-                                "%s%s", (off ? "," : ""), rec);
+                size_t room = sizeof(journal) - off - 2;
+                int prec = (int)(rl > room ? room : rl);
+                int wrote = snprintf(journal + off, sizeof(journal) - off,
+                                     "%s%.*s", (off ? "," : ""), prec, rec);
+                if (wrote < 0) break;
+                off += (size_t)wrote;
             }
             free(rec);
         }
