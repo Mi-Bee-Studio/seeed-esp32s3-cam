@@ -47,7 +47,10 @@ static const char *TAG = "crash_brk";
 #define SAFE_FPS       12
 #define SAFE_QUALITY   18
 #define SAFE_DAY_NIGHT 0    /* 彩色（IR 不点灯） */
-#define SAFE_IR_BRIGHT 0    /* IR 熄 */
+/* IR 熄灭语义由 SAFE_DAY_NIGHT=0 承载（彩色模式永不点灯）；档位取校验下限 1
+ * 而非 0——契约 v2.3 规定 ir_brightness ∈1-100（0=拒绝，档位非开关），
+ * 写 0 会让 config_save() 在整个 limp 期间 400，连诊断配置都存不进去（PIT-063） */
+#define SAFE_IR_BRIGHT 1
 
 #define PANIC_THRESHOLD      3
 #define RESTORE_UPTIME_S     (30u * 60u)  /* LAN 试运行干净 30min → 全还原 */
@@ -68,7 +71,7 @@ static void write_safe_capture_profile(cam_config_t *cfg)
     cfg->cam_quality     = SAFE_QUALITY;
     cfg->day_night_mode  = SAFE_DAY_NIGHT;
     cfg->ir_brightness   = SAFE_IR_BRIGHT;
-    /* ir_gpio 保持用户值：亮度 0 即无电流，换脚没有额外收益 */
+    /* ir_gpio 保持用户值：彩色模式不点灯，换脚没有额外收益 */
     config_save();
 }
 
