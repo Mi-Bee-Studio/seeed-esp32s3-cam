@@ -232,11 +232,14 @@ static void upload_task(void *arg)
             if (!rec) continue;
             if (nvs_get_str(h, key, rec, &rl) == ESP_OK) {
                 size_t room = sizeof(journal) - off - 2;
-                int prec = (int)(rl > room ? room : rl);
-                int wrote = snprintf(journal + off, sizeof(journal) - off,
-                                     "%s%.*s", (off ? "," : ""), prec, rec);
-                if (wrote < 0) break;
-                off += (size_t)wrote;
+                if (rl > room) rl = room;
+                if (rl > 0) {
+                    if (off) { journal[off++] = ','; room--; }
+                    if (rl > room) rl = room;
+                    memcpy(journal + off, rec, rl);
+                    off += rl;
+                    journal[off] = '\0';
+                }
             }
             free(rec);
         }
