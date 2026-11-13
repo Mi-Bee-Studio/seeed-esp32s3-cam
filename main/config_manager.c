@@ -82,6 +82,8 @@ KEY_ASSERT("ir_brightness");
 KEY_ASSERT("onvif_enable");
 KEY_ASSERT("onvif_events");
 KEY_ASSERT("csi_enabled");
+KEY_ASSERT("log_url");
+KEY_ASSERT("log_en");
 KEY_ASSERT("csi_threshold");
 KEY_ASSERT("csi_on_hits");
 KEY_ASSERT("csi_off_hits");
@@ -222,6 +224,8 @@ static void apply_defaults(cam_config_t *cfg)
     strlcpy(cfg->webdav_base_path, "/MiBee Cam", sizeof(cfg->webdav_base_path));
     cfg->alert_webhook_enabled = false;
     cfg->alert_webhook_url[0] = '\0';
+    cfg->log_upload_en = false;          /* 板级扩展（PIT-062）：日志上报默认关 */
+    cfg->log_upload_url[0] = '\0';
     /* 家族 motion 超集（契约 §3.2）；灵敏度保留本板历史默认 50 */
     cfg->motion_enabled = true;
     cfg->motion_sensitivity = 50;
@@ -331,6 +335,8 @@ static void load_legacy_namespace(nvs_handle_t h, cam_config_t *cfg)
     /* ---- Webhook ---- */
     rd_str(h, "alert_webhook_url", cfg->alert_webhook_url, sizeof(cfg->alert_webhook_url));
     if (rd_u8(h, "alert_webhook_enabled", &u8v)) cfg->alert_webhook_enabled = u8v != 0;
+    rd_str(h, "log_url", cfg->log_upload_url, sizeof(cfg->log_upload_url));
+    if (rd_u8(h, "log_en", &u8v)) cfg->log_upload_en = u8v != 0;
 
     /* ---- motion 模型收敛（契约 §6.1）：
      * motion_sensitivity 直迁；motion_idle_interval_sec → motion_cooldown_s；
@@ -510,6 +516,8 @@ static void write_keys_to_nvs(nvs_handle_t h, const cam_config_t *cfg)
     wr_str(h, "webdav_base", cfg->webdav_base_path);
     wr_u8(h, "webhook_en", cfg->alert_webhook_enabled ? 1 : 0);
     wr_str(h, "webhook_url", cfg->alert_webhook_url);
+    wr_u8(h, "log_en", cfg->log_upload_en ? 1 : 0);
+    wr_str(h, "log_url", cfg->log_upload_url);
     wr_u8(h, "motion_en", cfg->motion_enabled ? 1 : 0);
     wr_u8(h, "motion_sens", cfg->motion_sensitivity);
     wr_u16(h, "motion_cool_s", cfg->motion_cooldown_s);
@@ -1265,6 +1273,8 @@ cJSON *config_get_json(void)
     cJSON_AddNumberToObject(root, "cam_sharpness", (double)cfg->cam_sharpness);
     cJSON_AddNumberToObject(root, "day_night_mode", (double)cfg->day_night_mode);
     cJSON_AddNumberToObject(root, "ir_gpio", (double)cfg->ir_gpio);
+    cJSON_AddStringToObject(root, "log_upload_url", cfg->log_upload_url);   /* 板级扩展（PIT-062） */
+    cJSON_AddBoolToObject(root, "log_upload_en", cfg->log_upload_en != 0);
     cJSON_AddNumberToObject(root, "ir_brightness", (double)cfg->ir_brightness);
     cJSON_AddNumberToObject(root, "onvif_enable", (double)cfg->onvif_enable);
     cJSON_AddNumberToObject(root, "onvif_events", (double)cfg->onvif_events);

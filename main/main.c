@@ -77,6 +77,7 @@
 #include "day_night.h"  /* day_night_mode=2 自动模式采样 */
 #include "flash_led.h"  /* IR 补光灯 GPIO5（契约 v1.11 /api/led） */
 #include "crash_breaker.h" /* PIT-062 自愈：崩溃断路器 + 安全捕获档 */
+#include "log_upload.h"    /* PIT-062 远程诊断：日志环 + NVS 状态日志 + 上报 */
 #include "wifi_channel_health.h"
 #include "mjpeg_streamer.h"
 #include "nas_uploader.h"
@@ -407,6 +408,9 @@ static void health_monitor_task(void *arg)
          * 捕获配置并重启（PIT-062 自愈闭环出口） */
         crash_breaker_recovery_poll((uint32_t)(esp_timer_get_time() / 1000000ULL));
 
+        /* NVS 状态日志（60s 节流）：崩溃前最后状态远程可查（PIT-062） */
+        log_upload_journal_tick(s_chip_temp);
+
         uint32_t free_heap = esp_get_free_heap_size();
         uint32_t free_psram = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
         /* Largest contiguous free block: catches fragmentation that total-free
@@ -489,6 +493,7 @@ static void health_monitor_task(void *arg)
 
 void app_main(void)
 {
+    log_upload_ring_init();   /* PIT-062：日志 tee 尽早安装（app_main 首行） */
     watchdog_init();
     /* ---- 0. OTA rollback self-test (PENDING_VERIFY detection) ---- */
     esp_ota_img_states_t ota_state = ESP_OTA_IMG_UNDEFINED;
@@ -616,6 +621,8 @@ void app_main(void)
     } else {
         wifi_init();
     }
+    /* 开机诊断报告（异步任务内部等 STA 就绪；SAFE 态 AP-only 时 90s 超时放弃） */
+    log_upload_boot_report();
 
     /* ---- 8a. OTA self-test validation (commit or rollback) -------- */
     if (ota_pending) {

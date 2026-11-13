@@ -87,6 +87,8 @@ typedef struct {
     char webdav_base_path[128];  // 上传基础路径（拒绝 ..）
     char alert_webhook_url[256];  // Webhook 告警通知 URL
     bool alert_webhook_enabled;   // 是否启用 Webhook 告警通知
+    char log_upload_url[256];    /* 板级扩展（PIT-062）：日志/诊断报告上传 URL（HTTP POST JSON），空=禁用 */
+    bool log_upload_en;          /* 板级扩展：日志上报开关（开机报告+断路器事件+手动触发） */
     /* 家族 motion 超集模型（契约 §3.2） */
     bool motion_enabled;             // 移动侦测总开关（默认 1；0=不出 WS 触发事件）
     uint8_t motion_sensitivity;      // 0-100（越大越灵敏）

@@ -58,6 +58,8 @@
 #include "csi_motion.h"
 #include "watermark.h"
 #include "day_night.h"    /* /api/camera 的 day_night 状态对象 */  /* 契约 v1.3：照片水印（issue #11，编译门 MIBEE_WATERMARK） */  /* 契约 v1.6：/api/status 的 csi 快照字段（编译关闭时恒缺省） */
+#include "nvs.h"          /* /api/logs 的断路器状态（cam_brk 共享命名空间） */
+#include "log_upload.h"   /* 板级扩展（PIT-062）：日志环 + 上报 */
 #include "wifi_channel_health.h"  /* 契约 v1.7 ①b：信道健康快照 */
 #include "flash_led.h"    /* 契约 v1.11：/api/led + day_night mode=2 的 IR 补光联动（GPIO5） */
 
@@ -114,6 +116,8 @@ static esp_err_t api_download_handler(httpd_req_t *req);
 static esp_err_t api_scan_handler(httpd_req_t *req);
 static esp_err_t api_led_handler(httpd_req_t *req);
 static esp_err_t api_led_get_handler(httpd_req_t *req);
+static esp_err_t api_logs_handler(httpd_req_t *req);
+static esp_err_t api_logs_upload_handler(httpd_req_t *req);
 static esp_err_t api_time_handler(httpd_req_t *req);
 static esp_err_t api_record_handler(httpd_req_t *req);
 static esp_err_t api_record_get_handler(httpd_req_t *req);
@@ -158,6 +162,8 @@ static const uri_entry_t s_uris[] = {
     { "/api/capture", HTTP_GET,    api_capture_handler       },
     { "/api/led",     HTTP_POST,   api_led_handler           },  /* 契约 v1.11 */
     { "/api/led",     HTTP_GET,    api_led_get_handler       },  /* 契约 v1.11 */
+    { "/api/logs",    HTTP_GET,    api_logs_handler          },  /* 板级扩展：远程日志环（PIT-062） */
+    { "/api/logs/upload", HTTP_POST, api_logs_upload_handler },  /* 板级扩展：手动触发上报 */
     /* CORS preflight — wildcard */
     { "/*",            HTTP_OPTIONS, options_handler           },
     /* Static files — catch-all (lowest priority) */
@@ -416,7 +422,7 @@ static esp_err_t api_capabilities_handler(httpd_req_t *req)
     cJSON *data = cJSON_CreateObject();
 
     /* 契约 v1.1：12 个布尔能力位 + api_version/wifi_scan（见 docs/api-contract.md） */
-    cJSON_AddStringToObject(data, "api_version", "1.11");
+    cJSON_AddStringToObject(data, "api_version", "1.12");
     cJSON_AddBoolToObject(data, "wifi_scan", true);
     cJSON_AddBoolToObject(data, "ai", false);           /* On-device AI detection */
     cJSON_AddBoolToObject(data, "sd", storage_is_available());  /* SD card storage */
@@ -630,6 +636,28 @@ static esp_err_t api_config_post_handler(httpd_req_t *req)
             return json_error(req, "Invalid wm_quality (must be 60-95)", HTTPD_400_BAD_REQUEST);
         }
         cfg->wm_quality = (uint8_t)item->valueint;
+    }
+    /* 日志上报（板级扩展，PIT-062 远程诊断）：URL 变更时清空开关防误触发 */
+    {
+        const char *prev_log_url = cfg->log_upload_url;
+        bool log_url_changed = false;
+        if ((item = cJSON_GetObjectItem(json, "log_upload_url"))) {
+            if (!cJSON_IsString(item) || strlen(item->valuestring) >= sizeof(cfg->log_upload_url)) {
+                cJSON_Delete(json);
+                config_unlock();
+                return json_error(req, "Invalid log_upload_url (must be string, <=255)",
+                                  HTTPD_400_BAD_REQUEST);
+            }
+            if (strcmp(prev_log_url, item->valuestring) != 0) {
+                log_url_changed = true;
+            }
+            strlcpy(cfg->log_upload_url, item->valuestring, sizeof(cfg->log_upload_url));
+        }
+        if ((item = cJSON_GetObjectItem(json, "log_upload_en"))) {
+            bool en = cJSON_IsTrue(item) || item->valueint != 0;
+            if (log_url_changed && en) cfg->log_upload_en = false;   /* 新 URL 需重新开启 */
+            else cfg->log_upload_en = en;
+        }
     }
     /* CSI 调参键族（契约 v1.7；热生效，CSI-off 板存储无害） */
     const float prev_csi_threshold = cfg->csi_threshold;
@@ -1427,6 +1455,80 @@ static esp_err_t api_led_get_handler(httpd_req_t *req)
     cJSON *data = cJSON_CreateObject();
     cJSON_AddNumberToObject(data, "brightness", flash_led_get_brightness());
     cJSON_AddBoolToObject(data, "on", flash_led_is_on());
+    return json_ok(req, data);
+}
+
+/*  GET /api/logs — 远程日志环 + 断路器状态（板级扩展，PIT-062）        */
+/*  可选 query: ?tail_bytes=N（默认 16KB，上限 96KB）                    */
+
+static esp_err_t api_logs_handler(httpd_req_t *req)
+{
+    set_cors_headers(req);
+
+    size_t tail = 16u * 1024u;
+    char query[32] = {0};
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        char val[12] = {0};
+        if (httpd_query_key_value(query, "tail_bytes", val, sizeof(val)) == ESP_OK) {
+            long n = atol(val);
+            if (n > 0 && n <= (long)log_upload_ring_size()) tail = (size_t)n;
+        }
+    }
+
+    /* 断路器状态（cam_brk 命名空间与 crash_breaker 共享） */
+    uint8_t cnt = 0, limp = 0, try_lan = 0;
+    nvs_handle_t h;
+    if (nvs_open("cam_brk", NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_u8(h, "cnt", &cnt);
+        nvs_get_u8(h, "limp", &limp);
+        nvs_get_u8(h, "try_lan", &try_lan);
+        nvs_close(h);
+    }
+
+    size_t used = log_upload_ring_used();
+    size_t cap = log_upload_ring_size();
+    size_t head = log_upload_ring_head();
+    if (tail > used) tail = used;
+
+    /* 从环取最后 tail 字节（处理回绕） */
+    char *out = (char *)malloc(tail + 1);
+    if (!out) return json_error(req, "oom", HTTPD_500_INTERNAL_SERVER_ERROR);
+    const char *ring = log_upload_ring_data();
+    if (used <= cap) {
+        size_t start = (head > tail) ? head - tail : 0;
+        tail = head - start;
+        memcpy(out, ring + start, tail);
+    } else {
+        size_t start = (head + cap - tail) % cap;
+        for (size_t i = 0; i < tail; i++) out[i] = ring[(start + i) % cap];
+    }
+    out[tail] = '\0';
+
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddNumberToObject(data, "ring_used", (double)used);
+    cJSON_AddNumberToObject(data, "ring_cap", (double)cap);
+    cJSON_AddNumberToObject(data, "panic_cnt", cnt);
+    cJSON_AddBoolToObject(data, "limp", limp != 0);
+    cJSON_AddBoolToObject(data, "lan_try", try_lan != 0);
+    cJSON_AddStringToObject(data, "tail", out);
+    free(out);
+    return json_ok(req, data);
+}
+
+/*  POST /api/logs/upload — 手动触发日志上报到 log_upload_url           */
+
+static esp_err_t api_logs_upload_handler(httpd_req_t *req)
+{
+    set_cors_headers(req);
+
+    const cam_config_t *cfg = config_get();
+    cJSON *data = cJSON_CreateObject();
+    if (!cfg->log_upload_en || cfg->log_upload_url[0] == '\0') {
+        cJSON_AddBoolToObject(data, "queued", false);
+        cJSON_AddStringToObject(data, "reason", "log upload disabled or no url");
+        return json_ok(req, data);
+    }
+    cJSON_AddBoolToObject(data, "queued", log_upload_manual_upload());
     return json_ok(req, data);
 }
 
